@@ -37,7 +37,7 @@ class DataPlotter:
         self._configure_plot_style()
 
         # Load DLS data
-        dls_file_path = root_folder + "\\" + dls_run['file']
+        dls_file_path = Path(root_folder) / dls_run['file']
         try:
             with open(dls_file_path, 'r') as f:
                 lines = f.readlines()

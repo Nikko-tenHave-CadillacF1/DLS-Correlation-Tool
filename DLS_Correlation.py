@@ -7,7 +7,7 @@ from dataplotter import DataPlotter
 # ======== CONFIGURATION ========
 
 # Root folder containing data files
-ROOT_FOLDER = r'C:\GitHub_Local\DLS_Correlation\Data'
+ROOT_FOLDER = r'C:\GitHub_Local\DLS-Correlation-Tool\Data'
 
 DLS_RUN = {'name': 'DLS', 'file': '26R03SUZ  11  FP2  Run 1 1  Stint 1 1 1 FP2 R1 nC3 Q Sim_DLS.txt', 'color': '#0000FF'}
 
@@ -47,6 +47,8 @@ CHANNEL_TRANSFORMS = {
 # ========= LOW PASS FILTERS ========
 
 LOW_PASS_FILTERS = {
+    'asteerWheel': {'cutoff': 5, 'order': 2},
+
     # Filter all pushrod channels at 5 Hz (individual corners)
     'FPushrodFL': {'cutoff': 4, 'order': 2},
     'FPushrodFR': {'cutoff': 4, 'order': 2},
@@ -89,10 +91,10 @@ WAVEFORM_PLOT_DEFINITIONS = [
    # ["Name", (channels...), ((ymin,ymax)...), (reference lines...), (subplot height ratios...)]
    # `subplot height ratios` is optional; omit it to give every channel the same height.
     [
-        "Driver Input", ('SM','NGear','vCar', 'PMGUK', 'pBrakeF', 'rThrottle'),
-                     ((-0.1, 1.1), (1, 9), (60, 360), (-351, 351), (0, 80), (-1, 101)), # y-axis limits for each channel
-                     (None, None, None, (-350, 0, 350), 100, None), # reference lines for each channel
-                     (0.2, 0.5, 1.4, 0.8, 0.5, 0.5) # subplot height ratios (optional)
+        "Driver Input", ('SM','NGear','vCar', 'PMGUK', 'aSteerWheel' , 'pBrakeF', 'rThrottle'),
+                     ((-0.1, 1.1), (1, 9), (60, 360), (-351, 351), (-160, 160), (0, 80), (-1, 101)), # y-axis limits for each channel
+                     (None, None, None, (-350, 0, 350), (0), None, None), # reference lines for each channel
+                     (0.2, 0.5, 1.4, 0.8,0.5, 0.5, 0.5) # subplot height ratios (optional)
     ],
 ] 
 
