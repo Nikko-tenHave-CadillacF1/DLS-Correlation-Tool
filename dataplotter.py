@@ -28,7 +28,7 @@ class DataPlotter:
     """Main class for loading, processing, and plotting multi-run data"""
 
 
-    def __init__(self, root_folder, dls_run, track_run, plot_definitions=None, channel_mappings={'dls': None,'track': None}, channel_transforms={'dls': None,'track': None}, low_pass_filters=None, fig_size=[(12, 7), (8,6)], sample_rate=100, scatter_dot_size=5, scatter_transparency=0.8):
+    def __init__(self, root_folder, dls_run, track_run, plot_definitions=None, channel_mappings={'dls': None,'track': None}, channel_transforms={'dls': None,'track': None}, calculated_channels={'dls': None,'track': None}, low_pass_filters=None, fig_size=[(15.5, 6.4), (9, 7), (9, 7)], sample_rate=100, scatter_dot_size=5, scatter_transparency=0.8):
 
         self.dls_run = dls_run 
         self.track_run = track_run 
@@ -38,31 +38,11 @@ class DataPlotter:
 
         # Load DLS data
         dls_file_path = Path(root_folder) / dls_run['file']
-        try:
-            with open(dls_file_path, 'r') as f:
-                lines = f.readlines()
-            header_dls = lines[1].strip().split(',')
-            header_dls = make_unique(header_dls)
-            units_dls = lines[2].strip().split(',')
-            self.dls_data = pd.read_csv(dls_file_path, sep=r',', skiprows=3, header=None, names=header_dls, on_bad_lines='skip', low_memory=False)
-            self.units_dls = dict(zip(header_dls, units_dls))
-        except Exception as e:
-            print(f"Error loading dls data file: {e}")
-            raise
+        self.dls_data, header_dls, self.units_dls = self._load_run_data(dls_file_path, use_python_engine=False)
 
         # Load Track data
-        track_file_path = root_folder + "\\" + track_run['file']
-        try:
-            with open(track_file_path, 'r') as f:
-                lines = f.readlines()
-            header_track = lines[1].strip().split(',')
-            header_track = make_unique(header_track)
-            units_track = lines[2].strip().split(',')
-            self.track_data = pd.read_csv(track_file_path, sep=r',', skiprows=3, header=None, names=header_track, on_bad_lines='skip', engine='python')
-            self.units_track = dict(zip(header_track, units_track))
-        except Exception as e:
-            print(f"Error loading track data file: {e}")
-            raise
+        track_file_path = Path(root_folder) / track_run['file']
+        self.track_data, header_track, self.units_track = self._load_run_data(track_file_path, use_python_engine=True)
 
         # Combine units, preferring track units when different from DLS
         self.units = {}
@@ -77,6 +57,7 @@ class DataPlotter:
         self.PLOT_DEFINITIONS = plot_definitions
         self.CHANNEL_MAPPINGS = channel_mappings
         self.CHANNEL_TRANSFORMS = channel_transforms
+        self.CALCULATED_CHANNELS = calculated_channels
 
         self.FILTER_SAMPLE_RATE = sample_rate  # Hz - sampling rate of your data
         self.LOW_PASS_FILTERS = low_pass_filters 
@@ -85,6 +66,7 @@ class DataPlotter:
         self.SCATTER_TRANSPARENCY = scatter_transparency
         self.waveform_figsize = fig_size[0]  # Size for waveform plots
         self.scatter_FIGSIZE = fig_size[1]  # Size for individual scatter plots
+        self.psd_FIGSIZE = fig_size[2]  # Size for PSD plots
 
         # Create plots directory
         self.plots_dir = Path(root_folder) / "plots"
@@ -94,7 +76,7 @@ class DataPlotter:
         self.apply_channel_mappings()
         self.apply_transformations()
         self.clean_data()
-        self.calculate_derived_channels()
+        self.apply_calculated_channels()
         self.apply_lowpass_filters()
 
     def _configure_plot_style(self):
@@ -114,6 +96,39 @@ class DataPlotter:
             'figure.titlesize': 16,
             'figure.titleweight': 'bold',
         })
+
+    def _load_run_data(self, file_path, use_python_engine=False):
+        """Load either legacy text exports or parquet files."""
+        try:
+            if file_path.suffix.lower() == '.parquet':
+                df = pd.read_parquet(file_path)
+                df.columns = make_unique([str(col) for col in df.columns])
+                header = list(df.columns)
+                units = {col: '' for col in header}
+                return df, header, units
+
+            with open(file_path, 'r') as f:
+                lines = f.readlines()
+            header = make_unique(lines[1].strip().split(','))
+            units_row = lines[2].strip().split(',')
+            read_csv_kwargs = {
+                'sep': r',',
+                'skiprows': 3,
+                'header': None,
+                'names': header,
+                'on_bad_lines': 'skip',
+            }
+            if use_python_engine:
+                read_csv_kwargs['engine'] = 'python'
+            else:
+                read_csv_kwargs['low_memory'] = False
+
+            df = pd.read_csv(file_path, **read_csv_kwargs)
+            units = dict(zip(header, units_row))
+            return df, header, units
+        except Exception as e:
+            print(f"Error loading data file {file_path}: {e}")
+            raise
     
     def clean_data(self):
         """Remove columns containing strings and interpolate NaN values"""
@@ -130,9 +145,10 @@ class DataPlotter:
                     self.track_data.drop(col, axis=1, inplace=True)
                     print(f"Dropped column {col} from track data due to strings")
                 else:
-                    self.track_data[col] = pd.to_numeric(self.track_data[col], errors='coerce')
+                    self.track_data[col] = datafunctions.sanitize_numeric_series(self.track_data[col])
                     self.track_data[col] = self.track_data[col].interpolate(method='linear')
             else:
+                self.track_data[col] = datafunctions.sanitize_numeric_series(self.track_data[col])
                 self.track_data[col] = self.track_data[col].interpolate(method='linear')
 
         # Clean DLS data
@@ -143,9 +159,10 @@ class DataPlotter:
                     self.dls_data.drop(col, axis=1, inplace=True)
                     print(f"Dropped column {col} from DLS data due to strings")
                 else:
-                    self.dls_data[col] = pd.to_numeric(self.dls_data[col], errors='coerce')
+                    self.dls_data[col] = datafunctions.sanitize_numeric_series(self.dls_data[col])
                     self.dls_data[col] = self.dls_data[col].interpolate(method='linear')
             else:
+                self.dls_data[col] = datafunctions.sanitize_numeric_series(self.dls_data[col])
                 self.dls_data[col] = self.dls_data[col].interpolate(method='linear')
 
     def apply_channel_mappings(self):
@@ -156,9 +173,9 @@ class DataPlotter:
         datafunctions.apply_transformations(self.dls_data, self.dls_run['name'].lower(), self.CHANNEL_TRANSFORMS)
         datafunctions.apply_transformations(self.track_data, self.track_run['name'].lower(), self.CHANNEL_TRANSFORMS)
 
-    def calculate_derived_channels(self):
-        datafunctions.calculate_derived_channels(self.dls_data)
-        datafunctions.calculate_derived_channels(self.track_data)
+    def apply_calculated_channels(self):
+        datafunctions.apply_calculated_channels(self.dls_data, self.dls_run['name'].lower(), self.CALCULATED_CHANNELS)
+        datafunctions.apply_calculated_channels(self.track_data, self.track_run['name'].lower(), self.CALCULATED_CHANNELS)
 
     def apply_lowpass_filters(self):
         """Apply low-pass Butterworth filters to specified channels        
@@ -193,9 +210,14 @@ class DataPlotter:
         return self.dls_data.index, self.track_data.index, 'Sample'
 
     def _mask_waveform_discontinuities(self, x_values, y_values):
-        """Break plotted lines where the x-axis resets to avoid artificial connectors."""
+        """Break plotted lines where the x-axis resets and hide pre-lap samples."""
         x_series = pd.Series(x_values).reset_index(drop=True)
         y_series = pd.Series(y_values).reset_index(drop=True).copy()
+
+        # Do not plot waveform data before the lap start when using sLap on the x-axis.
+        negative_x_mask = x_series < 0
+        x_series.loc[negative_x_mask] = np.nan
+        y_series.loc[negative_x_mask] = np.nan
 
         if x_series.notna().sum() > 1:
             x_diff = x_series.diff()
@@ -241,7 +263,7 @@ class DataPlotter:
             formatted_lines.append(cleaned_line)
         return "\n".join(formatted_lines)
 
-    def _format_gradient_error_text(self, equations_list, x_var=None, x_crossing=None):
+    def _format_gradient_error_text(self, equations_list, x_var=None, fit_split=None, y_var=None):
         """Create gradient error text using CAR as the baseline."""
         slope_map = {label: slopes for label, _, _, _, _, slopes in equations_list}
         dls_slopes = slope_map.get(self.dls_label)
@@ -257,8 +279,10 @@ class DataPlotter:
 
         lines = ["Error in DLS vs CAR"]
 
-        if isinstance(dls_slopes, tuple) and isinstance(car_slopes, tuple) and x_crossing is not None:
-            conditions = [f"{x_var} < {x_crossing}", f"{x_var} >= {x_crossing}"]
+        if isinstance(dls_slopes, tuple) and isinstance(car_slopes, tuple) and fit_split is not None:
+            split_axis, split_value = fit_split
+            axis_name = x_var if split_axis == 'x' else y_var
+            conditions = [f"{axis_name} < {split_value}", f"{axis_name} >= {split_value}"]
             for condition, dls_value, car_value in zip(conditions, dls_slopes, car_slopes):
                 error = percent_error(dls_value, car_value)
                 if error is None:
@@ -389,9 +413,11 @@ class DataPlotter:
                 print(f"  Warning: No valid channels found for {plot_name}, skipping plot")
                 continue
 
-            # Scale figure height from configured subplot height ratios.
-            figheight = max(7, 2.5 * sum(available_subplot_heights))
-            figsize = (self.waveform_figsize[0], figheight)
+            # Scale waveform plots to the wide main-plot aspect used in the report template.
+            target_aspect = self.waveform_figsize[0] / self.waveform_figsize[1]
+            figheight = max(self.waveform_figsize[1], 1.6 * sum(available_subplot_heights))
+            figwidth = max(self.waveform_figsize[0], figheight * target_aspect)
+            figsize = (figwidth, figheight)
 
             fig, axes = plt.subplots(
                 len(available_channels),
@@ -403,7 +429,6 @@ class DataPlotter:
             )
             axes = axes.flatten()
 
-            fig.suptitle(plot_name, fontsize=16, fontweight='bold', y=0.982)
             x_dls, x_track, xlabel = self._resolve_waveform_axes()
 
             # Plot each available channel
@@ -417,7 +442,7 @@ class DataPlotter:
                 ax.plot(x_track_plot, y_track_plot, linewidth=1.8, color=self.track_run['color'],
                         label=self.track_label, alpha=0.85, zorder=2)
 
-                ax.set_ylabel(datafunctions.add_units_to_label(channel), fontsize=9.8, fontweight='bold')
+                ax.set_ylabel(datafunctions.add_units_to_label(channel), fontsize=8.2, fontweight='bold')
                 ax.grid(True, which='major', axis='y', alpha=0.28, linestyle='-', linewidth=0.45)
                 ax.set_axisbelow(True)
 
@@ -440,7 +465,7 @@ class DataPlotter:
 
             self._style_waveform_x_axis(axes, xlabel)
 
-            fig.subplots_adjust(left=0.10, right=0.985, top=0.955, bottom=0.08, hspace=0.07)
+            fig.subplots_adjust(left=0.085, right=0.99, top=0.985, bottom=0.08, hspace=0.07)
 
             # Add legend
             handles, labels = axes[0].get_legend_handles_labels()
@@ -460,8 +485,7 @@ class DataPlotter:
             self._colorize_legend_labels(legend)
 
             # Save plot
-            run_name = f"{self.dls_label}_{self.track_label}"
-            plot_filename = self._sanitize_plot_filename("waveform", plot_name, f"_{run_name}")
+            plot_filename = self._sanitize_plot_filename("waveform", plot_name)
             fig.savefig(self.plots_dir / plot_filename, dpi=300, bbox_inches='tight', facecolor='white')
             print(f"  Saved: {plot_filename}")
             plt.close(fig)
@@ -471,7 +495,7 @@ class DataPlotter:
         plots = self._get_plot_group(1, 'scatter')
 
         for plot_def in plots:
-            plot_name, (x_var, y_var), axis_limits, best_fit, x_crossing = plot_def
+            plot_name, (x_var, y_var), axis_limits, best_fit, fit_split = plot_def
             print(f"Creating scatter plot: {plot_name} ({x_var} vs {y_var})")
 
             fig, ax = plt.subplots(figsize=self.scatter_FIGSIZE)
@@ -502,11 +526,11 @@ class DataPlotter:
                     if result[0] and result[3]:
                         equations_list.append((self.dls_label, result[3], self.dls_run['color'], x_data.values, y_data.values, result[1]))
                 elif best_fit == 2:
-                    # Double fit line at x_crossing
+                    # Double fit line at configured split point
                     result = datafunctions.plot_scatter_with_double_fit(ax, x_data.values, y_data.values,
                                                               self.dls_label, self.dls_run['color'],
                                                               self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
-                                                              x_var, y_var, FIT_LINES_X_POINT=x_crossing)
+                                                              x_var, y_var, fit_split=fit_split)
                     if result[0] and result[3]:
                         equations_list.append((self.dls_label, result[3], self.dls_run['color'], x_data.values, y_data.values, result[1]))
             else:
@@ -533,11 +557,11 @@ class DataPlotter:
                     if result[0] and result[3]:
                         equations_list.append((self.track_label, result[3], self.track_run['color'], x_data.values, y_data.values, result[1]))
                 elif best_fit == 2:
-                    # Double fit line at x_crossing
+                    # Double fit line at configured split point
                     result = datafunctions.plot_scatter_with_double_fit(ax, x_data.values, y_data.values,
                                                               self.track_label, self.track_run['color'],
                                                               self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
-                                                              x_var, y_var, FIT_LINES_X_POINT=x_crossing)
+                                                              x_var, y_var, fit_split=fit_split)
                     if result[0] and result[3]:
                         equations_list.append((self.track_label, result[3], self.track_run['color'], x_data.values, y_data.values, result[1]))
             else:
@@ -545,7 +569,7 @@ class DataPlotter:
 
             # Set axis limits if provided
             if axis_limits:
-                (xmin, ymin), (xmax, ymax) = axis_limits
+                (xmin, xmax), (ymin, ymax) = axis_limits
                 if xmin is not None and xmax is not None:
                     ax.set_xlim(xmin, xmax)
                 if ymin is not None and ymax is not None:
@@ -553,8 +577,12 @@ class DataPlotter:
 
             ax.grid(True, which='major', alpha=0.26, linestyle='-', linewidth=0.4)
             ax.set_axisbelow(True)
-            ax.axhline(0, color="#5E5E5E", linewidth=1, alpha=0.8, zorder=1.5)
-            ax.axvline(0, color="#5E5E5E", linewidth=1, alpha=0.8, zorder=1.5)
+            x_min, x_max = ax.get_xlim()
+            y_min, y_max = ax.get_ylim()
+            if y_min <= 0 <= y_max:
+                ax.axhline(0, color="#5E5E5E", linewidth=1, alpha=0.8, zorder=1.5)
+            if x_min <= 0 <= x_max:
+                ax.axvline(0, color="#5E5E5E", linewidth=1, alpha=0.8, zorder=1.5)
             ax.tick_params(labelsize=10, direction='out', length=4, width=0.8)
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
@@ -563,7 +591,7 @@ class DataPlotter:
 
             if equations_list:
                 anchor_info = self._display_equations(ax, equations_list)
-                gradient_error_text = self._format_gradient_error_text(equations_list, x_var=x_var, x_crossing=x_crossing)
+                gradient_error_text = self._format_gradient_error_text(equations_list, x_var=x_var, fit_split=fit_split, y_var=y_var)
                 if gradient_error_text:
                     self._display_gradient_error(ax, gradient_error_text, anchor_info)
 
@@ -583,6 +611,76 @@ class DataPlotter:
 
             # Save plot
             plot_filename = self._sanitize_plot_filename("scatter", plot_name)
+            fig.savefig(self.plots_dir / plot_filename, dpi=300, bbox_inches='tight', facecolor='white')
+            print(f"  Saved: {plot_filename}")
+            plt.close(fig)
+
+    def generate_psd_plots(self):
+        """Create PSD plots based on PSD_PLOT_DEFINITIONS"""
+        plots = self._get_plot_group(2, 'psd')
+
+        for plot_def in plots:
+            if len(plot_def) == 3:
+                plot_name, channel, axis_limits = plot_def
+                nperseg = 256
+            elif len(plot_def) == 4:
+                plot_name, channel, axis_limits, nperseg = plot_def
+            else:
+                raise ValueError(
+                    "PSD plot definitions must be [name, channel, axis_limits] or "
+                    "[name, channel, axis_limits, nperseg]."
+                )
+
+            print(f"Creating PSD plot: {plot_name} ({channel})")
+
+            if channel not in self.dls_data.columns or channel not in self.track_data.columns:
+                print(f"  Warning: Channel {channel} not found in both datasets, skipping PSD plot")
+                continue
+
+            fig, ax = plt.subplots(figsize=self.psd_FIGSIZE)
+            ax.set_xlabel('Frequency (Hz)', fontsize=11, fontweight='bold')
+            ax.set_ylabel(f'{datafunctions.add_units_to_label(channel)} PSD', fontsize=9.8, fontweight='bold')
+
+            dls_freq, dls_power = datafunctions.calculate_psd(self.dls_data[channel], self.FILTER_SAMPLE_RATE, nperseg=nperseg)
+            track_freq, track_power = datafunctions.calculate_psd(self.track_data[channel], self.FILTER_SAMPLE_RATE, nperseg=nperseg)
+
+            if dls_freq is None or track_freq is None:
+                print(f"  Warning: Not enough valid data for PSD plot {plot_name}, skipping")
+                plt.close(fig)
+                continue
+
+            ax.semilogy(dls_freq, dls_power, linewidth=1.8, color=self.dls_run['color'], label=self.dls_label, alpha=0.9)
+            ax.semilogy(track_freq, track_power, linewidth=1.8, color=self.track_run['color'], label=self.track_label, alpha=0.9)
+
+            if axis_limits:
+                (xmin, xmax), (ymin, ymax) = axis_limits
+                if xmin is not None and xmax is not None:
+                    ax.set_xlim(xmin, xmax)
+                if ymin is not None and ymax is not None:
+                    ax.set_ylim(ymin, ymax)
+
+            ax.grid(True, which='major', alpha=0.26, linestyle='-', linewidth=0.4)
+            ax.grid(True, which='minor', alpha=0.14, linestyle='-', linewidth=0.3)
+            ax.set_axisbelow(True)
+            ax.tick_params(labelsize=10, direction='out', length=4, width=0.8)
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.spines['left'].set_linewidth(0.9)
+            ax.spines['bottom'].set_linewidth(0.9)
+
+            legend = ax.legend(
+                fontsize=10,
+                framealpha=1,
+                loc='best',
+                borderpad=0.35,
+                handlelength=1.8,
+                prop={'family': 'Montserrat', 'weight': 'bold', 'size': 10}
+            )
+            self._colorize_legend_labels(legend)
+
+            fig.tight_layout(pad=0.8)
+
+            plot_filename = self._sanitize_plot_filename("psd", plot_name)
             fig.savefig(self.plots_dir / plot_filename, dpi=300, bbox_inches='tight', facecolor='white')
             print(f"  Saved: {plot_filename}")
             plt.close(fig)
@@ -669,5 +767,6 @@ class DataPlotter:
         """Generate all plots based on definitions"""
         self.generate_waveform_plots()
         self.generate_scatter_plots()
+        self.generate_psd_plots()
 
         print(f"\nAll plots saved to: {self.plots_dir}")
