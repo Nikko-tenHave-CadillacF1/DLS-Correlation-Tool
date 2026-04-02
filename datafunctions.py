@@ -396,6 +396,7 @@ def add_units_to_label(var_name, units_map):
     """Add appropriate units to variable names for axis labels"""
     var_lower = var_name.lower()
 
-    if var_lower in units_map:
-        return f'{var_name} ({units_map[var_lower]})'
+    for key in units_map:
+        if key.lower() == var_lower:
+            return f'{var_name} ({units_map[key]})'
     return var_name

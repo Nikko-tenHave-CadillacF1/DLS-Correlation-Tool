@@ -691,12 +691,17 @@ class DataPlotter:
             if len(plot_def) == 3:
                 plot_name, channel, axis_limits = plot_def
                 nperseg = 256
+                log_scale = True
             elif len(plot_def) == 4:
                 plot_name, channel, axis_limits, nperseg = plot_def
+                log_scale = True
+            elif len(plot_def) == 5:
+                plot_name, channel, axis_limits, nperseg, log_scale = plot_def
             else:
                 raise ValueError(
-                    "PSD plot definitions must be [name, channel, axis_limits] or "
-                    "[name, channel, axis_limits, nperseg]."
+                    "PSD plot definitions must be [name, channel, axis_limits], "
+                    "[name, channel, axis_limits, nperseg], or "
+                    "[name, channel, axis_limits, nperseg, log_scale]."
                 )
 
             print(f"Creating PSD plot: {plot_name} ({channel})")
@@ -718,8 +723,9 @@ class DataPlotter:
                 plt.close(fig)
                 continue
 
-            ax.semilogy(dls_freq, dls_power, linewidth=1.8, color=self.dls_run['color'], label=self.dls_label, alpha=0.9)
-            ax.semilogy(track_freq, track_power, linewidth=1.8, color=self.track_run['color'], label=self.track_label, alpha=0.9)
+            plot_func = ax.semilogy if log_scale else ax.plot
+            plot_func(dls_freq, dls_power, linewidth=1.8, color=self.dls_run['color'], label=self.dls_label, alpha=0.9)
+            plot_func(track_freq, track_power, linewidth=1.8, color=self.track_run['color'], label=self.track_label, alpha=0.9)
 
             if axis_limits:
                 (xmin, xmax), (ymin, ymax) = axis_limits

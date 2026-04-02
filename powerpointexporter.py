@@ -247,9 +247,9 @@ def export_report_to_powerpoint(template_path, output_path, plots_dir, export_ma
                         slot_count=len(image_filenames)
                     )
                 if layout == 'double_plot' and image_filename.startswith('scatter_'):
-                    fill_factor = 1.15
+                    fill_factor = 1.3
                 elif layout == 'double_plot' and image_filename.startswith('psd_'):
-                    fill_factor = 1.15
+                    fill_factor = 1.3
                 else:
                     fill_factor = 1.0
                 _add_picture_fit(slide, image_path, left, top, width, height, fill_factor=fill_factor)

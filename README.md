@@ -22,7 +22,7 @@ python DLS_Correlation.py
 
 Generated plots are saved in `Data/plots`.
 
-If `EXPORT_TO_POWERPOINT = True`, the script also updates `Data/template.pptx` using `pywin32` and saves a filled report as `Data/DLS_Correlation_Report.pptx`.
+If `EXPORT_TO_POWERPOINT = True`, the script generates a filled report as `Data/DLS_Correlation_Report.pptx` and automatically opens it when complete.
 
 **Typical Workflow**
 1. Put the DLS and track export files in `Data`.
@@ -42,6 +42,14 @@ If `EXPORT_TO_POWERPOINT = True`, the script also updates `Data/template.pptx` u
 Choose the two files to compare and the plot color for each dataset.
 
 The `file` can be either a legacy text export such as `.txt` or a `.parquet` file.
+
+**`POWERPOINT_TEMPLATE` / `POWERPOINT_OUTPUT` / `EXPORT_TO_POWERPOINT`**
+Configure PowerPoint report generation:
+- `POWERPOINT_TEMPLATE`: path to the blank template `.pptx`
+- `POWERPOINT_OUTPUT`: path where the filled report will be saved
+- `EXPORT_TO_POWERPOINT`: enable/disable PowerPoint export (default: `True`)
+
+When enabled, the script automatically opens the generated report on completion.
 
 **`CHANNEL_MAPPINGS`**
 Use this to rename raw channels into a shared internal naming convention.
@@ -71,6 +79,21 @@ Example:
 ```python
 'FProdDeltaF': lambda df: df['FProdFL'] - df['FProdFR']
 ```
+
+**`UNITS_MAP`**
+Maps channel name patterns (case-insensitive, partial match) to their display units on plots.
+
+Example:
+```python
+UNITS_MAP = {
+    'glat': 'g',
+    'fprod': 'N',
+    'vcar': 'kph',
+    'aroll': '°'
+}
+```
+
+Channels containing these patterns will automatically have their units displayed in axis labels.
 
 **`LOW_PASS_FILTERS`**
 Controls low-pass filtering. `cutoff: 0` means no filtering. `'all'` applies to every remaining numeric channel.
@@ -119,8 +142,11 @@ Defines PSD plots comparing the same channel between DLS and track using Welch's
 
 Format:
 ```python
-["Plot Name", 'channel', [(xmin, xmax), (ymin, ymax)], nperseg(optional)]
+["Plot Name", 'channel', [(xmin, xmax), (ymin, ymax)], nperseg(optional), log_scale(optional)]
 ```
+
+- `nperseg`: Window length for Welch's method (default: 256)
+- `log_scale`: Whether to use logarithmic y-axis (default: `True`). Set to `False` for linear/absolute scale.
 
 **`POWERPOINT_EXPORT_MAP`**
 Maps generated plot images into the PowerPoint template by slide number and layout.
