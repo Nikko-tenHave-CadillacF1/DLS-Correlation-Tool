@@ -28,7 +28,7 @@ class DataPlotter:
     """Main class for loading, processing, and plotting multi-run data"""
 
 
-    def __init__(self, root_folder, dls_run, track_run, plot_definitions=None, channel_mappings={'dls': None,'track': None}, channel_transforms={'dls': None,'track': None}, calculated_channels={'dls': None,'track': None}, low_pass_filters=None, fig_size=[(15.5, 6.4), (9, 7), (9, 7)], sample_rate=100, scatter_dot_size=5, scatter_transparency=0.8):
+    def __init__(self, root_folder, dls_run, track_run, plot_definitions=None, channel_mappings={'dls': None,'track': None}, channel_transforms={'dls': None,'track': None}, calculated_channels={'dls': None,'track': None}, low_pass_filters=None, fig_size=[(15.5, 6.4), (10, 8), (10, 8)], units_map=None, plot_aspect_ratios=None, sample_rate=100, scatter_dot_size=5, scatter_transparency=0.8):
 
         self.dls_run = dls_run 
         self.track_run = track_run 
@@ -58,6 +58,7 @@ class DataPlotter:
         self.CHANNEL_MAPPINGS = channel_mappings
         self.CHANNEL_TRANSFORMS = channel_transforms
         self.CALCULATED_CHANNELS = calculated_channels
+        self.units_map = units_map or self.units
 
         self.FILTER_SAMPLE_RATE = sample_rate  # Hz - sampling rate of your data
         self.LOW_PASS_FILTERS = low_pass_filters 
@@ -67,6 +68,7 @@ class DataPlotter:
         self.waveform_figsize = fig_size[0]  # Size for waveform plots
         self.scatter_FIGSIZE = fig_size[1]  # Size for individual scatter plots
         self.psd_FIGSIZE = fig_size[2]  # Size for PSD plots
+        self.plot_aspect_ratios = plot_aspect_ratios or {}
 
         # Create plots directory
         self.plots_dir = Path(root_folder) / "plots"
@@ -229,10 +231,22 @@ class DataPlotter:
     def _style_waveform_x_axis(self, axes, xlabel):
         """Apply compact, professional x-axis styling to shared waveform axes."""
         bottom_axis = axes[-1]
-        bottom_axis.set_xlabel(xlabel, fontsize=11, fontweight='bold')
+        bottom_axis.set_xlabel(xlabel, fontsize=11, fontweight='bold', labelpad=10)
         bottom_axis.tick_params(axis='x', labelsize=10)
 
         if xlabel == 'sLap (m)':
+            lap_end_candidates = []
+            for ax in axes:
+                x_min, x_max = ax.get_xlim()
+                if np.isfinite(x_max) and x_max > 0:
+                    lap_end_candidates.append(x_max)
+
+            if lap_end_candidates:
+                lap_end = max(lap_end_candidates)
+                lap_end = np.ceil(lap_end / 100) * 100
+                for ax in axes:
+                    ax.set_xlim(0, lap_end)
+
             for ax in axes:
                 ax.xaxis.set_major_locator(ticker.MultipleLocator(500))
                 ax.xaxis.set_minor_locator(ticker.MultipleLocator(100))
@@ -249,6 +263,43 @@ class DataPlotter:
             .replace('\\', '_')
         )
         return f"{prefix}_{safe_name}{suffix}.png"
+
+    def _resolve_plot_figsize(self, plot_filename, default_size, *, min_height=None):
+        """Use template-derived aspect ratios when available, otherwise keep defaults."""
+        default_width, default_height = default_size
+        target_aspect = self.plot_aspect_ratios.get(plot_filename)
+
+        if isinstance(target_aspect, (list, tuple)) and len(target_aspect) > 0:
+            target_aspect = sum(target_aspect) / len(target_aspect)
+
+        if target_aspect is None:
+            width = default_width
+            height = default_height
+        else:
+            height = default_height
+            width = height * target_aspect
+
+        if min_height is not None:
+            height = max(height, min_height)
+            if target_aspect is not None:
+                width = height * target_aspect
+            else:
+                width = max(width, height * (default_width / default_height))
+
+        return (width, height)
+
+    def _add_axis_edge_padding(self, ax, x_pad_ratio=0.02, y_pad_ratio=0.03):
+        """Add a small amount of whitespace around current axis limits."""
+        x_min, x_max = ax.get_xlim()
+        y_min, y_max = ax.get_ylim()
+
+        if np.isfinite(x_min) and np.isfinite(x_max) and x_max > x_min:
+            x_pad = (x_max - x_min) * x_pad_ratio
+            ax.set_xlim(x_min - x_pad, x_max + x_pad)
+
+        if np.isfinite(y_min) and np.isfinite(y_max) and y_max > y_min:
+            y_pad = (y_max - y_min) * y_pad_ratio
+            ax.set_ylim(y_min - y_pad, y_max + y_pad)
 
     def _format_trendline_text(self, label, equation):
         """Format trendline text into a compact block without a label header."""
@@ -413,11 +464,13 @@ class DataPlotter:
                 print(f"  Warning: No valid channels found for {plot_name}, skipping plot")
                 continue
 
-            # Scale waveform plots to the wide main-plot aspect used in the report template.
-            target_aspect = self.waveform_figsize[0] / self.waveform_figsize[1]
-            figheight = max(self.waveform_figsize[1], 1.6 * sum(available_subplot_heights))
-            figwidth = max(self.waveform_figsize[0], figheight * target_aspect)
-            figsize = (figwidth, figheight)
+            plot_filename = self._sanitize_plot_filename("waveform", plot_name)
+            min_waveform_height = 1.6 * sum(available_subplot_heights)
+            figsize = self._resolve_plot_figsize(
+                plot_filename,
+                self.waveform_figsize,
+                min_height=min_waveform_height
+            )
 
             fig, axes = plt.subplots(
                 len(available_channels),
@@ -442,7 +495,17 @@ class DataPlotter:
                 ax.plot(x_track_plot, y_track_plot, linewidth=1.8, color=self.track_run['color'],
                         label=self.track_label, alpha=0.85, zorder=2)
 
-                ax.set_ylabel(datafunctions.add_units_to_label(channel), fontsize=8.2, fontweight='bold')
+                
+
+                ax.set_ylabel(
+                    datafunctions.add_units_to_label(channel, units_map=self.units_map),
+                    fontsize=8.2,
+                    fontweight='bold',
+                    rotation=0,
+                    ha='right',
+                    va='center'
+                )
+                ax.yaxis.set_label_coords(-0.035, 0.5)
                 ax.grid(True, which='major', axis='y', alpha=0.28, linestyle='-', linewidth=0.45)
                 ax.set_axisbelow(True)
 
@@ -465,7 +528,7 @@ class DataPlotter:
 
             self._style_waveform_x_axis(axes, xlabel)
 
-            fig.subplots_adjust(left=0.085, right=0.99, top=0.985, bottom=0.08, hspace=0.07)
+            plt.tight_layout(pad=0.3, h_pad=-0.8)
 
             # Add legend
             handles, labels = axes[0].get_legend_handles_labels()
@@ -485,8 +548,7 @@ class DataPlotter:
             self._colorize_legend_labels(legend)
 
             # Save plot
-            plot_filename = self._sanitize_plot_filename("waveform", plot_name)
-            fig.savefig(self.plots_dir / plot_filename, dpi=300, bbox_inches='tight', facecolor='white')
+            fig.savefig(self.plots_dir / plot_filename, dpi=300, facecolor='white', bbox_inches='tight', pad_inches=0.03)
             print(f"  Saved: {plot_filename}")
             plt.close(fig)
     
@@ -498,10 +560,10 @@ class DataPlotter:
             plot_name, (x_var, y_var), axis_limits, best_fit, fit_split = plot_def
             print(f"Creating scatter plot: {plot_name} ({x_var} vs {y_var})")
 
-            fig, ax = plt.subplots(figsize=self.scatter_FIGSIZE)
-            ax.set_title(f"{x_var} vs {y_var}", fontsize=14, fontweight='bold', pad=10)
-            ax.set_xlabel(datafunctions.add_units_to_label(x_var), fontsize=11, fontweight='bold')
-            ax.set_ylabel(datafunctions.add_units_to_label(y_var), fontsize=9.8, fontweight='bold')
+            plot_filename = self._sanitize_plot_filename("scatter", plot_name)
+            fig, ax = plt.subplots(figsize=self._resolve_plot_figsize(plot_filename, self.scatter_FIGSIZE))
+            ax.set_xlabel(datafunctions.add_units_to_label(x_var, self.units_map), fontsize=14, fontweight='bold', labelpad=10)
+            ax.set_ylabel(datafunctions.add_units_to_label(y_var, self.units_map), fontsize=14, fontweight='bold', labelpad=10)
 
             equations_list = []
 
@@ -575,6 +637,8 @@ class DataPlotter:
                 if ymin is not None and ymax is not None:
                     ax.set_ylim(ymin, ymax)
 
+            self._add_axis_edge_padding(ax, x_pad_ratio=0.02, y_pad_ratio=0.03)
+
             ax.grid(True, which='major', alpha=0.26, linestyle='-', linewidth=0.4)
             ax.set_axisbelow(True)
             x_min, x_max = ax.get_xlim()
@@ -583,7 +647,7 @@ class DataPlotter:
                 ax.axhline(0, color="#5E5E5E", linewidth=1, alpha=0.8, zorder=1.5)
             if x_min <= 0 <= x_max:
                 ax.axvline(0, color="#5E5E5E", linewidth=1, alpha=0.8, zorder=1.5)
-            ax.tick_params(labelsize=10, direction='out', length=4, width=0.8)
+            ax.tick_params(labelsize=10, direction='out', length=4, width=0.8, pad=6)
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
             ax.spines['left'].set_linewidth(0.9)
@@ -607,11 +671,15 @@ class DataPlotter:
                 )
                 self._colorize_legend_labels(legend)
 
-            fig.tight_layout(pad=0.8)
+            plt.tight_layout(pad=0.25)
 
             # Save plot
-            plot_filename = self._sanitize_plot_filename("scatter", plot_name)
-            fig.savefig(self.plots_dir / plot_filename, dpi=300, bbox_inches='tight', facecolor='white')
+            fig.savefig(
+                self.plots_dir / plot_filename,
+                dpi=300,
+                pad_inches=0.05,
+                facecolor='white'
+            )
             print(f"  Saved: {plot_filename}")
             plt.close(fig)
 
@@ -637,9 +705,10 @@ class DataPlotter:
                 print(f"  Warning: Channel {channel} not found in both datasets, skipping PSD plot")
                 continue
 
-            fig, ax = plt.subplots(figsize=self.psd_FIGSIZE)
-            ax.set_xlabel('Frequency (Hz)', fontsize=11, fontweight='bold')
-            ax.set_ylabel(f'{datafunctions.add_units_to_label(channel)} PSD', fontsize=9.8, fontweight='bold')
+            plot_filename = self._sanitize_plot_filename("psd", plot_name)
+            fig, ax = plt.subplots(figsize=self._resolve_plot_figsize(plot_filename, self.psd_FIGSIZE))
+            ax.set_xlabel('Frequency (Hz)', fontsize=13, fontweight='bold', labelpad=10)
+            ax.set_ylabel(f'{datafunctions.add_units_to_label(channel, self.units_map)} PSD', fontsize=13, fontweight='bold', labelpad=10)
 
             dls_freq, dls_power = datafunctions.calculate_psd(self.dls_data[channel], self.FILTER_SAMPLE_RATE, nperseg=nperseg)
             track_freq, track_power = datafunctions.calculate_psd(self.track_data[channel], self.FILTER_SAMPLE_RATE, nperseg=nperseg)
@@ -659,10 +728,12 @@ class DataPlotter:
                 if ymin is not None and ymax is not None:
                     ax.set_ylim(ymin, ymax)
 
+            self._add_axis_edge_padding(ax, x_pad_ratio=0.02, y_pad_ratio=0.04)
+
             ax.grid(True, which='major', alpha=0.26, linestyle='-', linewidth=0.4)
             ax.grid(True, which='minor', alpha=0.14, linestyle='-', linewidth=0.3)
             ax.set_axisbelow(True)
-            ax.tick_params(labelsize=10, direction='out', length=4, width=0.8)
+            ax.tick_params(labelsize=10, direction='out', length=4, width=0.8, pad=6)
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
             ax.spines['left'].set_linewidth(0.9)
@@ -678,10 +749,14 @@ class DataPlotter:
             )
             self._colorize_legend_labels(legend)
 
-            fig.tight_layout(pad=0.8)
+            plt.tight_layout(pad=0.25)
 
-            plot_filename = self._sanitize_plot_filename("psd", plot_name)
-            fig.savefig(self.plots_dir / plot_filename, dpi=300, bbox_inches='tight', facecolor='white')
+            fig.savefig(
+                self.plots_dir / plot_filename,
+                dpi=300,
+                pad_inches=0.05,
+                facecolor='white'
+            )
             print(f"  Saved: {plot_filename}")
             plt.close(fig)
 

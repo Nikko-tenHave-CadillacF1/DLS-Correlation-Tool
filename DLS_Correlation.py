@@ -4,16 +4,16 @@ Allows flexible configuration of multiple runs, channel mappings, transformation
 """
 from pathlib import Path
 from dataplotter import DataPlotter
-from powerpointexporter import export_report_to_powerpoint
+from powerpointexporter import export_report_to_powerpoint, get_template_plot_aspect_ratios
 
 # ======== CONFIGURATION ========
 
 # Root folder containing data files
 ROOT_FOLDER = r'C:\GitHub_Local\DLS-Correlation-Tool\Data'
 
-DLS_RUN = {'name': 'DLS', 'file': '26R03SUZ  77  FP2  Run 2 2 P2R2 NC3 Qsim  Stint 1 2 P2R2 NC3 Qsim_DLS_1.txt', 'color': '#0000FF'}
+DLS_RUN = {'name': 'DLS', 'file': '26R03SUZ  77  FP2  Run 2 2 P2R2 NC3 Qsim  Stint 1 2 P2R2 NC3 Qsim_DLS_1.txt', 'color': "#0073FF"}
 
-TRACK_RUN = {'name': 'Track', 'file': '26R03SUZ_260327_MAC26-02_BOT_P2_R02_1.txt', 'color': "#FF9100"}
+TRACK_RUN = {'name': 'CAR', 'file': '26R03SUZ_260327_MAC26-02_BOT_P2_R02_1.txt', 'color': "#FF9100"}
 
 POWERPOINT_TEMPLATE = Path(ROOT_FOLDER) / 'template.pptx'
 POWERPOINT_OUTPUT = Path(ROOT_FOLDER) / 'DLS_Correlation_Report.pptx'
@@ -32,7 +32,7 @@ CHANNEL_MAPPINGS = {
     'BAeroModeXDriver': 'SM',
     'rThrottlePedal': 'rThrottle'
     },
-    'track': {
+    'car': {
     'BNSLMEnablingStatusEnabled': 'SM',
     'PMGUKActual': 'PMGUK',
     'rThrottlePedal': 'rThrottle',
@@ -55,10 +55,31 @@ CHANNEL_TRANSFORMS = {
         'FProdRL': lambda x: -x, # DLS pushrod loads are negative, so invert to match track convention
         'FProdRR': lambda x: -x, # DLS pushrod loads are negative, so invert to match track convention
     },
-    'track': {
+    'car': {
         'PMGUK': lambda x: x/1000,  #convert from W to kW
         'sLap': lambda x: x - 10, # Shift distance to correct for GPS
     }
+}
+
+UNITS_MAP = {
+    'glat': 'g', 'glong': 'g',
+    'vcar': 'kph',
+    'aroll': '°', 'asteer': '°',
+    'xrh': 'mm', 'laser': 'mm', 'hride': 'mm',
+    'damper': 'mm', 'xdamper': 'mm',
+    'fprod': 'N', 'fpushrod': 'N', 'pushrod': 'N',
+    'trackrod': 'N',
+    'nengine': 'RPM',
+    'mengine': 'Nm',
+    'brake': 'bar',
+    'throttle': '%',
+    'pmguk': 'kW',
+    'pengine': 'kW',
+    'nwheelr_avg': 'rad/s',
+    'asteerwheel': '°',
+    'aundersteerfromsteer': '°',
+    'nyaw': '°/s',
+    'mSteerWheel': 'Nm',
 }
 
 # ========= CALCULATED CHANNELS ========
@@ -82,9 +103,11 @@ CALCULATED_CHANNELS = {
 LOW_PASS_FILTERS = {
     'gVertF': {'cutoff': 0, 'order': 2},
     'gVertR': {'cutoff': 0, 'order': 2},
+    'FzPlankF': {'cutoff': 0, 'order': 2},
+    'PMGUK': {'cutoff': 0, 'order': 2},
     'SM': {'cutoff': 0, 'order': 2},
     'NGear': {'cutoff': 0, 'order': 2},
-    'all': {'cutoff': 5, 'order': 2},
+    'all': {'cutoff': 6, 'order': 3},
 }
 
 # ======== PLOT DEFINITIONS ========
@@ -96,19 +119,19 @@ WAVEFORM_PLOT_DEFINITIONS = [
         "Driver Input", ('SM','NGear','vCar', 'PMGUK', 'aSteerWheel' , 'pBrakeF', 'rThrottle'),
         ((-0.1, 1.1), (1, 9), (60, 360), (-351, 351), (-160, 160), (0, 80), (-1, 101)), # y-axis limits for each channel
         (None, None, None, (-350, 0, 350), (0), None, None), # reference lines for each channel
-        (0.2, 0.6, 1, 0.6,0.6, 0.4, 0.4) # subplot height ratios (optional)
+        (0.1, 0.6, 1, 0.6,0.6, 0.4, 0.4) # subplot height ratios (optional)
     ],
     [
         "Power Unit", ('PMGUK', 'PEngine','NGear','vCar', 'nEngine', 'gLong' , 'pBrakeF', 'rThrottle'),
         ((-351, 351), (-100, 500), (1, 9), (60, 360), (7000, 13000), None, (0, 80), (0,101)), # y-axis limits for each channel
         ((-350, 0, 350), (0), None, None, (10000), (0), None, None), # reference lines for each channel
-        (0.4, 0.4, 0.2, 0.8, 0.5, 0.5, 0.4, 0.4) # subplot height ratios (optional)
+        (0.4, 0.4, 0.2, 0.7, 0.5, 0.5, 0.4, 0.4) # subplot height ratios (optional)
     ],
     [
         "Plank Wear", ('SM', 'PMGUK','vCar','FzPlankF', 'EPlankF' , 'pBrakeF', 'rThrottle'),
         ((-0.1, 1.1), (-351, 351), (60, 360), (0, 8000), (0, 100), (0, 80), (0,101)), # y-axis limits for each channel
         (None, (-350, 0, 350), (0,7500), (0), None, None), # reference lines for each channel
-        (0.2, 0.6, 0.8, 0.6, 0.6, 0.4, 0.4) # subplot height ratios (optional)
+        (0.1, 0.6, 0.8, 0.6, 0.6, 0.4, 0.4) # subplot height ratios (optional)
     ],
 ] 
 
@@ -137,6 +160,7 @@ SCATTER_PLOT_DEFINITIONS = [
     ["Rear Ride vCar", ('vCar', 'hRideR'), None, 1, None],
     ["Ride Height Compare", ('hRideF', 'hRideR'), [(0, 40),(20, 70)], 0, None],
     ["Roll angle gLat", ('gLat', 'aRoll'), None, 1, None],
+    ["Steering Moment", ('aSteerWheel', 'MSteerWheel'), None, 0, None],
 ] 
 
 PSD_PLOT_DEFINITIONS = [
@@ -154,7 +178,7 @@ POWERPOINT_EXPORT_MAP = {
     7: {'layout': 'double_plot', 'images': ['scatter_Long_Acceleration.png', 'scatter_Lat_Acceleration.png']},
     8: {'layout': 'double_plot', 'images': ['scatter_GG_Plot.png', 'scatter_Understeer_Plot.png']},
     9: {'layout': 'double_plot', 'images': ['scatter_Yaw_Rate_Response.png', 'scatter_Lateral_Acceleration_Response.png']},
-    10: {'layout': 'main_plot', 'images': ['scatter_Braking_Efficiency.png']},
+    10: {'layout': 'double_plot', 'images': ['scatter_Braking_Efficiency.png', 'scatter_Steering_Moment.png']},
     11: {'layout': 'double_plot', 'images': ['scatter_Damper_gLat_front.png', 'scatter_Damper_gLat_rear.png']},
     12: {'layout': 'double_plot', 'images': ['scatter_Pushrod_gLat_front.png', 'scatter_Pushrod_gLat_rear.png']},
     13: {'layout': 'double_plot', 'images': ['scatter_Front_Heave.png', 'scatter_Rear_Heave.png']},
@@ -172,6 +196,8 @@ if __name__ == "__main__":
     print("Correlation Scatterplots")
     print("=" * 60)
     
+    plot_aspect_ratios = get_template_plot_aspect_ratios(POWERPOINT_TEMPLATE, POWERPOINT_EXPORT_MAP)
+
     plotter = DataPlotter(
         ROOT_FOLDER, 
         dls_run=DLS_RUN,
@@ -180,7 +206,9 @@ if __name__ == "__main__":
         channel_mappings=CHANNEL_MAPPINGS,
         channel_transforms=CHANNEL_TRANSFORMS,
         calculated_channels=CALCULATED_CHANNELS,
-        low_pass_filters=LOW_PASS_FILTERS
+        low_pass_filters=LOW_PASS_FILTERS,
+        units_map = UNITS_MAP,
+        plot_aspect_ratios=plot_aspect_ratios
     )
     plotter.plot_all()
 

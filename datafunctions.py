@@ -392,25 +392,10 @@ def plot_scatter_with_double_fit(ax, x_data, y_data, label, color, alpha, size, 
         print(f"  Warning: fit_split not set, reverting to single fit for {label} ({x_var} vs {y_var})")
         return plot_scatter_with_1fit(ax, x_data, y_data, label, color, alpha, size, x_var, y_var)
 
-def add_units_to_label(var_name):
+def add_units_to_label(var_name, units_map):
     """Add appropriate units to variable names for axis labels"""
     var_lower = var_name.lower()
-    
-    units_map = {
-        'glat': 'g', 'glong': 'g',
-        'vcar': 'kph',
-        'aroll': '°', 'asteer': '°',
-        'xrh': 'mm', 'laser': 'mm', 'hride': 'mm',
-        'damper': 'mm', 'xdamper': 'mm',
-        'fprod': 'N', 'fpushrod': 'N', 'pushrod': 'N',
-        'trackrod': 'N',
-        'nengine': 'RPM',
-        'mengine': 'Nm',
-        'brake': 'bar',
-        'throttle': '%'
-    }
-    
-    for key, unit in units_map.items():
-        if key in var_lower:
-            return f'{var_name} ({unit})'
+
+    if var_lower in units_map:
+        return f'{var_name} ({units_map[var_lower]})'
     return var_name

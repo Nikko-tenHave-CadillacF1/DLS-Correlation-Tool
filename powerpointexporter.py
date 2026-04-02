@@ -1,5 +1,7 @@
 from pathlib import Path
 from datetime import datetime
+from zipfile import ZipFile
+import xml.etree.ElementTree as ET
 
 
 MAIN_PLOT_BOX = {
@@ -18,6 +20,10 @@ DOUBLE_PLOT_LAYOUT = {
 }
 
 MSO_PICTURE_TYPES = {11, 13}
+PPTX_NAMESPACES = {
+    'a': 'http://schemas.openxmlformats.org/drawingml/2006/main',
+    'p': 'http://schemas.openxmlformats.org/presentationml/2006/main',
+}
 
 
 def _resolve_box(layout_name, slide_width, slide_height, slot_index=0, slot_count=1):
@@ -61,19 +67,126 @@ def _get_picture_boxes(slide):
     return picture_boxes
 
 
-def _add_picture_fit(slide, image_path, left, top, width, height):
+def _get_double_plot_boxes(picture_boxes, slide_width, slide_height):
+    """Expand the two-up layout within the template's overall double-plot area."""
+    if len(picture_boxes) >= 2:
+        left = min(box[0] for box in picture_boxes)
+        top = min(box[1] for box in picture_boxes)
+        right = max(box[0] + box[2] for box in picture_boxes)
+        bottom = max(box[1] + box[3] for box in picture_boxes)
+
+        sorted_boxes = sorted(picture_boxes, key=lambda box: box[0])
+        detected_gap = sorted_boxes[1][0] - (sorted_boxes[0][0] + sorted_boxes[0][2])
+        gap = max(detected_gap, slide_width * 0.01)
+    else:
+        layout = DOUBLE_PLOT_LAYOUT
+        left = slide_width * layout['left_ratio']
+        top = slide_height * layout['top_ratio']
+        total_width = slide_width * layout['width_ratio']
+        total_height = slide_height * layout['height_ratio']
+        gap = slide_width * layout['gap_ratio']
+        right = left + total_width
+        bottom = top + total_height
+
+    total_width = right - left
+    total_height = bottom - top
+    slot_width = max((total_width - gap) / 2, 0)
+
+    return [
+        (left, top, slot_width, total_height),
+        (left + slot_width + gap, top, slot_width, total_height),
+    ]
+
+
+def _get_main_plot_box(picture_boxes, slide_width, slide_height):
+    """Expand the single main plot to use the full slide width."""
+    if picture_boxes:
+        _, top, _, height = picture_boxes[0]
+        return (0, top, slide_width, height)
+
+    left, top, width, height = _resolve_box('main_plot', slide_width, slide_height)
+    return (0, top, slide_width, height)
+
+
+def _add_picture_fit(slide, image_path, left, top, width, height, fill_factor=1.0):
     image_path = str(image_path)
     shape = slide.Shapes.AddPicture(image_path, False, True, 0, 0, -1, -1)
     shape.LockAspectRatio = True
 
-    usable_width = width * 1.04
-    usable_height = height * 1.04
-    scale = min(usable_width / shape.Width, usable_height / shape.Height)
+    scale = min(width / shape.Width, height / shape.Height)
+    scale *= fill_factor
     shape.Width = shape.Width * scale
     shape.Height = shape.Height * scale
     shape.Left = left + (width - shape.Width) / 2
     shape.Top = top + (height - shape.Height) / 2
+    shape.Line.Visible = True
+    shape.Line.ForeColor.RGB = 0
+    shape.Line.Weight = 1
     return shape
+
+
+def get_template_plot_aspect_ratios(template_path, export_map):
+    """Return target aspect ratios for exported plots using template picture boxes."""
+    template_path = Path(template_path).resolve()
+    if not template_path.exists():
+        raise FileNotFoundError(f"PowerPoint template not found: {template_path}")
+
+    aspect_ratios = {}
+    with ZipFile(template_path) as pptx_file:
+        presentation_root = ET.fromstring(pptx_file.read("ppt/presentation.xml"))
+        slide_size = presentation_root.find("p:sldSz", PPTX_NAMESPACES)
+        slide_width = int(slide_size.attrib["cx"]) if slide_size is not None else None
+
+        for slide_number, slide_config in export_map.items():
+            slide_xml = f"ppt/slides/slide{slide_number}.xml"
+            if slide_xml not in pptx_file.namelist():
+                continue
+
+            root = ET.fromstring(pptx_file.read(slide_xml))
+            picture_boxes = []
+            for picture in root.findall('.//p:pic', PPTX_NAMESPACES):
+                transform = picture.find('p:spPr/a:xfrm', PPTX_NAMESPACES)
+                if transform is None:
+                    continue
+                ext = transform.find('a:ext', PPTX_NAMESPACES)
+                if ext is None:
+                    continue
+                width = int(ext.attrib['cx'])
+                height = int(ext.attrib['cy'])
+                if width > 0 and height > 0:
+                    offset = transform.find('a:off', PPTX_NAMESPACES)
+                    left = int(offset.attrib['x']) if offset is not None else 0
+                    top = int(offset.attrib['y']) if offset is not None else 0
+                    picture_boxes.append((left, top, width, height))
+
+            picture_boxes.sort(key=lambda box: (box[0], box[1]))
+            image_filenames = slide_config.get('images', [])
+            slide_aspects = []
+            for slot_index, image_filename in enumerate(image_filenames):
+                if slot_index >= len(picture_boxes):
+                    break
+                _, _, width, height = picture_boxes[slot_index]
+                if (
+                    slide_config.get('layout') == 'main_plot'
+                    and slide_width is not None
+                    and len(image_filenames) == 1
+                ):
+                    width = slide_width
+                slide_aspects.append((image_filename, width / height))
+
+            if (
+                slide_config.get('layout') == 'double_plot'
+                and len(slide_aspects) == 2
+                and not all(image_filename.startswith('scatter_') for image_filename, _ in slide_aspects)
+            ):
+                average_aspect = sum(aspect for _, aspect in slide_aspects) / len(slide_aspects)
+                for image_filename, _ in slide_aspects:
+                    aspect_ratios[image_filename] = (average_aspect,)
+            else:
+                for image_filename, aspect_ratio in slide_aspects:
+                    aspect_ratios[image_filename] = aspect_ratio
+
+    return aspect_ratios
 
 
 def export_report_to_powerpoint(template_path, output_path, plots_dir, export_map, visible=False):
@@ -108,6 +221,13 @@ def export_report_to_powerpoint(template_path, output_path, plots_dir, export_ma
             image_filenames = slide_config['images']
             picture_boxes = _get_picture_boxes(slide)
 
+            if layout == 'main_plot' and len(image_filenames) == 1:
+                target_boxes = [_get_main_plot_box(picture_boxes, slide_width, slide_height)]
+            elif layout == 'double_plot' and len(image_filenames) == 2:
+                target_boxes = _get_double_plot_boxes(picture_boxes, slide_width, slide_height)
+            else:
+                target_boxes = picture_boxes
+
             _replace_slide_pictures(slide)
 
             for slot_index, image_filename in enumerate(image_filenames):
@@ -116,8 +236,8 @@ def export_report_to_powerpoint(template_path, output_path, plots_dir, export_ma
                     print(f"  Warning: Plot not found for slide {slide_number}: {image_filename}")
                     continue
 
-                if len(picture_boxes) >= len(image_filenames):
-                    left, top, width, height = picture_boxes[slot_index]
+                if len(target_boxes) >= len(image_filenames):
+                    left, top, width, height = target_boxes[slot_index]
                 else:
                     left, top, width, height = _resolve_box(
                         layout,
@@ -126,7 +246,13 @@ def export_report_to_powerpoint(template_path, output_path, plots_dir, export_ma
                         slot_index=slot_index,
                         slot_count=len(image_filenames)
                     )
-                _add_picture_fit(slide, image_path, left, top, width, height)
+                if layout == 'double_plot' and image_filename.startswith('scatter_'):
+                    fill_factor = 1.15
+                elif layout == 'double_plot' and image_filename.startswith('psd_'):
+                    fill_factor = 1.15
+                else:
+                    fill_factor = 1.0
+                _add_picture_fit(slide, image_path, left, top, width, height, fill_factor=fill_factor)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         try:
