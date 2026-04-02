@@ -122,7 +122,7 @@ LOW_PASS_FILTERS = {
     'nWheelR_Avg': {'cutoff': 0, 'order': 2},
     'EPlankF': {'cutoff': 0, 'order': 2},
     'PPlankF': {'cutoff': 0, 'order': 2},
-    'all': {'cutoff': 6, 'order': 3}
+    'all': {'cutoff': 5, 'order': 2}
 }
 
 # ======== PLOT DEFINITIONS ========

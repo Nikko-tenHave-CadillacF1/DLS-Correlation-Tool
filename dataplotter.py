@@ -30,19 +30,28 @@ class DataPlotter:
 
     def __init__(self, root_folder, dls_run, track_run, plot_definitions=None, channel_mappings={'dls': None,'track': None}, channel_transforms={'dls': None,'track': None}, calculated_channels={'dls': None,'track': None}, low_pass_filters=None, fig_size=[(15.5, 6.4), (10, 8), (10, 8)], units_map=None, plot_aspect_ratios=None, sample_rate=100, scatter_dot_size=5, scatter_transparency=0.8):
 
-        self.dls_run = dls_run 
-        self.track_run = track_run 
+        self.dls_run = dls_run
+        self.track_run = track_run
         self.dls_label = dls_run.get('display_name', dls_run['name'])
         self.track_label = track_run.get('display_name', 'CAR' if track_run['name'].lower() == 'track' else track_run['name'])
         self._configure_plot_style()
 
+        # Store config needed for channel extraction
+        self.PLOT_DEFINITIONS = plot_definitions
+        self.CHANNEL_MAPPINGS = channel_mappings
+        self.CALCULATED_CHANNELS = calculated_channels
+
+        # Determine required columns before loading
+        required_dls_cols = self._get_required_source_columns('dls')
+        required_track_cols = self._get_required_source_columns('car')
+
         # Load DLS data
         dls_file_path = Path(root_folder) / dls_run['file']
-        self.dls_data, header_dls, self.units_dls = self._load_run_data(dls_file_path, use_python_engine=False)
+        self.dls_data, header_dls, self.units_dls = self._load_run_data(dls_file_path, use_python_engine=False, columns_to_load=required_dls_cols)
 
         # Load Track data
         track_file_path = Path(root_folder) / track_run['file']
-        self.track_data, header_track, self.units_track = self._load_run_data(track_file_path, use_python_engine=True)
+        self.track_data, header_track, self.units_track = self._load_run_data(track_file_path, use_python_engine=True, columns_to_load=required_track_cols)
 
         # Combine units, preferring track units when different from DLS
         self.units = {}
@@ -54,10 +63,7 @@ class DataPlotter:
             elif col in self.units_track:
                 self.units[col] = self.units_track[col]
 
-        self.PLOT_DEFINITIONS = plot_definitions
-        self.CHANNEL_MAPPINGS = channel_mappings
         self.CHANNEL_TRANSFORMS = channel_transforms
-        self.CALCULATED_CHANNELS = calculated_channels
         self.units_map = units_map or self.units
 
         self.FILTER_SAMPLE_RATE = sample_rate  # Hz - sampling rate of your data
@@ -99,34 +105,120 @@ class DataPlotter:
             'figure.titleweight': 'bold',
         })
 
-    def _load_run_data(self, file_path, use_python_engine=False):
-        """Load either legacy text exports or parquet files."""
+    def _get_required_source_columns(self, source_type):
+        """Extract source column names needed for all plots and their dependencies."""
+        required_channels = set()
+
+        # Include sLap if waveform plots exist (used for x-axis)
+        if self.PLOT_DEFINITIONS and len(self.PLOT_DEFINITIONS) > 0 and self.PLOT_DEFINITIONS[0]:
+            required_channels.add('sLap')
+
+        # Extract channels from all plot definitions
+        if self.PLOT_DEFINITIONS:
+            for plot_group in self.PLOT_DEFINITIONS:
+                if plot_group is None:
+                    continue
+                for plot_def in plot_group:
+                    if len(plot_def) >= 2:
+                        if isinstance(plot_def[1], tuple):  # Waveform or scatter plot
+                            required_channels.update(plot_def[1])
+                        elif isinstance(plot_def[1], str):  # PSD plot
+                            required_channels.add(plot_def[1])
+
+        # Resolve calculated channel dependencies
+        resolved_channels = set()
+        to_process = list(required_channels)
+        processed = set()
+
+        while to_process:
+            channel = to_process.pop(0)
+            if channel in processed:
+                continue
+            processed.add(channel)
+
+            # Check if this is a calculated channel
+            calc_channels = self.CALCULATED_CHANNELS
+            if isinstance(calc_channels, dict):
+                calc_channels = calc_channels.get(source_type) or calc_channels
+
+            is_calculated = isinstance(calc_channels, dict) and channel in calc_channels
+
+            if is_calculated:
+                # Extract source channels from the lambda function
+                func = calc_channels[channel]
+                # Get function code to find column references
+                import inspect
+                try:
+                    source = inspect.getsource(func)
+                    # Extract df['ColumnName'] patterns
+                    import re
+                    matches = re.findall(r"df\['([^']+)'\]|df\[\"([^\"]+)\"\]", source)
+                    for match in matches:
+                        dep_col = match[0] or match[1]
+                        if dep_col not in processed:
+                            to_process.append(dep_col)
+                except:
+                    pass
+            else:
+                # Not calculated, so it's a source or mapped column
+                resolved_channels.add(channel)
+
+        # Resolve channel mappings: map target names back to source names
+        source_columns = set()
+        mappings = self.CHANNEL_MAPPINGS.get(source_type) or {}
+
+        for channel in resolved_channels:
+            # Check if this channel is a mapping target
+            source_col = None
+            for src, tgt in (mappings.items() if mappings else []):
+                if tgt == channel:
+                    source_col = src
+                    break
+
+            if source_col:
+                source_columns.add(source_col)
+            else:
+                # Channel is not mapped, use as-is
+                source_columns.add(channel)
+
+        return source_columns if source_columns else None
+
+    def _load_run_data(self, file_path, use_python_engine=False, columns_to_load=None):
+        """Load either legacy text exports or parquet files, optionally filtering columns."""
         try:
             if file_path.suffix.lower() == '.parquet':
                 df = pd.read_parquet(file_path)
                 df.columns = make_unique([str(col) for col in df.columns])
                 header = list(df.columns)
                 units = {col: '' for col in header}
-                return df, header, units
-
-            with open(file_path, 'r') as f:
-                lines = f.readlines()
-            header = make_unique(lines[1].strip().split(','))
-            units_row = lines[2].strip().split(',')
-            read_csv_kwargs = {
-                'sep': r',',
-                'skiprows': 3,
-                'header': None,
-                'names': header,
-                'on_bad_lines': 'skip',
-            }
-            if use_python_engine:
-                read_csv_kwargs['engine'] = 'python'
             else:
-                read_csv_kwargs['low_memory'] = False
+                with open(file_path, 'r') as f:
+                    lines = f.readlines()
+                header = make_unique(lines[1].strip().split(','))
+                units_row = lines[2].strip().split(',')
+                read_csv_kwargs = {
+                    'sep': r',',
+                    'skiprows': 3,
+                    'header': None,
+                    'names': header,
+                    'on_bad_lines': 'skip',
+                }
+                if use_python_engine:
+                    read_csv_kwargs['engine'] = 'python'
+                else:
+                    read_csv_kwargs['low_memory'] = False
 
-            df = pd.read_csv(file_path, **read_csv_kwargs)
-            units = dict(zip(header, units_row))
+                df = pd.read_csv(file_path, **read_csv_kwargs)
+                units = dict(zip(header, units_row))
+
+            # Filter columns if specified
+            if columns_to_load is not None:
+                cols_to_keep = [col for col in header if col in columns_to_load]
+                if cols_to_keep:
+                    df = df[cols_to_keep]
+                    header = cols_to_keep
+                    units = {col: units.get(col, '') for col in cols_to_keep}
+
             return df, header, units
         except Exception as e:
             print(f"Error loading data file {file_path}: {e}")
