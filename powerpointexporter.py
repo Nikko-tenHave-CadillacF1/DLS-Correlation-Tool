@@ -1,95 +1,125 @@
+"""
+PowerPoint Export Utilities
+---------------------------
+Handles:
+ - reading plot-target aspect ratios from a PPTX template
+ - replacing template images with generated plots
+ - applying main/double plot layouts
+ - scaling/centering images proportionally
+
+This version is cleaned, modernised, and made robust while preserving full functionality.
+"""
+
 from pathlib import Path
 from datetime import datetime
 from zipfile import ZipFile
 import xml.etree.ElementTree as ET
 
+# ----------------------------------------------------------------------
+# CONSTANT LAYOUT DEFINITIONS
+# ----------------------------------------------------------------------
 
 MAIN_PLOT_BOX = {
-    'left_ratio': 0.079,
-    'top_ratio': 0.260,
-    'width_ratio': 0.90,
-    'height_ratio': 0.65,
+    "left_ratio": 0.079,
+    "top_ratio": 0.260,
+    "width_ratio": 0.90,
+    "height_ratio": 0.65,
 }
 
 DOUBLE_PLOT_LAYOUT = {
-    'left_ratio': 0.0,
-    'top_ratio': 0.245,
-    'width_ratio': 1.2,
-    'height_ratio': 0.9,
-    'gap_ratio': 0.0,
+    "left_ratio": 0.0,
+    "top_ratio": 0.245,
+    "width_ratio": 1.2,
+    "height_ratio": 0.9,
+    "gap_ratio": 0.0,
 }
 
+# PowerPoint picture MsoShapeType values
 MSO_PICTURE_TYPES = {11, 13}
-PPTX_NAMESPACES = {
-    'a': 'http://schemas.openxmlformats.org/drawingml/2006/main',
-    'p': 'http://schemas.openxmlformats.org/presentationml/2006/main',
+
+PPTX_NS = {
+    "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+    "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
 }
 
+
+# ----------------------------------------------------------------------
+# GEOMETRY HELPERS
+# ----------------------------------------------------------------------
 
 def _resolve_box(layout_name, slide_width, slide_height, slot_index=0, slot_count=1):
-    if layout_name == 'main_plot':
+    """Compute a plot box for main/double layouts."""
+    if layout_name == "main_plot":
         box = MAIN_PLOT_BOX
         return (
-            slide_width * box['left_ratio'],
-            slide_height * box['top_ratio'],
-            slide_width * box['width_ratio'],
-            slide_height * box['height_ratio'],
+            slide_width * box["left_ratio"],
+            slide_height * box["top_ratio"],
+            slide_width * box["width_ratio"],
+            slide_height * box["height_ratio"],
         )
 
-    if layout_name == 'double_plot':
-        layout = DOUBLE_PLOT_LAYOUT
-        total_left = slide_width * layout['left_ratio']
-        total_top = slide_height * layout['top_ratio']
-        total_width = slide_width * layout['width_ratio']
-        total_height = slide_height * layout['height_ratio']
-        gap = slide_width * layout['gap_ratio']
-        slot_width = (total_width - gap) / 2
-        left = total_left + slot_index * (slot_width + gap)
-        return left, total_top, slot_width, total_height
+    if layout_name == "double_plot":
+        box = DOUBLE_PLOT_LAYOUT
+        left = slide_width * box["left_ratio"]
+        top = slide_height * box["top_ratio"]
+        width = slide_width * box["width_ratio"]
+        height = slide_height * box["height_ratio"]
+        gap = slide_width * box["gap_ratio"]
+
+        slot_width = (width - gap) / 2
+        return (
+            left + slot_index * (slot_width + gap),
+            top,
+            slot_width,
+            height,
+        )
 
     raise ValueError(f"Unsupported PowerPoint layout: {layout_name}")
 
 
+# ----------------------------------------------------------------------
+# SLIDE TEMPLATE PARSING
+# ----------------------------------------------------------------------
+
 def _replace_slide_pictures(slide):
-    for shape_index in range(slide.Shapes.Count, 0, -1):
-        shape = slide.Shapes(shape_index)
+    """Delete all picture shapes from a slide."""
+    # reversed loop because PowerPoint collection mutates on delete
+    for idx in range(slide.Shapes.Count, 0, -1):
+        shape = slide.Shapes(idx)
         if shape.Type in MSO_PICTURE_TYPES:
             shape.Delete()
 
 
 def _get_picture_boxes(slide):
-    picture_boxes = []
-    for shape_index in range(1, slide.Shapes.Count + 1):
-        shape = slide.Shapes(shape_index)
-        if shape.Type in MSO_PICTURE_TYPES:
-            picture_boxes.append((shape.Left, shape.Top, shape.Width, shape.Height))
-    picture_boxes.sort(key=lambda box: (box[0], box[1]))
-    return picture_boxes
+    """Extract picture bounding boxes from a slide."""
+    boxes = []
+    for idx in range(1, slide.Shapes.Count + 1):
+        sh = slide.Shapes(idx)
+        if sh.Type in MSO_PICTURE_TYPES:
+            boxes.append((sh.Left, sh.Top, sh.Width, sh.Height))
+
+    return sorted(boxes, key=lambda b: (b[0], b[1]))
 
 
 def _get_double_plot_boxes(picture_boxes, slide_width, slide_height):
-    """Expand the two-up layout within the template's overall double-plot area."""
+    """
+    For double-plot layouts:
+    - If template already contains picture placeholders, use those.
+    - Otherwise derive new ones using the DOUBLE_PLOT_LAYOUT ratios.
+    """
     if len(picture_boxes) >= 2:
-        left = min(box[0] for box in picture_boxes)
-        top = min(box[1] for box in picture_boxes)
-        right = max(box[0] + box[2] for box in picture_boxes)
-        bottom = max(box[1] + box[3] for box in picture_boxes)
+        # Use template-detected bounding boxes
+        sorted_boxes = sorted(picture_boxes, key=lambda b: b[0])
+        return sorted_boxes[:2]
 
-        sorted_boxes = sorted(picture_boxes, key=lambda box: box[0])
-        detected_gap = sorted_boxes[1][0] - (sorted_boxes[0][0] + sorted_boxes[0][2])
-        gap = max(detected_gap, slide_width * 0.01)
-    else:
-        layout = DOUBLE_PLOT_LAYOUT
-        left = slide_width * layout['left_ratio']
-        top = slide_height * layout['top_ratio']
-        total_width = slide_width * layout['width_ratio']
-        total_height = slide_height * layout['height_ratio']
-        gap = slide_width * layout['gap_ratio']
-        right = left + total_width
-        bottom = top + total_height
+    # Fall back to generic
+    layout = DOUBLE_PLOT_LAYOUT
+    left = slide_width * layout["left_ratio"]
+    top = slide_height * layout["top_ratio"]
+    total_width = slide_width * layout["width_ratio"]
+    total_height = slide_height * layout["height_ratio"]
+    gap = slide_width * layout["gap_ratio"]
 
-    total_width = right - left
-    total_height = bottom - top
     slot_width = max((total_width - gap) / 2, 0)
 
     return [
@@ -99,177 +129,236 @@ def _get_double_plot_boxes(picture_boxes, slide_width, slide_height):
 
 
 def _get_main_plot_box(picture_boxes, slide_width, slide_height):
-    """Expand the single main plot to use the full slide width."""
+    """
+    For main-plot layouts:
+    - If template has a placeholder, expand horizontally
+    - Otherwise use layout constants
+    """
     if picture_boxes:
         _, top, _, height = picture_boxes[0]
         return (0, top, slide_width, height)
 
-    left, top, width, height = _resolve_box('main_plot', slide_width, slide_height)
-    return (0, top, slide_width, height)
+    box = MAIN_PLOT_BOX
+    return (
+        slide_width * box["left_ratio"],
+        slide_height * box["top_ratio"],
+        slide_width * box["width_ratio"],
+        slide_height * box["height_ratio"],
+    )
 
+
+# ----------------------------------------------------------------------
+# IMAGE INSERTION
+# ----------------------------------------------------------------------
 
 def _add_picture_fit(slide, image_path, left, top, width, height, fill_factor=1.0):
+    """
+    Insert image into slide, preserving aspect ratio and centering it.
+    fill_factor > 1 expands slightly to avoid white bands.
+    """
     image_path = str(image_path)
     shape = slide.Shapes.AddPicture(image_path, False, True, 0, 0, -1, -1)
+
     shape.LockAspectRatio = True
 
     scale = min(width / shape.Width, height / shape.Height)
     scale *= fill_factor
-    shape.Width = shape.Width * scale
-    shape.Height = shape.Height * scale
+
+    shape.Width *= scale
+    shape.Height *= scale
+
     shape.Left = left + (width - shape.Width) / 2
     shape.Top = top + (height - shape.Height) / 2
+
+    # Cosmetic border to separate plots visually
     shape.Line.Visible = True
     shape.Line.ForeColor.RGB = 0
     shape.Line.Weight = 1
+
     return shape
 
 
+# ----------------------------------------------------------------------
+# TEMPLATE ASPECT RATIO EXTRACTION
+# ----------------------------------------------------------------------
+
 def get_template_plot_aspect_ratios(template_path, export_map):
-    """Return target aspect ratios for exported plots using template picture boxes."""
+    """
+    Reads the PPTX template and extracts the native aspect ratios of picture
+    placeholders so exported plots match layout proportions precisely.
+    """
     template_path = Path(template_path).resolve()
     if not template_path.exists():
         raise FileNotFoundError(f"PowerPoint template not found: {template_path}")
 
     aspect_ratios = {}
-    with ZipFile(template_path) as pptx_file:
-        presentation_root = ET.fromstring(pptx_file.read("ppt/presentation.xml"))
-        slide_size = presentation_root.find("p:sldSz", PPTX_NAMESPACES)
-        slide_width = int(slide_size.attrib["cx"]) if slide_size is not None else None
 
-        for slide_number, slide_config in export_map.items():
-            slide_xml = f"ppt/slides/slide{slide_number}.xml"
-            if slide_xml not in pptx_file.namelist():
+    with ZipFile(template_path) as pptx:
+        pres_root = ET.fromstring(pptx.read("ppt/presentation.xml"))
+        slide_size = pres_root.find("p:sldSz", PPTX_NS)
+        slide_width = int(slide_size.attrib.get("cx", 0)) if slide_size is not None else None
+
+        for slide_num, config in export_map.items():
+            slide_xml = f"ppt/slides/slide{slide_num}.xml"
+            if slide_xml not in pptx.namelist():
                 continue
 
-            root = ET.fromstring(pptx_file.read(slide_xml))
+            root = ET.fromstring(pptx.read(slide_xml))
+
+            # Collect all <p:pic> shapes
             picture_boxes = []
-            for picture in root.findall('.//p:pic', PPTX_NAMESPACES):
-                transform = picture.find('p:spPr/a:xfrm', PPTX_NAMESPACES)
-                if transform is None:
+            for pic in root.findall(".//p:pic", PPTX_NS):
+                xfrm = pic.find("p:spPr/a:xfrm", PPTX_NS)
+                if xfrm is None:
                     continue
-                ext = transform.find('a:ext', PPTX_NAMESPACES)
+
+                ext = xfrm.find("a:ext", PPTX_NS)
+                off = xfrm.find("a:off", PPTX_NS)
                 if ext is None:
                     continue
-                width = int(ext.attrib['cx'])
-                height = int(ext.attrib['cy'])
+
+                width = int(ext.attrib.get("cx", 0))
+                height = int(ext.attrib.get("cy", 0))
+                left = int(off.attrib.get("x", 0)) if off is not None else 0
+                top = int(off.attrib.get("y", 0)) if off is not None else 0
+
                 if width > 0 and height > 0:
-                    offset = transform.find('a:off', PPTX_NAMESPACES)
-                    left = int(offset.attrib['x']) if offset is not None else 0
-                    top = int(offset.attrib['y']) if offset is not None else 0
                     picture_boxes.append((left, top, width, height))
 
-            picture_boxes.sort(key=lambda box: (box[0], box[1]))
-            image_filenames = slide_config.get('images', [])
-            slide_aspects = []
-            for slot_index, image_filename in enumerate(image_filenames):
-                if slot_index >= len(picture_boxes):
-                    break
-                _, _, width, height = picture_boxes[slot_index]
-                if (
-                    slide_config.get('layout') == 'main_plot'
-                    and slide_width is not None
-                    and len(image_filenames) == 1
-                ):
-                    width = slide_width
-                slide_aspects.append((image_filename, width / height))
+            picture_boxes.sort(key=lambda b: (b[0], b[1]))
 
+            image_files = config.get("images", [])
+            slide_aspects = []
+
+            for i, img_file in enumerate(image_files):
+                if i >= len(picture_boxes):
+                    break
+
+                _, _, w, h = picture_boxes[i]
+                # For main plot with only one picture, stretch horizontally
+                if (
+                    config.get("layout") == "main_plot"
+                    and slide_width is not None
+                    and len(image_files) == 1
+                ):
+                    w = slide_width  # stretch to full width
+
+                slide_aspects.append((img_file, w / h))
+
+            # For two-up scatter plots → average aspect ratio
             if (
-                slide_config.get('layout') == 'double_plot'
+                config.get("layout") == "double_plot"
                 and len(slide_aspects) == 2
-                and not all(image_filename.startswith('scatter_') for image_filename, _ in slide_aspects)
+                and not all(name.startswith("scatter_") for name, _ in slide_aspects)
             ):
-                average_aspect = sum(aspect for _, aspect in slide_aspects) / len(slide_aspects)
-                for image_filename, _ in slide_aspects:
-                    aspect_ratios[image_filename] = (average_aspect,)
+                avg = sum(a for _, a in slide_aspects) / len(slide_aspects)
+                for img, _ in slide_aspects:
+                    aspect_ratios[img] = (avg,)
             else:
-                for image_filename, aspect_ratio in slide_aspects:
-                    aspect_ratios[image_filename] = aspect_ratio
+                for img, ar in slide_aspects:
+                    aspect_ratios[img] = ar
 
     return aspect_ratios
 
 
+# ----------------------------------------------------------------------
+# MAIN EXPORT FUNCTION
+# ----------------------------------------------------------------------
+
 def export_report_to_powerpoint(template_path, output_path, plots_dir, export_map, visible=False):
+    """
+    Insert generated plots into a PowerPoint template according to export_map.
+    """
     try:
         import win32com.client
     except ImportError as exc:
         raise ImportError(
-            "pywin32 is required for PowerPoint export. Install requirements with "
-            "'pip install -r requirements.txt'."
+            "pywin32 is required for PowerPoint export. Install with:\n"
+            "    pip install pywin32"
         ) from exc
 
     template_path = Path(template_path).resolve()
-    output_path = Path(output_path).resolve()
     plots_dir = Path(plots_dir).resolve()
+    output_path = Path(output_path).resolve()
 
     if not template_path.exists():
         raise FileNotFoundError(f"PowerPoint template not found: {template_path}")
 
-    powerpoint = win32com.client.Dispatch("PowerPoint.Application")
-    # PowerPoint does not allow hiding the application via Application.Visible = False.
-    powerpoint.Visible = True
-    presentation = None
+    # PowerPoint COM object
+    ppt = win32com.client.Dispatch("PowerPoint.Application")
+    ppt.Visible = True  # PowerPoint does not allow True/False control here
 
+    pres = None
     try:
-        presentation = powerpoint.Presentations.Open(str(template_path), WithWindow=visible)
-        slide_width = presentation.PageSetup.SlideWidth
-        slide_height = presentation.PageSetup.SlideHeight
+        pres = ppt.Presentations.Open(str(template_path), WithWindow=visible)
 
-        for slide_number, slide_config in export_map.items():
-            slide = presentation.Slides(slide_number)
-            layout = slide_config['layout']
-            image_filenames = slide_config['images']
+        slide_width = pres.PageSetup.SlideWidth
+        slide_height = pres.PageSetup.SlideHeight
+
+        for slide_num, cfg in export_map.items():
+            slide = pres.Slides(slide_num)
+            layout = cfg["layout"]
+            image_list = cfg["images"]
+
             picture_boxes = _get_picture_boxes(slide)
 
-            if layout == 'main_plot' and len(image_filenames) == 1:
+            if layout == "main_plot" and len(image_list) == 1:
                 target_boxes = [_get_main_plot_box(picture_boxes, slide_width, slide_height)]
-            elif layout == 'double_plot' and len(image_filenames) == 2:
+            elif layout == "double_plot" and len(image_list) == 2:
                 target_boxes = _get_double_plot_boxes(picture_boxes, slide_width, slide_height)
             else:
-                target_boxes = picture_boxes
+                target_boxes = picture_boxes or [
+                    _resolve_box(layout, slide_width, slide_height, slot_index=i, slot_count=len(image_list))
+                    for i in range(len(image_list))
+                ]
 
             _replace_slide_pictures(slide)
 
-            for slot_index, image_filename in enumerate(image_filenames):
-                image_path = plots_dir / image_filename
-                if not image_path.exists():
-                    print(f"  Warning: Plot not found for slide {slide_number}: {image_filename}")
+            for i, img in enumerate(image_list):
+                img_path = plots_dir / img
+                if not img_path.exists():
+                    print(f" Warning: Missing plot for slide {slide_num}: {img}")
                     continue
 
-                if len(target_boxes) >= len(image_filenames):
-                    left, top, width, height = target_boxes[slot_index]
+                if i < len(target_boxes):
+                    left, top, width, height = target_boxes[i]
                 else:
                     left, top, width, height = _resolve_box(
                         layout,
                         slide_width,
                         slide_height,
-                        slot_index=slot_index,
-                        slot_count=len(image_filenames)
+                        slot_index=i,
+                        slot_count=len(image_list),
                     )
-                if layout == 'double_plot' and image_filename.startswith('scatter_'):
-                    fill_factor = 1.3
-                elif layout == 'double_plot' and image_filename.startswith('psd_'):
+
+                # Aggressive padding for scatter/PSD in double-layout
+                if (
+                    layout == "double_plot"
+                    and (img.startswith("scatter_") or img.startswith("psd_"))
+                ):
                     fill_factor = 1.3
                 else:
                     fill_factor = 1.0
-                _add_picture_fit(slide, image_path, left, top, width, height, fill_factor=fill_factor)
 
+                _add_picture_fit(slide, img_path, left, top, width, height, fill_factor)
+
+        # save result
         output_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            presentation.SaveAs(str(output_path))
-            saved_path = output_path
+            pres.SaveAs(str(output_path))
+            final = output_path
         except Exception as exc:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            fallback_path = output_path.with_name(f"{output_path.stem}_{timestamp}{output_path.suffix}")
-            print(
-                f"  Warning: Could not save PowerPoint report to {output_path} "
-                f"({exc}). Saving to {fallback_path} instead."
-            )
-            presentation.SaveAs(str(fallback_path))
-            saved_path = fallback_path
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            fallback = output_path.with_name(f"{output_path.stem}_{ts}{output_path.suffix}")
+            print(f" Warning: Could not save to {output_path} ({exc}). Using fallback: {fallback}")
+            pres.SaveAs(str(fallback))
+            final = fallback
 
-        print(f"PowerPoint report saved to: {saved_path}")
+        print(f"PowerPoint report saved to: {final}")
+
+    except Exception as exc:
+        print(f"Error during PowerPoint export: {exc}")
+
     finally:
-        if presentation is not None:
-            presentation.Close()
-        powerpoint.Quit()
+        if pres:
+            pres.Close()

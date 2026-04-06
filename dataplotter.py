@@ -7,8 +7,9 @@ from pathlib import Path
 import datafunctions
 from collections import Counter
 
+
 def make_unique(names):
-    """Make column names unique by appending suffixes to duplicates"""
+    """Make column names unique by appending suffixes to duplicates."""
     counts = Counter(names)
     unique_names = []
     seen = {}
@@ -24,108 +25,138 @@ def make_unique(names):
             unique_names.append(name)
     return unique_names
 
+
 class DataPlotter:
-    """Main class for loading, processing, and plotting multi-run data"""
+    """Main class for loading, processing, and plotting multi-run data."""
 
-
-    def __init__(self, root_folder, dls_run, track_run, plot_definitions=None, channel_mappings={'dls': None,'track': None}, channel_transforms={'dls': None,'track': None}, calculated_channels={'dls': None,'track': None}, low_pass_filters=None, fig_size=[(15.5, 6.4), (10, 8), (10, 8)], units_map=None, plot_aspect_ratios=None, sample_rate=100, scatter_dot_size=5, scatter_transparency=0.8):
-
-        self.dls_run = dls_run
-        self.track_run = track_run
-        self.dls_label = dls_run.get('display_name', dls_run['name'])
-        self.track_label = track_run.get('display_name', 'CAR' if track_run['name'].lower() == 'track' else track_run['name'])
+    def __init__(
+        self,
+        root_folder,
+        runs,
+        plot_definitions=None,
+        channel_mappings=None,
+        channel_transforms=None,
+        calculated_channels=None,
+        low_pass_filters=None,
+        fig_size=[(15.5, 6.4), (10, 8), (10, 8)],
+        units_map=None,
+        plot_aspect_ratios=None,
+        sample_rate=100,
+        scatter_dot_size=5,
+        scatter_transparency=0.8,
+    ):
+        self.runs = runs
         self._configure_plot_style()
 
-        # Store config needed for channel extraction
+        # Store config
         self.PLOT_DEFINITIONS = plot_definitions
         self.CHANNEL_MAPPINGS = channel_mappings
         self.CALCULATED_CHANNELS = calculated_channels
 
-        # Determine required columns before loading
-        required_dls_cols = self._get_required_source_columns('dls')
-        required_track_cols = self._get_required_source_columns('car')
+        self.run_filepaths = {}
+        self.run_data = {}
+        self.run_units = {}
+        self.run_required_cols = {}
 
-        # Load DLS data
-        dls_file_path = Path(root_folder) / dls_run['file']
-        self.dls_data, header_dls, self.units_dls = self._load_run_data(dls_file_path, use_python_engine=False, columns_to_load=required_dls_cols)
+        for run in self.runs:
+            run_name = run["name"].lower()
+            file_path = Path(root_folder) / run["file"]
+            self.run_filepaths[run_name] = file_path
 
-        # Load Track data
-        track_file_path = Path(root_folder) / track_run['file']
-        self.track_data, header_track, self.units_track = self._load_run_data(track_file_path, use_python_engine=True, columns_to_load=required_track_cols)
+            if not file_path.exists():
+                print(f"Data file for {run_name} not found: {file_path}, skipping this run")
+                continue
 
-        # Combine units, preferring track units when different from DLS
-        self.units = {}
-        for col in set(header_dls + header_track):
-            if col in self.units_track and self.units_track[col] != self.units_dls.get(col, ''):
-                self.units[col] = self.units_track[col]
-            elif col in self.units_dls:
-                self.units[col] = self.units_dls[col]
-            elif col in self.units_track:
-                self.units[col] = self.units_track[col]
+            use_python_engine = (run_name == "car")
+            self.run_required_cols[run_name] = self._get_required_source_columns(run_name)
+
+            data, _, units = self._load_run_data(
+                file_path,
+                use_python_engine=use_python_engine,
+                columns_to_load=self.run_required_cols[run_name],
+            )
+
+            self.run_data[run_name] = data
+            self.run_units[run_name] = units
 
         self.CHANNEL_TRANSFORMS = channel_transforms
-        self.units_map = units_map or self.units
+        self.units_map = units_map
+        self.FILTER_SAMPLE_RATE = sample_rate
+        self.LOW_PASS_FILTERS = low_pass_filters
 
-        self.FILTER_SAMPLE_RATE = sample_rate  # Hz - sampling rate of your data
-        self.LOW_PASS_FILTERS = low_pass_filters 
-        
         self.SCATTER_DOT_SIZE = scatter_dot_size
         self.SCATTER_TRANSPARENCY = scatter_transparency
-        self.waveform_figsize = fig_size[0]  # Size for waveform plots
-        self.scatter_FIGSIZE = fig_size[1]  # Size for individual scatter plots
-        self.psd_FIGSIZE = fig_size[2]  # Size for PSD plots
+
+        self.waveform_figsize = fig_size[0]
+        self.scatter_FIGSIZE = fig_size[1]
+        self.psd_FIGSIZE = fig_size[2]
         self.plot_aspect_ratios = plot_aspect_ratios or {}
 
         # Create plots directory
         self.plots_dir = Path(root_folder) / "plots"
         self.plots_dir.mkdir(exist_ok=True)
 
-        # Clean data: remove columns with strings, interpolate NaNs, and apply transformations
+        # Pipeline
         self.apply_channel_mappings()
         self.apply_transformations()
         self.clean_data()
         self.apply_calculated_channels()
         self.apply_lowpass_filters()
 
+    # ------------------------------------------------------------
+    # STYLE
+    # ------------------------------------------------------------
+
     def _configure_plot_style(self):
         """Apply a consistent font and baseline styling to all plots."""
         available_fonts = {font.name for font in font_manager.fontManager.ttflist}
-        preferred_font = 'Montserrat' if 'Montserrat' in available_fonts else 'DejaVu Sans'
-        plt.rcParams.update({
-            'font.family': preferred_font,
-            'font.sans-serif': ['Montserrat', 'DejaVu Sans', 'Arial', 'sans-serif'],
-            'axes.titlesize': 14,
-            'axes.titleweight': 'bold',
-            'axes.labelsize': 11,
-            'axes.labelweight': 'bold',
-            'xtick.labelsize': 10,
-            'ytick.labelsize': 10,
-            'legend.fontsize': 10,
-            'figure.titlesize': 16,
-            'figure.titleweight': 'bold',
-        })
+        preferred_font = "Montserrat" if "Montserrat" in available_fonts else "DejaVu Sans"
+
+        plt.rcParams.update(
+            {
+                "font.family": preferred_font,
+                "font.sans-serif": ["Montserrat", "DejaVu Sans", "Arial", "sans-serif"],
+                "axes.titlesize": 14,
+                "axes.titleweight": "bold",
+                "axes.labelsize": 11,
+                "axes.labelweight": "bold",
+                "xtick.labelsize": 10,
+                "ytick.labelsize": 10,
+                "legend.fontsize": 10,
+                "figure.titlesize": 16,
+                "figure.titleweight": "bold",
+            }
+        )
+
+    # ------------------------------------------------------------
+    # LOAD REQUIRED COLUMNS
+    # ------------------------------------------------------------
 
     def _get_required_source_columns(self, source_type):
-        """Extract source column names needed for all plots and their dependencies."""
+        """Determine which columns to load from files."""
         required_channels = set()
 
-        # Include sLap if waveform plots exist (used for x-axis)
-        if self.PLOT_DEFINITIONS and len(self.PLOT_DEFINITIONS) > 0 and self.PLOT_DEFINITIONS[0]:
-            required_channels.add('sLap')
+        # Always include sLap for waveform alignment
+        if (
+            self.PLOT_DEFINITIONS
+            and len(self.PLOT_DEFINITIONS) > 0
+            and self.PLOT_DEFINITIONS[0]
+        ):
+            required_channels.add("sLap")
 
-        # Extract channels from all plot definitions
+        # Scan all plot definitions
         if self.PLOT_DEFINITIONS:
             for plot_group in self.PLOT_DEFINITIONS:
                 if plot_group is None:
                     continue
                 for plot_def in plot_group:
                     if len(plot_def) >= 2:
-                        if isinstance(plot_def[1], tuple):  # Waveform or scatter plot
+                        if isinstance(plot_def[1], tuple):
                             required_channels.update(plot_def[1])
-                        elif isinstance(plot_def[1], str):  # PSD plot
+                        elif isinstance(plot_def[1], str):
                             required_channels.add(plot_def[1])
 
-        # Resolve calculated channel dependencies
+        # Resolve calculated dependencies
         resolved_channels = set()
         to_process = list(required_channels)
         processed = set()
@@ -136,592 +167,447 @@ class DataPlotter:
                 continue
             processed.add(channel)
 
-            # Check if this is a calculated channel
-            calc_channels = self.CALCULATED_CHANNELS
-            if isinstance(calc_channels, dict):
-                calc_channels = calc_channels.get(source_type) or calc_channels
+            calc_set = self.CALCULATED_CHANNELS
+            if isinstance(calc_set, dict):
+                calc_set = calc_set.get(source_type) or calc_set
 
-            is_calculated = isinstance(calc_channels, dict) and channel in calc_channels
+            if isinstance(calc_set, dict) and channel in calc_set:
+                import inspect, re
 
-            if is_calculated:
-                # Extract source channels from the lambda function
-                func = calc_channels[channel]
-                # Get function code to find column references
-                import inspect
                 try:
-                    source = inspect.getsource(func)
-                    # Extract df['ColumnName'] patterns
-                    import re
-                    matches = re.findall(r"df\['([^']+)'\]|df\[\"([^\"]+)\"\]", source)
-                    for match in matches:
-                        dep_col = match[0] or match[1]
-                        if dep_col not in processed:
-                            to_process.append(dep_col)
-                except:
+                    source = inspect.getsource(calc_set[channel])
+                    matches = re.findall(
+                        r"df\['([^']+)'\]|df\[\"([^\"]+)\"\]", source
+                    )
+                    for m in matches:
+                        dep = m[0] or m[1]
+                        if dep not in processed:
+                            to_process.append(dep)
+                except Exception:
                     pass
             else:
-                # Not calculated, so it's a source or mapped column
                 resolved_channels.add(channel)
 
-        # Resolve channel mappings: map target names back to source names
+        # Apply channel mappings: convert mapped names to original raw names
         source_columns = set()
-        mappings = self.CHANNEL_MAPPINGS.get(source_type) or {}
-
-        for channel in resolved_channels:
-            # Check if this channel is a mapping target
-            source_col = None
-            for src, tgt in (mappings.items() if mappings else []):
-                if tgt == channel:
-                    source_col = src
+        mappings = self.CHANNEL_MAPPINGS.get(source_type) if self.CHANNEL_MAPPINGS else {}
+        for ch in resolved_channels:
+            found_src = None
+            for raw, mapped in mappings.items():
+                if mapped == ch:
+                    found_src = raw
                     break
+            source_columns.add(found_src or ch)
 
-            if source_col:
-                source_columns.add(source_col)
-            else:
-                # Channel is not mapped, use as-is
-                source_columns.add(channel)
+        return source_columns
 
-        return source_columns if source_columns else None
+    # ------------------------------------------------------------
+    # LOAD RUN DATA
+    # ------------------------------------------------------------
 
     def _load_run_data(self, file_path, use_python_engine=False, columns_to_load=None):
-        """Load either legacy text exports or parquet files, optionally filtering columns."""
+        """Load CSV/TXT or Parquet, applying column filtering."""
         try:
-            if file_path.suffix.lower() == '.parquet':
+            if file_path.suffix.lower() == ".parquet":
                 df = pd.read_parquet(file_path)
-                df.columns = make_unique([str(col) for col in df.columns])
-                header = list(df.columns)
-                units = {col: '' for col in header}
+                df.columns = make_unique([str(c) for c in df.columns])
+                units = {c: "" for c in df.columns}
+                return df, df.columns, units
+
+            # Legacy CSV format
+            with open(file_path, "r") as f:
+                lines = f.readlines()
+
+            header = make_unique(lines[1].strip().split(","))
+            units_row = lines[2].strip().split(",")
+
+            kwargs = dict(
+                sep=",",
+                skiprows=3,
+                header=None,
+                names=header,
+                on_bad_lines="skip",
+            )
+            if use_python_engine:
+                kwargs["engine"] = "python"
             else:
-                with open(file_path, 'r') as f:
-                    lines = f.readlines()
-                header = make_unique(lines[1].strip().split(','))
-                units_row = lines[2].strip().split(',')
-                read_csv_kwargs = {
-                    'sep': r',',
-                    'skiprows': 3,
-                    'header': None,
-                    'names': header,
-                    'on_bad_lines': 'skip',
-                }
-                if use_python_engine:
-                    read_csv_kwargs['engine'] = 'python'
-                else:
-                    read_csv_kwargs['low_memory'] = False
+                kwargs["low_memory"] = False
 
-                df = pd.read_csv(file_path, **read_csv_kwargs)
-                units = dict(zip(header, units_row))
+            df = pd.read_csv(file_path, **kwargs)
+            units = dict(zip(header, units_row))
 
-            # Filter columns if specified
-            if columns_to_load is not None:
-                cols_to_keep = [col for col in header if col in columns_to_load]
-                if cols_to_keep:
-                    df = df[cols_to_keep]
-                    header = cols_to_keep
-                    units = {col: units.get(col, '') for col in cols_to_keep}
+            # Filter columns
+            if columns_to_load:
+                cols = [c for c in header if c in columns_to_load]
+                df = df[cols]
+                units = {c: units.get(c, "") for c in cols}
 
-            return df, header, units
+            return df, df.columns, units
+
         except Exception as e:
-            print(f"Error loading data file {file_path}: {e}")
+            print(f"Error loading {file_path}: {e}")
             raise
-    
+
+    # ------------------------------------------------------------
+    # CLEAN DATA
+    # ------------------------------------------------------------
+
     def clean_data(self):
-        """Remove columns containing strings and interpolate NaN values"""
-        # Convert YES/NO to 1/0 before other cleaning
-        self.dls_data = datafunctions.convert_yes_no_to_binary(self.dls_data)
-        self.track_data = datafunctions.convert_yes_no_to_binary(self.track_data)
+        """Remove non-numeric columns and patch YES/NO."""
+        for run_name, df in self.run_data.items():
+            df = datafunctions.convert_yes_no_to_binary(df)
 
-        # Clean track data
-        for col in list(self.track_data.columns):
-            print(f"Column {col} dtype: {self.track_data[col].dtype}")
-            if self.track_data[col].dtype == 'object' or self.track_data[col].dtype.name in ['string', 'str']:
-                non_nan = self.track_data[col].dropna()
-                if any(isinstance(x, str) for x in non_nan):
-                    self.track_data.drop(col, axis=1, inplace=True)
-                    print(f"Dropped column {col} from track data due to strings")
-                else:
-                    self.track_data[col] = datafunctions.sanitize_numeric_series(self.track_data[col])
-                    self.track_data[col] = self.track_data[col].interpolate(method='linear')
-            else:
-                self.track_data[col] = datafunctions.sanitize_numeric_series(self.track_data[col])
-                self.track_data[col] = self.track_data[col].interpolate(method='linear')
+        for run_name in list(self.run_data.keys()):
+            df = self.run_data[run_name]
+            for col in list(df.columns):
+                if df[col].dtype == "object":
+                    non_nan = df[col].dropna()
+                    if any(isinstance(x, str) for x in non_nan):
+                        df.drop(col, axis=1, inplace=True)
+                        print(f"Dropped {col} from run {run_name} (string column)")
+                        continue
 
-        # Clean DLS data
-        for col in list(self.dls_data.columns):
-            if self.dls_data[col].dtype == 'object' or self.dls_data[col].dtype.name in ['string', 'str']:
-                non_nan = self.dls_data[col].dropna()
-                if any(isinstance(x, str) for x in non_nan):
-                    self.dls_data.drop(col, axis=1, inplace=True)
-                    print(f"Dropped column {col} from DLS data due to strings")
-                else:
-                    self.dls_data[col] = datafunctions.sanitize_numeric_series(self.dls_data[col])
-                    self.dls_data[col] = self.dls_data[col].interpolate(method='linear')
-            else:
-                self.dls_data[col] = datafunctions.sanitize_numeric_series(self.dls_data[col])
-                self.dls_data[col] = self.dls_data[col].interpolate(method='linear')
+                df[col] = datafunctions.sanitize_numeric_series(df[col])
+                df[col] = df[col].interpolate(method="linear")
+
+    # ------------------------------------------------------------
+    # MAPPINGS / TRANSFORMS / CALCULATED / FILTERS
+    # ------------------------------------------------------------
 
     def apply_channel_mappings(self):
-        self.dls_data = datafunctions.apply_channel_mappings(self.dls_data, self.CHANNEL_MAPPINGS, source_type=self.dls_run['name'].lower())
-        self.track_data = datafunctions.apply_channel_mappings(self.track_data, self.CHANNEL_MAPPINGS, source_type=self.track_run['name'].lower())
+        for run in self.runs:
+            name = run["name"].lower()
+            if name in self.run_data:
+                self.run_data[name] = datafunctions.apply_channel_mappings(
+                    self.run_data[name], self.CHANNEL_MAPPINGS, name
+                )
 
     def apply_transformations(self):
-        datafunctions.apply_transformations(self.dls_data, self.dls_run['name'].lower(), self.CHANNEL_TRANSFORMS)
-        datafunctions.apply_transformations(self.track_data, self.track_run['name'].lower(), self.CHANNEL_TRANSFORMS)
+        for run in self.runs:
+            name = run["name"].lower()
+            if name in self.run_data:
+                self.run_data[name] = datafunctions.apply_transformations(
+                    self.run_data[name], name, self.CHANNEL_TRANSFORMS
+                )
 
     def apply_calculated_channels(self):
-        datafunctions.apply_calculated_channels(self.dls_data, self.dls_run['name'].lower(), self.CALCULATED_CHANNELS)
-        datafunctions.apply_calculated_channels(self.track_data, self.track_run['name'].lower(), self.CALCULATED_CHANNELS)
+        for run in self.runs:
+            name = run["name"].lower()
+            if name in self.run_data:
+                datafunctions.apply_calculated_channels(
+                    self.run_data[name], name, self.CALCULATED_CHANNELS
+                )
 
     def apply_lowpass_filters(self):
-        """Apply low-pass Butterworth filters to specified channels        
-        Args:
-            df: DataFrame to filter
-            source_type: 'dls' or 'track' to determine which filter config to use
-        """
-        datafunctions.apply_lowpass_filters(self.dls_data, self.LOW_PASS_FILTERS, self.FILTER_SAMPLE_RATE, 'dls')
-        datafunctions.apply_lowpass_filters(self.track_data, self.LOW_PASS_FILTERS, self.FILTER_SAMPLE_RATE, 'track')
+        for run in self.runs:
+            name = run["name"].lower()
+            if name in self.run_data:
+                self.run_data[name] = datafunctions.apply_lowpass_filters(
+                    self.run_data[name],
+                    self.LOW_PASS_FILTERS,
+                    self.FILTER_SAMPLE_RATE,
+                    name,
+                )
+
+    # ------------------------------------------------------------
+    # UTILS
+    # ------------------------------------------------------------
 
     def _get_plot_group(self, index, plot_type):
-        """Safely fetch a configured plot-definition group."""
         if not self.PLOT_DEFINITIONS or len(self.PLOT_DEFINITIONS) <= index:
             return []
-        plots = self.PLOT_DEFINITIONS[index]
-        if plots is None:
-            return []
-        return plots
-
-    def _normalise_reference_lines(self, reference_line_config):
-        """Return reference lines as a list, regardless of scalar/tuple/list input."""
-        if reference_line_config is None:
-            return []
-        if np.isscalar(reference_line_config):
-            return [reference_line_config]
-        return list(reference_line_config)
-
-    def _resolve_waveform_axes(self):
-        """Use sLap on both datasets when available, otherwise fall back to sample index."""
-        if 'sLap' in self.dls_data.columns and 'sLap' in self.track_data.columns:
-            return self.dls_data['sLap'], self.track_data['sLap'], 'sLap (m)'
-        return self.dls_data.index, self.track_data.index, 'Sample'
-
-    def _mask_waveform_discontinuities(self, x_values, y_values):
-        """Break plotted lines where the x-axis resets and hide pre-lap samples."""
-        x_series = pd.Series(x_values).reset_index(drop=True)
-        y_series = pd.Series(y_values).reset_index(drop=True).copy()
-
-        # Do not plot waveform data before the lap start when using sLap on the x-axis.
-        negative_x_mask = x_series < 0
-        x_series.loc[negative_x_mask] = np.nan
-        y_series.loc[negative_x_mask] = np.nan
-
-        if x_series.notna().sum() > 1:
-            x_diff = x_series.diff()
-            reset_mask = x_diff < 0
-            y_series.loc[reset_mask] = np.nan
-
-        return x_series, y_series
-
-    def _style_waveform_x_axis(self, axes, xlabel):
-        """Apply compact, professional x-axis styling to shared waveform axes."""
-        bottom_axis = axes[-1]
-        bottom_axis.set_xlabel(xlabel, fontsize=11, fontweight='bold', labelpad=10)
-        bottom_axis.tick_params(axis='x', labelsize=10)
-
-        if xlabel == 'sLap (m)':
-            lap_end_candidates = []
-            for ax in axes:
-                x_min, x_max = ax.get_xlim()
-                if np.isfinite(x_max) and x_max > 0:
-                    lap_end_candidates.append(x_max)
-
-            if lap_end_candidates:
-                lap_end = max(lap_end_candidates)
-                lap_end = np.ceil(lap_end / 100) * 100
-                for ax in axes:
-                    ax.set_xlim(0, lap_end)
-
-            for ax in axes:
-                ax.xaxis.set_major_locator(ticker.MultipleLocator(500))
-                ax.xaxis.set_minor_locator(ticker.MultipleLocator(100))
-                ax.grid(True, which='major', axis='x', alpha=0.32, linestyle='-', linewidth=0.5)
-                ax.grid(True, which='minor', axis='x', alpha=0.16, linestyle='-', linewidth=0.35)
+        return self.PLOT_DEFINITIONS[index] or []
 
     def _sanitize_plot_filename(self, prefix, plot_name, suffix=""):
-        """Create a filesystem-friendly filename for saved plots."""
-        safe_name = (
-            plot_name.replace(' ', '_')
-            .replace('(', '')
-            .replace(')', '')
-            .replace('/', '_')
-            .replace('\\', '_')
+        safe = (
+            plot_name.replace(" ", "_")
+            .replace("(", "")
+            .replace(")", "")
+            .replace("/", "_")
+            .replace("\\", "_")
         )
-        return f"{prefix}_{safe_name}{suffix}.png"
+        return f"{prefix}_{safe}{suffix}.png"
 
-    def _resolve_plot_figsize(self, plot_filename, default_size, *, min_height=None):
-        """Use template-derived aspect ratios when available, otherwise keep defaults."""
-        default_width, default_height = default_size
-        target_aspect = self.plot_aspect_ratios.get(plot_filename)
+    def _resolve_plot_figsize(self, filename, default_size, *, min_height=None):
+        w0, h0 = default_size
+        target_aspect = self.plot_aspect_ratios.get(filename)
 
-        if isinstance(target_aspect, (list, tuple)) and len(target_aspect) > 0:
+        if isinstance(target_aspect, (list, tuple)):
             target_aspect = sum(target_aspect) / len(target_aspect)
 
         if target_aspect is None:
-            width = default_width
-            height = default_height
+            w, h = w0, h0
         else:
-            height = default_height
-            width = height * target_aspect
+            h = h0
+            w = h * target_aspect
 
-        if min_height is not None:
-            height = max(height, min_height)
-            if target_aspect is not None:
-                width = height * target_aspect
-            else:
-                width = max(width, height * (default_width / default_height))
+        if min_height:
+            h = max(h, min_height)
+            if target_aspect:
+                w = h * target_aspect
 
-        return (width, height)
+        return (w, h)
+
+    def _mask_waveform_discontinuities(self, x_values, y_values):
+        xs = pd.Series(x_values).reset_index(drop=True)
+        ys = pd.Series(y_values).reset_index(drop=True).copy()
+
+        neg_mask = xs < 0
+        xs.loc[neg_mask] = np.nan
+        ys.loc[neg_mask] = np.nan
+
+        if xs.notna().sum() > 1:
+            reset_mask = xs.diff() < 0
+            ys.loc[reset_mask] = np.nan
+
+        return xs, ys
 
     def _add_axis_edge_padding(self, ax, x_pad_ratio=0.02, y_pad_ratio=0.03):
-        """Add a small amount of whitespace around current axis limits."""
-        x_min, x_max = ax.get_xlim()
-        y_min, y_max = ax.get_ylim()
+        xmin, xmax = ax.get_xlim()
+        ymin, ymax = ax.get_ylim()
 
-        if np.isfinite(x_min) and np.isfinite(x_max) and x_max > x_min:
-            x_pad = (x_max - x_min) * x_pad_ratio
-            ax.set_xlim(x_min - x_pad, x_max + x_pad)
+        if xmax > xmin:
+            pad = (xmax - xmin) * x_pad_ratio
+            ax.set_xlim(xmin - pad, xmax + pad)
 
-        if np.isfinite(y_min) and np.isfinite(y_max) and y_max > y_min:
-            y_pad = (y_max - y_min) * y_pad_ratio
-            ax.set_ylim(y_min - y_pad, y_max + y_pad)
+        if ymax > ymin:
+            pad = (ymax - ymin) * y_pad_ratio
+            ax.set_ylim(ymin - pad, ymax + pad)
 
-    def _format_trendline_text(self, label, equation):
-        """Format trendline text into a compact block without a label header."""
-        formatted_lines = []
-        for line in str(equation).splitlines():
-            cleaned_line = line.strip()
-            label_prefix = f"{label} "
-            if cleaned_line.startswith(label_prefix):
-                cleaned_line = cleaned_line[len(label_prefix):]
-            if ": y =" in cleaned_line:
-                cleaned_line = cleaned_line.replace(": y =", ":\ny =")
-            formatted_lines.append(cleaned_line)
-        return "\n".join(formatted_lines)
+    # ------------------------------------------------------------
+    # WAVEFORM PLOTS
+    # ------------------------------------------------------------
 
-    def _format_gradient_error_text(self, equations_list, x_var=None, fit_split=None, y_var=None):
-        """Create gradient error text using CAR as the baseline."""
-        slope_map = {label: slopes for label, _, _, _, _, slopes in equations_list}
-        dls_slopes = slope_map.get(self.dls_label)
-        car_slopes = slope_map.get(self.track_label)
-
-        if dls_slopes is None or car_slopes is None:
-            return None
-
-        def percent_error(dls_value, car_value):
-            if car_value == 0:
-                return None
-            return ((dls_value - car_value) / car_value) * 100
-
-        lines = ["Error in DLS vs CAR"]
-
-        if isinstance(dls_slopes, tuple) and isinstance(car_slopes, tuple) and fit_split is not None:
-            split_axis, split_value = fit_split
-            axis_name = x_var if split_axis == 'x' else y_var
-            conditions = [f"{axis_name} < {split_value}", f"{axis_name} >= {split_value}"]
-            for condition, dls_value, car_value in zip(conditions, dls_slopes, car_slopes):
-                error = percent_error(dls_value, car_value)
-                if error is None:
-                    lines.append(f"{condition}: undefined")
-                else:
-                    lines.append(f"{condition}: {error:+.1f}%")
-        else:
-            error = percent_error(float(dls_slopes), float(car_slopes))
-            if error is None:
-                lines.append("undefined")
-            else:
-                lines.append(f"{error:+.1f}%")
-
-        return "\n".join(lines)
-
-    def _select_trendline_anchor(self, ax, equations_list):
-        """Choose the least crowded corner for vertically stacked trendline boxes."""
-        x_min, x_max = ax.get_xlim()
-        y_min, y_max = ax.get_ylim()
-        x_span = x_max - x_min
-        y_span = y_max - y_min
-
-        if x_span == 0 or y_span == 0:
-            return (0.03, 0.97, 'left', 'top')
-
-        point_sets = [(np.asarray(x_vals), np.asarray(y_vals)) for _, _, _, x_vals, y_vals, _ in equations_list]
-        all_x = np.concatenate([x_vals for x_vals, _ in point_sets if len(x_vals) > 0])
-        all_y = np.concatenate([y_vals for _, y_vals in point_sets if len(y_vals) > 0])
-
-        box_width = 0.34
-        stack_height = min(0.16 * max(len(equations_list), 1), 0.42)
-        candidates = [
-            (0.03, 0.97, 'left', 'top'),
-            (0.97, 0.97, 'right', 'top'),
-            (0.03, 0.03, 'left', 'bottom'),
-            (0.97, 0.03, 'right', 'bottom'),
-        ]
-
-        best_candidate = candidates[0]
-        best_score = None
-
-        for x_anchor, y_anchor, h_align, v_align in candidates:
-            if h_align == 'left':
-                x0 = x_min + (x_anchor * x_span)
-                x1 = x_min + ((x_anchor + box_width) * x_span)
-            else:
-                x0 = x_min + ((x_anchor - box_width) * x_span)
-                x1 = x_min + (x_anchor * x_span)
-
-            if v_align == 'top':
-                y0 = y_min + ((y_anchor - stack_height) * y_span)
-                y1 = y_min + (y_anchor * y_span)
-            else:
-                y0 = y_min + (y_anchor * y_span)
-                y1 = y_min + ((y_anchor + stack_height) * y_span)
-
-            covered_points = ((all_x >= x0) & (all_x <= x1) & (all_y >= y0) & (all_y <= y1)).sum()
-            score = (covered_points, 0 if v_align == 'top' else 1)
-
-            if best_score is None or score < best_score:
-                best_score = score
-                best_candidate = (x_anchor, y_anchor, h_align, v_align)
-
-        return best_candidate
-
-    def _colorize_legend_labels(self, legend):
-        """Match legend text colors to the plotted series colors."""
-        if legend is None:
-            return
-
-        for text, handle in zip(legend.get_texts(), legend.legend_handles):
-            color = None
-            if hasattr(handle, 'get_color'):
-                color = handle.get_color()
-            elif hasattr(handle, 'get_facecolor'):
-                facecolor = handle.get_facecolor()
-                if len(facecolor) > 0:
-                    color = facecolor[0]
-
-            if color is not None:
-                text.set_color(color)
-
-    def _prepare_waveform_channels(self, channels, axis_limits=None, reference_lines=None, subplot_heights=None):
-        """Collect channels and per-axis options that exist in both datasets."""
+    def _prepare_waveform_channels(self, channels, axis_limits, reference_lines, subplot_heights):
         available_channels = []
-        available_axis_limits = []
-        available_ref_lines = []
-        available_subplot_heights = []
+        avail_lims = []
+        avail_refs = []
+        avail_heights = []
 
-        for ax_idx, channel in enumerate(channels):
-            if channel not in self.dls_data.columns or channel not in self.track_data.columns:
-                print(f"  Warning: Channel {channel} not found in both datasets, skipping")
+        for i, ch in enumerate(channels):
+            count = sum(ch in self.run_data[r["name"].lower()].columns for r in self.runs)
+
+            if count == 0:
+                print(f"  Warning: Channel {ch} missing from all runs, skipping")
                 continue
 
-            available_channels.append(channel)
-            available_axis_limits.append(axis_limits[ax_idx] if axis_limits and ax_idx < len(axis_limits) else None)
-            available_ref_lines.append(reference_lines[ax_idx] if reference_lines and ax_idx < len(reference_lines) else None)
-            available_subplot_heights.append(subplot_heights[ax_idx] if subplot_heights and ax_idx < len(subplot_heights) else 1.0)
+            if count < len(self.runs):
+                print(f"  Warning: Channel {ch} only present in {count}/{len(self.runs)}, skipping")
+                continue
 
-        return available_channels, available_axis_limits, available_ref_lines, available_subplot_heights
-    
+            available_channels.append(ch)
+            avail_lims.append(axis_limits[i] if axis_limits and i < len(axis_limits) else None)
+            avail_refs.append(reference_lines[i] if reference_lines and i < len(reference_lines) else None)
+            avail_heights.append(subplot_heights[i] if subplot_heights and i < len(subplot_heights) else 1.0)
+
+        return available_channels, avail_lims, avail_refs, avail_heights
+
     def generate_waveform_plots(self):
-        """Create waveform plots based on WAVEFORM_PLOT_DEFINITIONS"""
-        plots = self._get_plot_group(0, 'waveform')
+        plots = self._get_plot_group(0, "waveform")
 
         for plot_def in plots:
             if len(plot_def) == 4:
-                plot_name, channels, axis_limits, reference_lines = plot_def
+                plot_name, channels, axis_limits, ref_lines = plot_def
                 subplot_heights = None
             elif len(plot_def) == 5:
-                plot_name, channels, axis_limits, reference_lines, subplot_heights = plot_def
+                plot_name, channels, axis_limits, ref_lines, subplot_heights = plot_def
             else:
-                raise ValueError(
-                    "Waveform plot definitions must be "
-                    "[name, channels, axis_limits, reference_lines] or "
-                    "[name, channels, axis_limits, reference_lines, subplot_heights]."
-                )
+                raise ValueError("Waveform plot definition malformed")
 
             print(f"Creating waveform plot: {plot_name}")
-            available_channels, available_axis_limits, available_ref_lines, available_subplot_heights = self._prepare_waveform_channels(
-                channels,
-                axis_limits=axis_limits,
-                reference_lines=reference_lines,
-                subplot_heights=subplot_heights
-            )
 
-            if len(available_channels) == 0:
-                print(f"  Warning: No valid channels found for {plot_name}, skipping plot")
+            (avail_channels, avail_lims, avail_refs, avail_heights) = \
+                self._prepare_waveform_channels(channels, axis_limits, ref_lines, subplot_heights)
+
+            if not avail_channels:
+                print(f"  No valid channels for {plot_name}")
                 continue
 
-            plot_filename = self._sanitize_plot_filename("waveform", plot_name)
-            min_waveform_height = 1.6 * sum(available_subplot_heights)
-            figsize = self._resolve_plot_figsize(
-                plot_filename,
-                self.waveform_figsize,
-                min_height=min_waveform_height
-            )
+            filename = self._sanitize_plot_filename("waveform", plot_name)
+            min_height = 1.6 * sum(avail_heights)
+            figsize = self._resolve_plot_figsize(filename, self.waveform_figsize, min_height=min_height)
 
             fig, axes = plt.subplots(
-                len(available_channels),
+                len(avail_channels),
                 1,
                 figsize=figsize,
-                squeeze=False,
                 sharex=True,
-                gridspec_kw={'height_ratios': available_subplot_heights}
+                squeeze=False,
+                gridspec_kw={"height_ratios": avail_heights},
             )
             axes = axes.flatten()
 
-            x_dls, x_track, xlabel = self._resolve_waveform_axes()
+            xlabel = "sLap (m)" if all(
+                "sLap" in self.run_data[r["name"].lower()].columns for r in self.runs
+            ) else "Sample"
 
-            # Plot each available channel
-            for plot_idx, channel in enumerate(available_channels):
-                ax = axes[plot_idx]
-                x_dls_plot, y_dls_plot = self._mask_waveform_discontinuities(x_dls, self.dls_data[channel])
-                x_track_plot, y_track_plot = self._mask_waveform_discontinuities(x_track, self.track_data[channel])
+            # Draw channels
+            for idx, ch in enumerate(avail_channels):
+                ax = axes[idx]
 
-                ax.plot(x_dls_plot, y_dls_plot, linewidth=1.8, color=self.dls_run['color'],
-                        label=self.dls_label, alpha=0.85, zorder=2)
-                ax.plot(x_track_plot, y_track_plot, linewidth=1.8, color=self.track_run['color'],
-                        label=self.track_label, alpha=0.85, zorder=2)
+                for run in self.runs:
+                    rn = run["name"].lower()
+                    if rn not in self.run_data:
+                        continue
 
-                
+                    df = self.run_data[rn]
+                    if ch not in df.columns:
+                        continue
+
+                    x_vals = df["sLap"] if "sLap" in df.columns else df.index
+                    y_vals = df[ch]
+
+                    x_plot, y_plot = self._mask_waveform_discontinuities(x_vals, y_vals)
+                    ax.plot(
+                        x_plot,
+                        y_plot,
+                        linewidth=1.6,
+                        color=run["color"],
+                        label=run["name"].upper(),
+                        alpha=0.85,
+                    )
 
                 ax.set_ylabel(
-                    datafunctions.add_units_to_label(channel, units_map=self.units_map),
+                    datafunctions.add_units_to_label(ch, units_map=self.units_map),
                     fontsize=8.2,
-                    fontweight='bold',
+                    fontweight="bold",
                     rotation=0,
-                    ha='right',
-                    va='center'
+                    ha="right",
+                    va="center",
                 )
                 ax.yaxis.set_label_coords(-0.035, 0.5)
-                ax.grid(True, which='major', axis='y', alpha=0.28, linestyle='-', linewidth=0.45)
-                ax.set_axisbelow(True)
+                ax.grid(True, axis="y", alpha=0.28, linewidth=0.45)
 
-                # Set axis limits if provided
-                if available_axis_limits[plot_idx] is not None:
-                    y_min, y_max = available_axis_limits[plot_idx]
-                    if y_min is not None and y_max is not None:
-                        ax.set_ylim(y_min, y_max)
+                if avail_lims[idx] is not None:
+                    yl, yh = avail_lims[idx]
+                    if yl is not None and yh is not None:
+                        ax.set_ylim(yl, yh)
 
-                # Add reference lines if provided
-                if available_ref_lines[plot_idx] is not None:
-                    for ref_val in self._normalise_reference_lines(available_ref_lines[plot_idx]):
-                        ax.axhline(y=ref_val, color='gray', linestyle='--', alpha=0.4, linewidth=0.9)
+                if avail_refs[idx] is not None:
+                    vals = avail_refs[idx]
+                    if np.isscalar(vals):
+                        vals = [vals]
+                    for vv in vals:
+                        ax.axhline(vv, linestyle="--", color="gray", alpha=0.4)
 
-                # Style axes
-                ax.tick_params(labelsize=10)
-
-                if plot_idx < len(available_channels) - 1:
+                if idx < len(avail_channels) - 1:
                     ax.tick_params(labelbottom=False)
 
-            self._style_waveform_x_axis(axes, xlabel)
+            # Style x-axis
+            bottom = axes[-1]
+            bottom.set_xlabel(xlabel, fontweight="bold")
+            bottom.tick_params(axis="x", labelsize=10)
+
+            if xlabel == "sLap (m)":
+                xmaxs = []
+                for ax in axes:
+                    _, xm = ax.get_xlim()
+                    if xm > 0:
+                        xmaxs.append(xm)
+                if xmaxs:
+                    xv = max(xmaxs)
+                    xv = np.ceil(xv / 100) * 100
+                    for ax in axes:
+                        ax.set_xlim(0, xv)
+
+                for ax in axes:
+                    ax.xaxis.set_major_locator(ticker.MultipleLocator(500))
+                    ax.xaxis.set_minor_locator(ticker.MultipleLocator(100))
+                    ax.grid(True, which="major", axis="x", alpha=0.4, linewidth=0.5)
+                    ax.grid(True, which="minor", axis="x", alpha=0.2, linewidth=0.3)
 
             plt.tight_layout(pad=0.3, h_pad=-0.8)
 
-            # Add legend
+            # Legend (only show once)
             handles, labels = axes[0].get_legend_handles_labels()
             legend = axes[-1].legend(
                 handles,
                 labels,
-                loc='lower left',
+                loc="lower left",
                 bbox_to_anchor=(0.015, 0.02),
-                fontsize=10.4,
                 framealpha=0.99,
-                borderpad=0.45,
-                handlelength=2.2,
-                labelspacing=0.35,
-                handletextpad=0.55,
-                prop={'family': 'Montserrat', 'weight': 'bold', 'size': 10.4}
+                prop={"family": "Montserrat", "weight": "bold", "size": 10.4},
             )
-            self._colorize_legend_labels(legend)
 
-            # Save plot
-            fig.savefig(self.plots_dir / plot_filename, dpi=300, facecolor='white', bbox_inches='tight', pad_inches=0.03)
-            print(f"  Saved: {plot_filename}")
+            self._colorize_legend_labels(legend)
+            fig.savefig(self.plots_dir / filename, dpi=300, facecolor="white", bbox_inches="tight")
             plt.close(fig)
-    
+            print(f"  Saved: {filename}")
+
+    # ------------------------------------------------------------
+    # SCATTER PLOTS
+    # ------------------------------------------------------------
+
     def generate_scatter_plots(self):
-        """Create scatter plots based on SCATTER_PLOT_DEFINITIONS"""
-        plots = self._get_plot_group(1, 'scatter')
+        plots = self._get_plot_group(1, "scatter")
 
         for plot_def in plots:
             plot_name, (x_var, y_var), axis_limits, best_fit, fit_split = plot_def
             print(f"Creating scatter plot: {plot_name} ({x_var} vs {y_var})")
 
-            plot_filename = self._sanitize_plot_filename("scatter", plot_name)
-            fig, ax = plt.subplots(figsize=self._resolve_plot_figsize(plot_filename, self.scatter_FIGSIZE))
-            ax.set_xlabel(datafunctions.add_units_to_label(x_var, self.units_map), fontsize=14, fontweight='bold', labelpad=10)
-            ax.set_ylabel(datafunctions.add_units_to_label(y_var, self.units_map), fontsize=14, fontweight='bold', labelpad=10)
+            filename = self._sanitize_plot_filename("scatter", plot_name)
+            figsize = self._resolve_plot_figsize(filename, self.scatter_FIGSIZE)
 
-            equations_list = []
+            fig, ax = plt.subplots(figsize=figsize)
 
-            # Plot DLS data
-            if x_var in self.dls_data.columns and y_var in self.dls_data.columns:
-                x_data = self.dls_data[x_var].dropna()
-                y_data = self.dls_data[y_var][x_data.index].dropna()
-                x_data = x_data[y_data.index]
+            ax.set_xlabel(
+                datafunctions.add_units_to_label(x_var, self.units_map),
+                fontweight="bold",
+                fontsize=14,
+            )
+            ax.set_ylabel(
+                datafunctions.add_units_to_label(y_var, self.units_map),
+                fontweight="bold",
+                fontsize=14,
+            )
 
-                if best_fit == 0:
-                    # No fit line
-                    datafunctions.plot_scatter(ax, x_data.values, y_data.values,
-                                             self.dls_label, self.dls_run['color'],
-                                             self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
-                                             x_var, y_var)
-                elif best_fit == 1:
-                    # Single fit line
-                    result = datafunctions.plot_scatter_with_1fit(ax, x_data.values, y_data.values,
-                                                        self.dls_label, self.dls_run['color'],
-                                                        self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
-                                                        x_var, y_var, FIT_LINE_X_LIMITS=None)
-                    if result[0] and result[3]:
-                        equations_list.append((self.dls_label, result[3], self.dls_run['color'], x_data.values, y_data.values, result[1]))
-                elif best_fit == 2:
-                    # Double fit line at configured split point
-                    result = datafunctions.plot_scatter_with_double_fit(ax, x_data.values, y_data.values,
-                                                              self.dls_label, self.dls_run['color'],
-                                                              self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
-                                                              x_var, y_var, fit_split=fit_split)
-                    if result[0] and result[3]:
-                        equations_list.append((self.dls_label, result[3], self.dls_run['color'], x_data.values, y_data.values, result[1]))
-            else:
-                print(f"  Warning: Channels {x_var} and/or {y_var} not found in DLS data, skipping DLS plot")
+            eq_list = []
 
-            # Plot Track data
-            if x_var in self.track_data.columns and y_var in self.track_data.columns:
-                x_data = self.track_data[x_var].dropna()
-                y_data = self.track_data[y_var][x_data.index].dropna()
-                x_data = x_data[y_data.index]
+            for run in self.runs:
+                rn = run["name"].lower()
+                if rn not in self.run_data:
+                    continue
+
+                df = self.run_data[rn]
+
+                if x_var not in df.columns or y_var not in df.columns:
+                    print(f"  Missing {x_var} or {y_var} in run {rn}, skipping")
+                    continue
+
+                x = df[x_var].dropna()
+                y = df[y_var].reindex(x.index).dropna()
+                x = x.reindex(y.index)
 
                 if best_fit == 0:
-                    # No fit line
-                    datafunctions.plot_scatter(ax, x_data.values, y_data.values,
-                                             self.track_label, self.track_run['color'],
-                                             self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
-                                             x_var, y_var)
-                elif best_fit == 1:
-                    # Single fit line
-                    result = datafunctions.plot_scatter_with_1fit(ax, x_data.values, y_data.values,
-                                                        self.track_label, self.track_run['color'],
-                                                        self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
-                                                        x_var, y_var, FIT_LINE_X_LIMITS=None)
-                    if result[0] and result[3]:
-                        equations_list.append((self.track_label, result[3], self.track_run['color'], x_data.values, y_data.values, result[1]))
-                elif best_fit == 2:
-                    # Double fit line at configured split point
-                    result = datafunctions.plot_scatter_with_double_fit(ax, x_data.values, y_data.values,
-                                                              self.track_label, self.track_run['color'],
-                                                              self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
-                                                              x_var, y_var, fit_split=fit_split)
-                    if result[0] and result[3]:
-                        equations_list.append((self.track_label, result[3], self.track_run['color'], x_data.values, y_data.values, result[1]))
-            else:
-                print(f"  Warning: Channels {x_var} and/or {y_var} not found in Track data, skipping Track plot")
+                    datafunctions.plot_scatter(
+                        ax, x.values, y.values,
+                        run["name"].upper(), run["color"],
+                        self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
+                        x_var, y_var
+                    )
 
-            # Set axis limits if provided
+                elif best_fit == 1:
+                    ok, slope, intercept, eq_text, color = datafunctions.plot_scatter_with_1fit(
+                        ax, x.values, y.values,
+                        run["name"].upper(), run["color"],
+                        self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
+                        x_var, y_var
+                    )
+                    if ok:
+                        eq_list.append((run["name"].upper(), eq_text, run["color"], x.values, y.values, slope))
+
+                elif best_fit == 2:
+                    ok, slopes, intercepts, eq_text, color = datafunctions.plot_scatter_with_double_fit(
+                        ax, x.values, y.values,
+                        run["name"].upper(), run["color"],
+                        self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
+                        x_var, y_var,
+                        fit_split=fit_split
+                    )
+                    if ok:
+                        eq_list.append((run["name"].upper(), eq_text, run["color"], x.values, y.values, slopes))
+
+            # Axis limits
             if axis_limits:
                 (xmin, xmax), (ymin, ymax) = axis_limits
                 if xmin is not None and xmax is not None:
@@ -729,96 +615,137 @@ class DataPlotter:
                 if ymin is not None and ymax is not None:
                     ax.set_ylim(ymin, ymax)
 
-            self._add_axis_edge_padding(ax, x_pad_ratio=0.02, y_pad_ratio=0.03)
+            self._add_axis_edge_padding(ax)
 
-            ax.grid(True, which='major', alpha=0.26, linestyle='-', linewidth=0.4)
+            # Axis lines
+            xl, xr = ax.get_xlim()
+            yl, yr = ax.get_ylim()
+            if yl <= 0 <= yr:
+                ax.axhline(0, color="#5E5E5E", linewidth=1, alpha=0.8)
+            if xl <= 0 <= xr:
+                ax.axvline(0, color="#5E5E5E", linewidth=1, alpha=0.8)
+
+            ax.grid(True, alpha=0.26)
             ax.set_axisbelow(True)
-            x_min, x_max = ax.get_xlim()
-            y_min, y_max = ax.get_ylim()
-            if y_min <= 0 <= y_max:
-                ax.axhline(0, color="#5E5E5E", linewidth=1, alpha=0.8, zorder=1.5)
-            if x_min <= 0 <= x_max:
-                ax.axvline(0, color="#5E5E5E", linewidth=1, alpha=0.8, zorder=1.5)
-            ax.tick_params(labelsize=10, direction='out', length=4, width=0.8, pad=6)
-            ax.spines['top'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-            ax.spines['left'].set_linewidth(0.9)
-            ax.spines['bottom'].set_linewidth(0.9)
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
 
-            if equations_list:
-                anchor_info = self._display_equations(ax, equations_list)
-                gradient_error_text = self._format_gradient_error_text(equations_list, x_var=x_var, fit_split=fit_split, y_var=y_var)
-                if gradient_error_text:
-                    self._display_gradient_error(ax, gradient_error_text, anchor_info)
+            # Trendline boxes
+            if eq_list:
+                anchor = self._display_equations(ax, eq_list)
 
-            # Only add legend if there are artists to display
-            if ax.get_legend_handles_labels()[0]:
+                # gradient comparison only meaningful for exactly 2 runs
+                if len(self.runs) == 2:
+                    txt = self._format_gradient_error_text(eq_list, x_var, fit_split, y_var)
+                    if txt:
+                        self._display_gradient_error(ax, txt, anchor)
+
+            # Legend
+            handles, labels = ax.get_legend_handles_labels()
+            if handles:
                 legend = ax.legend(
                     fontsize=10,
                     framealpha=1,
-                    loc='best',
-                    borderpad=0.35,
+                    loc="best",
                     handlelength=1.8,
-                    prop={'family': 'Montserrat', 'weight': 'bold', 'size': 10}
+                    prop={"family": "Montserrat", "weight": "bold", "size": 10},
                 )
-                self._colorize_legend_labels(legend)
+            self._colorize_legend_labels(legend)
 
             plt.tight_layout(pad=0.25)
-
-            # Save plot
-            fig.savefig(
-                self.plots_dir / plot_filename,
-                dpi=300,
-                pad_inches=0.05,
-                facecolor='white'
-            )
-            print(f"  Saved: {plot_filename}")
+            fig.savefig(self.plots_dir / filename, dpi=300, facecolor="white")
             plt.close(fig)
+            print(f"  Saved: {filename}")
+
+    # ------------------------------------------------------------
+    # PSD PLOTS
+    # ------------------------------------------------------------
 
     def generate_psd_plots(self):
         """Create PSD plots based on PSD_PLOT_DEFINITIONS"""
         plots = self._get_plot_group(2, 'psd')
 
         for plot_def in plots:
+            # Parse plot definition
             if len(plot_def) == 3:
                 plot_name, channel, axis_limits = plot_def
+                log_scale = True
                 nperseg = 256
-                log_scale = True
             elif len(plot_def) == 4:
-                plot_name, channel, axis_limits, nperseg = plot_def
-                log_scale = True
+                plot_name, channel, axis_limits, log_scale = plot_def
+                nperseg = 256
             elif len(plot_def) == 5:
-                plot_name, channel, axis_limits, nperseg, log_scale = plot_def
+                plot_name, channel, axis_limits, log_scale, nperseg = plot_def
             else:
-                raise ValueError(
-                    "PSD plot definitions must be [name, channel, axis_limits], "
-                    "[name, channel, axis_limits, nperseg], or "
-                    "[name, channel, axis_limits, nperseg, log_scale]."
-                )
+                raise ValueError("Invalid PSD plot definition")
 
             print(f"Creating PSD plot: {plot_name} ({channel})")
 
-            if channel not in self.dls_data.columns or channel not in self.track_data.columns:
-                print(f"  Warning: Channel {channel} not found in both datasets, skipping PSD plot")
+            # Ensure the channel exists in all runs
+            missing = [
+                run['name'] for run in self.runs
+                if channel not in self.run_data[run['name'].lower()].columns
+            ]
+            if missing:
+                print(f"  Warning: PSD skipped for {channel} — missing in runs: {missing}")
                 continue
 
-            plot_filename = self._sanitize_plot_filename("psd", plot_name)
-            fig, ax = plt.subplots(figsize=self._resolve_plot_figsize(plot_filename, self.psd_FIGSIZE))
-            ax.set_xlabel('Frequency (Hz)', fontsize=13, fontweight='bold', labelpad=10)
-            ax.set_ylabel(f'{datafunctions.add_units_to_label(channel, self.units_map)} PSD', fontsize=13, fontweight='bold', labelpad=10)
+            # Setup figure
+            filename = self._sanitize_plot_filename("psd", plot_name)
+            figsize = self._resolve_plot_figsize(filename, self.psd_FIGSIZE)
 
-            dls_freq, dls_power = datafunctions.calculate_psd(self.dls_data[channel], self.FILTER_SAMPLE_RATE, nperseg=nperseg)
-            track_freq, track_power = datafunctions.calculate_psd(self.track_data[channel], self.FILTER_SAMPLE_RATE, nperseg=nperseg)
+            fig, ax = plt.subplots(figsize=figsize)
+            ax.set_xlabel('Frequency (Hz)', fontsize=13, fontweight='bold')
+            ax.set_ylabel(
+                f"{datafunctions.add_units_to_label(channel, self.units_map)} PSD",
+                fontsize=13, fontweight='bold'
+            )
 
-            if dls_freq is None or track_freq is None:
-                print(f"  Warning: Not enough valid data for PSD plot {plot_name}, skipping")
-                plt.close(fig)
-                continue
+            # ---- RUN LOOP ----
+            for run in self.runs:
+                run_name = run['name'].lower()
+                df = self.run_data[run_name]
 
-            plot_func = ax.semilogy if log_scale else ax.plot
-            plot_func(dls_freq, dls_power, linewidth=1.8, color=self.dls_run['color'], label=self.dls_label, alpha=0.9)
-            plot_func(track_freq, track_power, linewidth=1.8, color=self.track_run['color'], label=self.track_label, alpha=0.9)
+                signal = df[channel]
 
+                # SAFETY CHECKS: ensure valid signal type
+                # ----------------------------------------
+                if isinstance(signal, tuple):
+                    print(f"  Warning: PSD skipped for {channel} in run '{run_name}' (signal is tuple)")
+                    continue
+
+                if not isinstance(signal, (pd.Series, np.ndarray, list)):
+                    print(f"  Warning: PSD skipped for {channel} in run '{run_name}' (invalid type {type(signal)})")
+                    continue
+
+                # Convert to Series for safe processing
+                signal = np.asarray(signal, dtype=float)
+
+                # Must be numeric
+                if not np.issubdtype(signal.dtype, np.number):
+                    print(f"  Warning: PSD skipped for {channel} in run '{run_name}' (non-numeric dtype)")
+                    continue
+
+                # Compute PSD
+                freq, power = datafunctions.calculate_psd(
+                    signal,
+                    self.FILTER_SAMPLE_RATE,
+                    nperseg=nperseg
+                )
+
+                if freq is None:
+                    print(f"  Warning: Not enough data for PSD of {channel} in run '{run_name}'")
+                    continue
+
+                # Plot PSD
+                plot_func = ax.semilogy if log_scale else ax.plot
+                plot_func(freq, power,
+                          linewidth=1.8,
+                          color=run['color'],
+                          alpha=0.9,
+                          label=run['name'].upper())
+
+            # Axis limits
             if axis_limits:
                 (xmin, xmax), (ymin, ymax) = axis_limits
                 if xmin is not None and xmax is not None:
@@ -826,17 +753,15 @@ class DataPlotter:
                 if ymin is not None and ymax is not None:
                     ax.set_ylim(ymin, ymax)
 
+            # Padding & styling
             self._add_axis_edge_padding(ax, x_pad_ratio=0.02, y_pad_ratio=0.04)
-
-            ax.grid(True, which='major', alpha=0.26, linestyle='-', linewidth=0.4)
-            ax.grid(True, which='minor', alpha=0.14, linestyle='-', linewidth=0.3)
+            ax.grid(True, which='major', alpha=0.3)
+            ax.grid(True, which='minor', alpha=0.15)
             ax.set_axisbelow(True)
-            ax.tick_params(labelsize=10, direction='out', length=4, width=0.8, pad=6)
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
-            ax.spines['left'].set_linewidth(0.9)
-            ax.spines['bottom'].set_linewidth(0.9)
 
+            # Legend
             legend = ax.legend(
                 fontsize=10,
                 framealpha=1,
@@ -848,98 +773,222 @@ class DataPlotter:
             self._colorize_legend_labels(legend)
 
             plt.tight_layout(pad=0.25)
-
             fig.savefig(
-                self.plots_dir / plot_filename,
+                self.plots_dir / filename,
                 dpi=300,
                 pad_inches=0.05,
                 facecolor='white'
             )
-            print(f"  Saved: {plot_filename}")
             plt.close(fig)
+            print(f"  Saved: {filename}")
 
-    def _display_equations(self, ax, equations_list):
-        """Display vertically stacked trendline text in the least crowded corner."""
-        if len(equations_list) == 0:
-            return None
+    # ------------------------------------------------------------
+    # TRENDLINE & GRADIENT BOXES
+    # ------------------------------------------------------------
 
-        x_anchor, y_anchor, h_align, v_align = self._select_trendline_anchor(ax, equations_list)
-        y_step = 0.118
-        box_edges = []
+    def _select_trendline_anchor(self, ax, equations_list):
+        """Place text in the least-crowded corner."""
+        x0, x1 = ax.get_xlim()
+        y0, y1 = ax.get_ylim()
+        xs = []
+        ys = []
+        for _, _, _, xv, yv, _ in equations_list:
+            xs.extend(xv)
+            ys.extend(yv)
 
-        for idx, (label, equation, color, _, _, _) in enumerate(equations_list):
-            y_pos = y_anchor - (idx * y_step) if v_align == 'top' else y_anchor + (idx * y_step)
-            trendline_text = self._format_trendline_text(label, equation)
-            line_count = trendline_text.count('\n') + 1
-            estimated_height = 0.03 + (0.036 * line_count)
+        xs = np.array(xs)
+        ys = np.array(ys)
 
-            if v_align == 'top':
-                box_edges.append((y_pos - estimated_height, y_pos))
+        corners = {
+            "tl": (0.03, 0.97, "left", "top"),
+            "tr": (0.97, 0.97, "right", "top"),
+            "bl": (0.03, 0.03, "left", "bottom"),
+            "br": (0.97, 0.03, "right", "bottom"),
+        }
+
+        def count(corner):
+            xa, ya, hal, val = corners[corner]
+            # define box size
+            w = (x1 - x0) * 0.22
+            h = (y1 - y0) * 0.28
+
+            if hal == "left":
+                x_min = x0 + xa * (x1 - x0)
+                x_max = x_min + w
             else:
-                box_edges.append((y_pos, y_pos + estimated_height))
+                x_max = x0 + xa * (x1 - x0)
+                x_min = x_max - w
 
-            ax.text(
-                x_anchor,
-                y_pos,
-                trendline_text,
-                transform=ax.transAxes,
-                fontsize=9.1,
-                verticalalignment=v_align,
-                horizontalalignment=h_align,
-                bbox=dict(
-                    boxstyle='round,pad=0.28',
-                    facecolor='white',
-                    alpha=0.9,
-                    edgecolor=color,
-                    linewidth=1.6
-                ),
-                color=color,
-                fontweight='bold',
-                family='Montserrat',
-                linespacing=1.08
-            )
+            if val == "top":
+                y_max = y0 + ya * (y1 - y0)
+                y_min = y_max - h
+            else:
+                y_min = y0 + ya * (y1 - y0)
+                y_max = y_min + h
 
-        return x_anchor, h_align, v_align, box_edges
+            inside = (xs >= x_min) & (xs <= x_max) & (ys >= y_min) & (ys <= y_max)
+            return inside.sum()
 
-    def _display_gradient_error(self, ax, gradient_error_text, anchor_info):
-        """Display gradient error summary directly below the stacked trendline boxes."""
-        if anchor_info is None:
+        # choose corner with fewest points
+        best = min(corners.keys(), key=count)
+        return corners[best]
+
+    def _format_trendline_text(self, label, equation):
+        lines = []
+        for line in str(equation).splitlines():
+            cleaned = line.strip()
+            prefix = f"{label} "
+            if cleaned.startswith(prefix):
+                cleaned = cleaned[len(prefix):]
+            lines.append(cleaned)
+        return "\n".join(lines)
+
+
+    def _colorize_legend_labels(self, legend):
+        """
+        Match legend text color to the plotted line/marker color.
+        This keeps multi-run legends visually consistent.
+        """
+        if legend is None:
             return
 
-        x_anchor, h_align, v_align, box_edges = anchor_info
-        padding = 0.04
-        if v_align == 'top':
-            lowest_edge = min(bottom for bottom, _ in box_edges)
-            y_pos = lowest_edge - padding
+        for text, handle in zip(legend.get_texts(), legend.legend_handles):
+            color = None
+
+            # Line2D objects (common)
+            if hasattr(handle, "get_color"):
+                color = handle.get_color()
+
+            # Patch objects (scatter markers)
+            elif hasattr(handle, "get_facecolor"):
+                fc = handle.get_facecolor()
+                if isinstance(fc, (list, tuple, np.ndarray)) and len(fc) > 0:
+                    color = fc[0]
+
+            if color is not None:
+                text.set_color(color)
+
+
+    def _display_equations(self, ax, eq_list):
+        x_anchor, y_anchor, halign, valign = self._select_trendline_anchor(ax, eq_list)
+        y_step = 0.12
+        boxes = []
+
+        for i, (label, equation, color, _, _, _) in enumerate(eq_list):
+            ypos = y_anchor - i * y_step if valign == "top" else y_anchor + i * y_step
+            text = self._format_trendline_text(label, equation)
+            ax.text(
+                x_anchor,
+                ypos,
+                text,
+                transform=ax.transAxes,
+                fontsize=9,
+                verticalalignment=valign,
+                horizontalalignment=halign,
+                bbox=dict(
+                    boxstyle="round,pad=0.28",
+                    facecolor="white",
+                    alpha=0.9,
+                    edgecolor=color,
+                    linewidth=1.6,
+                ),
+                color=color,
+                fontweight="bold",
+                family="Montserrat",
+            )
+            boxes.append(ypos)
+
+        return x_anchor, halign, valign, boxes
+
+    def _format_gradient_error_text(self, equations_list, x_var=None, fit_split=None, y_var=None):
+        """
+        Create gradient error text comparing slopes between the first two runs.
+        Safely handles cases where one or both slope values are None.
+        """
+
+        # Only defined for exactly two runs
+        if len(equations_list) != 2:
+            return None
+
+        # Extract labels + slopes
+        label_a, _, _, _, _, slopes_a = equations_list[0]
+        label_b, _, _, _, _, slopes_b = equations_list[1]
+
+        def percent_error(a, b):
+            """Return percentage error or None if undefined."""
+            if a is None or b is None or b == 0:
+                return None
+            return ((a - b) / b) * 100
+
+        # Formatter that handles None safely
+        def fmt(v):
+            return "undefined" if v is None else f"{v:+.1f}%"
+
+        lines = [f"Error in {label_a.upper()} vs {label_b.upper()} Gradient:"]
+
+        # --------------------------------------------------------
+        # DOUBLE-FIT CASE (tuple slopes)
+        # --------------------------------------------------------
+        if isinstance(slopes_a, tuple) and isinstance(slopes_b, tuple) and fit_split is not None:
+            split_axis, split_value = fit_split
+            axis_name = x_var if split_axis == "x" else y_var
+
+            a1, a2 = slopes_a
+            b1, b2 = slopes_b
+
+            e1 = percent_error(a1, b1)
+            e2 = percent_error(a2, b2)
+
+            lines.append(f"{axis_name} < {split_value}: {fmt(e1)}")
+            lines.append(f"{axis_name} ≥ {split_value}: {fmt(e2)}")
+
+        # --------------------------------------------------------
+        # SINGLE-FIT CASE (one slope each)
+        # --------------------------------------------------------
         else:
-            highest_edge = max(top for _, top in box_edges)
-            y_pos = highest_edge + padding
+            e = percent_error(slopes_a, slopes_b)
+            lines.append(fmt(e))
+
+        return "\n".join(lines)
+
+    def _display_gradient_error(self, ax, text, anchor):
+        if anchor is None:
+            return
+
+        x_anchor, halign, valign, boxes = anchor
+        offset = 0.06
+
+        if valign == "top":
+            ypos = min(boxes) - offset
+        else:
+            ypos = max(boxes) + offset
 
         ax.text(
             x_anchor,
-            y_pos,
-            gradient_error_text,
+            ypos,
+            text,
             transform=ax.transAxes,
             fontsize=8.8,
-            verticalalignment=v_align,
-            horizontalalignment=h_align,
+            verticalalignment=valign,
+            horizontalalignment=halign,
             bbox=dict(
-                boxstyle='round,pad=0.26',
-                facecolor='white',
+                boxstyle="round,pad=0.26",
+                facecolor="white",
                 alpha=0.9,
-                edgecolor='#6E6E6E',
-                linewidth=1.2
+                edgecolor="#6E6E6E",
+                linewidth=1.2,
             ),
-            color='#3F3F3F',
-            fontweight='bold',
-            family='Montserrat',
-            linespacing=1.08
+            color="#3F3F3F",
+            fontweight="bold",
+            family="Montserrat",
         )
 
+    # ------------------------------------------------------------
+    # RUN ALL
+    # ------------------------------------------------------------
+
     def plot_all(self):
-        """Generate all plots based on definitions"""
         self.generate_waveform_plots()
         self.generate_scatter_plots()
         self.generate_psd_plots()
-
         print(f"\nAll plots saved to: {self.plots_dir}")
