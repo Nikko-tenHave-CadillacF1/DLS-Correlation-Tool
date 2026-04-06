@@ -506,15 +506,15 @@ class DataPlotter:
                         xmaxs.append(xm)
                 if xmaxs:
                     xv = max(xmaxs)
-                    xv = np.ceil(xv / 100) * 100
+                    xv = np.ceil(xv/100) * 100
                     for ax in axes:
                         ax.set_xlim(0, xv)
 
                 for ax in axes:
                     ax.xaxis.set_major_locator(ticker.MultipleLocator(500))
                     ax.xaxis.set_minor_locator(ticker.MultipleLocator(100))
-                    ax.grid(True, which="major", axis="x", alpha=0.4, linewidth=0.5)
-                    ax.grid(True, which="minor", axis="x", alpha=0.2, linewidth=0.3)
+                    ax.grid(True, which="major", axis="x", alpha=0.45, linewidth=0.5)
+                    ax.grid(True, which="minor", axis="x", alpha=0.225, linewidth=0.3)
 
             plt.tight_layout(pad=0.3, h_pad=-0.8)
 
@@ -648,7 +648,7 @@ class DataPlotter:
                     framealpha=1,
                     loc="best",
                     handlelength=1.8,
-                    prop={"family": "Montserrat", "weight": "bold", "size": 10},
+                    prop={"family": "Montserrat", "weight": "bold", "size": 12},
                 )
             self._colorize_legend_labels(legend)
 
@@ -751,6 +751,8 @@ class DataPlotter:
                 if xmin is not None and xmax is not None:
                     ax.set_xlim(xmin, xmax)
                 if ymin is not None and ymax is not None:
+                    if log_scale:
+                        ymin = max(ymin, 1e-6)  # avoid log(0) issues
                     ax.set_ylim(ymin, ymax)
 
             # Padding & styling
@@ -768,7 +770,7 @@ class DataPlotter:
                 loc='best',
                 borderpad=0.35,
                 handlelength=1.8,
-                prop={'family': 'Montserrat', 'weight': 'bold', 'size': 10}
+                prop={'family': 'Montserrat', 'weight': 'bold', 'size': 12}
             )
             self._colorize_legend_labels(legend)
 
@@ -871,7 +873,7 @@ class DataPlotter:
 
     def _display_equations(self, ax, eq_list):
         x_anchor, y_anchor, halign, valign = self._select_trendline_anchor(ax, eq_list)
-        y_step = 0.12
+        y_step = 0.06 / max(len(eq_list) - 1, 1)
         boxes = []
 
         for i, (label, equation, color, _, _, _) in enumerate(eq_list):
@@ -882,7 +884,7 @@ class DataPlotter:
                 ypos,
                 text,
                 transform=ax.transAxes,
-                fontsize=9,
+                fontsize=10,
                 verticalalignment=valign,
                 horizontalalignment=halign,
                 bbox=dict(
@@ -924,7 +926,7 @@ class DataPlotter:
         def fmt(v):
             return "undefined" if v is None else f"{v:+.1f}%"
 
-        lines = [f"Error in {label_a.upper()} vs {label_b.upper()} Gradient:"]
+        lines = [f"% Error in {label_a.upper()} w.r.t. {label_b.upper()}:"]
 
         # --------------------------------------------------------
         # DOUBLE-FIT CASE (tuple slopes)
@@ -968,7 +970,7 @@ class DataPlotter:
             ypos,
             text,
             transform=ax.transAxes,
-            fontsize=8.8,
+            fontsize=10,
             verticalalignment=valign,
             horizontalalignment=halign,
             bbox=dict(

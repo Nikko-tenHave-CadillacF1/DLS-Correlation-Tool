@@ -116,6 +116,8 @@ def apply_transformations(df: pd.DataFrame, source_type: str, channel_transforms
     if not transforms:
         return df
 
+    transformed_channels = []
+
     for channel, func in transforms.items():
 
         # apply to all columns
@@ -130,10 +132,12 @@ def apply_transformations(df: pd.DataFrame, source_type: str, channel_transforms
         if channel in df.columns:
             df[channel] = pd.to_numeric(df[channel], errors="coerce")
             df[channel] = func(df[channel])
-            print(f" Applied transformation to channel {channel} ({source_type.upper()})")
+            transformed_channels.append(channel)
         else:
             print(f" Warning: Cannot transform missing channel '{channel}' for {source_type.upper()}")
 
+    print(f" Applied transformations to {len(transformed_channels)} channels for {source_type.upper()}")
+    #print(f" Transformed channels for {source_type.upper()}: {', '.join(transformed_channels)}")
     return df
 
 
@@ -160,15 +164,18 @@ def apply_calculated_channels(df: pd.DataFrame, source_type: str, calculated_cha
     if not isinstance(calc_set, dict):
         return df
 
+    calculated_channels = []
+
     for channel_name, func in calc_set.items():
         try:
             df[channel_name] = pd.to_numeric(func(df), errors="coerce")
-            print(f" Calculated channel: {channel_name}")
+            calculated_channels.append(channel_name)
         except KeyError as e:
             print(f" Warning: Missing dependency {e} for calculated channel '{channel_name}'")
         except Exception as e:
             print(f" Warning: Could not compute '{channel_name}' — {e}")
-
+    print(f" Added {len(calculated_channels)} calculated channels for {source_type.upper()}")
+    #print(f" Added calculated channels for {source_type.upper()}: {', '.join(calculated_channels)}")
     return df
 
 
@@ -296,7 +303,8 @@ def apply_lowpass_filters(df: pd.DataFrame, low_pass_filters, sample_rate: float
                 filtered.append(f"{col}@{cutoff}Hz")
 
     if filtered:
-        print(f" Applied low-pass filters: {', '.join(filtered)}")
+        print(f" Applied {len(filtered)} low-pass filters for {source_type.upper()}")
+        #print(f" Applied low-pass filters: {', '.join(filtered)}")
 
     return df
 

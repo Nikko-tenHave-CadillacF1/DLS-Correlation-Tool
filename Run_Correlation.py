@@ -26,8 +26,8 @@ ROOT_FOLDER = Path(r"C:\GitHub_Local\DLS-Correlation-Tool\Data")
 # ---------------------------------------------------------------------
 
 RUNS = [
-    {"name": "dls", "file": "BOT Q1R3 - OG_DLS_2.txt", "color": "#0051FF"},
-    {"name": "car", "file": "26R03SUZ_260328_MAC26-01_PER_Q_R02.txt", "color": "#FF9100"},
+    {"name": "dls", "file": "26R03SUZ  77  FP2  Run 2 2 P2R2 NC3 Qsim  Stint 1 2 P2R2 NC3 Qsim_DLS_1.txt", "color": "#0055FF"},
+    {"name": "car", "file": "26R03SUZ_260327_MAC26-02_BOT_P2_R02_1.txt", "color": "#FF8C00"},
     # Add additional runs here:
     # {"name": "run2", "file": "somefile.csv", "color": "#0000FF"},
 ]
@@ -45,10 +45,10 @@ CHANNEL_MAPPINGS = {
     'dls': {
     # Example mappings - adjust based on your data:
     'aRollCarTrack': 'aRoll',
-    'FPushrodFL': 'FProdFL',
-    'FPushrodFR': 'FProdFR',
-    'FPushrodRL': 'FProdRL',
-    'FPushrodRR': 'FProdRR',
+    'FPushrodFL': 'FPRodFL',
+    'FPushrodFR': 'FPRodFR',
+    'FPushrodRL': 'FPRodRL',
+    'FPushrodRR': 'FPRodRR',
     'aUndersteer_aSlip': 'aUndersteerFromSlip',
     'BAeroModeXDriver': 'SM',
     'rThrottlePedal': 'rThrottle',
@@ -59,10 +59,6 @@ CHANNEL_MAPPINGS = {
     'BNSLMEnablingStatusEnabled': 'SM',
     'PMGUKActual': 'PMGUK',
     'rThrottlePedal': 'rThrottle',
-    'FPRodFL': 'FProdFL',
-    'FPRodFR': 'FProdFR',
-    'FPRodRL': 'FProdRL',
-    'FPRodRR': 'FProdRR',
     'xDamperPotFL': 'xDamperFL',
     'xDamperPotFR': 'xDamperFR',
     'xDamperPotRL': 'xDamperRL',
@@ -80,10 +76,10 @@ CHANNEL_MAPPINGS = {
 CHANNEL_TRANSFORMS = {
     "dls": {
         # DLS load sign corrections
-        "FProdFL": lambda x: -x,
-        "FProdFR": lambda x: -x,
-        "FProdRL": lambda x: -x,
-        "FProdRR": lambda x: -x,
+        "FPRodFL": lambda x: -x,
+        "FPRodFR": lambda x: -x,
+        "FPRodRL": lambda x: -x,
+        "FPRodRR": lambda x: -x,
         "aRoll": lambda x: -x,
     },
     "car": {
@@ -124,10 +120,10 @@ UNITS_MAP = {
 # CALCULATED CHANNELS
 # =====================================================================
 CALCULATED_CHANNELS = {
-    "FProdDeltaF": lambda df: df["FProdFL"] - df["FProdFR"],
-    "FProdDeltaR": lambda df: df["FProdRL"] - df["FProdRR"],
-    "FProdAvgF": lambda df: (df["FProdFL"] + df["FProdFR"]) / 2,
-    "FProdAvgR": lambda df: (df["FProdRL"] + df["FProdRR"]) / 2,
+    "FPRodDeltaF": lambda df: df["FPRodFL"] - df["FPRodFR"],
+    "FPRodDeltaR": lambda df: df["FPRodRL"] - df["FPRodRR"],
+    "FPRodAvgF": lambda df: (df["FPRodFL"] + df["FPRodFR"]) / 2,
+    "FPRodAvgR": lambda df: (df["FPRodRL"] + df["FPRodRR"]) / 2,
     "xDamperDeltaF": lambda df: df["xDamperFL"] - df["xDamperFR"],
     "xDamperDeltaR": lambda df: df["xDamperRL"] - df["xDamperRR"],
     "xDamperAvgF": lambda df: (df["xDamperFL"] + df["xDamperFR"]) / 2,
@@ -150,7 +146,8 @@ LOW_PASS_FILTERS = {
     "nWheelR_Avg": {"cutoff": 0, "order": 2},
     "EPlankF": {"cutoff": 0, "order": 2},
     "PPlankF": {"cutoff": 0, "order": 2},
-    "all": {"cutoff": 5, "order": 2},
+    "rThrottle": {"cutoff": 0, "order": 2},
+    "all": {"cutoff": 4, "order": 2},
 }
 
 # =====================================================================
@@ -162,19 +159,19 @@ WAVEFORM_PLOT_DEFINITIONS = [
    # `subplot height ratios` is optional; omit it to give every channel the same height.
     [
         "Driver Input", ('SM','PMGUK', 'NGear','vCar', 'aSteerWheel' , 'pBrakeF', 'rThrottle'),
-        ((-0.2, 1.2), (-360, 360), (1, 9), (60, 360), (-160, 160), (0, 80), (-1, 101)), # y-axis limits for each channel
+        ((-0.2, 1.2), (-360, 360), (1, 9), (60, 360), (-160, 160), (-10, 80), (-5, 105)), # y-axis limits for each channel
         (None, (-350, 0, 350), None, None, (0), None, None), # reference lines for each channel
         (0.1, 0.7, 0.6, 1,0.6, 0.35, 0.35) # subplot height ratios (optional)
     ],
     [
         "Power Unit", ('PMGUK', 'PEngine','NGear','vCar', 'nEngine', 'gLong' , 'pBrakeF', 'rThrottle'),
-        ((-360, 360), (-100, 500), (1, 9), (60, 360), (7000, 13000), None, (0, 80), (0,101)), # y-axis limits for each channel
+        ((-360, 360), (-100, 500), (1, 9), (60, 360), (7000, 13000), None, (-10, 80), (-5,105)), # y-axis limits for each channel
         ((-350, 0, 350), (0), None, None, (10000), (0), None, None), # reference lines for each channel
         (0.4, 0.4, 0.3, 0.7, 0.5, 0.5, 0.35, 0.35) # subplot height ratios (optional)
     ],
     [
         "Plank Wear", ('SM', 'PMGUK','vCar','FzPlankF', 'EPlankF' , 'pBrakeF', 'rThrottle'),
-        ((-0.1, 1.1), (-351, 351), (60, 360), (0, 8000), (0, 100), (0, 80), (0,101)), # y-axis limits for each channel
+        ((-0.1, 1.1), (-351, 351), (60, 360), (0, 8000), (0, 100), (-10, 80), (-5,105)), # y-axis limits for each channel
         (None, (-350, 0, 350), (0,7500), (0), None, None), # reference lines for each channel
         (0.1, 0.6, 0.8, 0.7, 0.6, 0.35, 0.35) # subplot height ratios (optional)
     ],
@@ -193,14 +190,14 @@ SCATTER_PLOT_DEFINITIONS = [
     ["Braking Efficiency", ('pBrakeF', 'gLong'), [(None,None),(-5,0)] , 2, ('y', -0.3)],
     ["Damper gLat front", ('gLat', 'xDamperDeltaF'), None , 1, None],
     ["Damper gLat rear", ('gLat', 'xDamperDeltaR'), None , 1, None],
-    ["Pushrod gLat front", ('gLat', 'FProdDeltaF'), None , 1, None],
-    ["Pushrod gLat rear", ('gLat', 'FProdDeltaR'), None , 1, None],
-    ["Front Heave", ('xDamperAvgF', 'FProdAvgF'), None, 2, ('y', 10000)],
-    ["Front Roll", ('xDamperDeltaF', 'FProdDeltaF'), None, 1, None],
-    ["Rear Heave", ('xDamperAvgR', 'FProdAvgR'), None, 1, None],
-    ["Rear Roll", ('xDamperDeltaR', 'FProdDeltaR'), None, 1, None],
-    ["Front Pushrod vCar", ('vCar', 'FProdAvgF'), None, 1, None],
-    ["Rear Pushrod vCar", ('vCar', 'FProdAvgR'), None, 1, None],
+    ["Pushrod gLat front", ('gLat', 'FPRodDeltaF'), None , 1, None],
+    ["Pushrod gLat rear", ('gLat', 'FPRodDeltaR'), None , 1, None],
+    ["Front Heave", ('xDamperAvgF', 'FPRodAvgF'), None, 2, ('y', 10000)],
+    ["Front Roll", ('xDamperDeltaF', 'FPRodDeltaF'), None, 1, None],
+    ["Rear Heave", ('xDamperAvgR', 'FPRodAvgR'), None, 1, None],
+    ["Rear Roll", ('xDamperDeltaR', 'FPRodDeltaR'), None, 1, None],
+    ["Front Pushrod vCar", ('vCar', 'FPRodAvgF'), None, 1, None],
+    ["Rear Pushrod vCar", ('vCar', 'FPRodAvgR'), None, 1, None],
     ["Front Ride vCar", ('vCar', 'hRideF'), None, 1, None],
     ["Rear Ride vCar", ('vCar', 'hRideR'), None, 1, None],
     ["Ride Height Compare", ('hRideF', 'hRideR'), [(0, 40),(20, 70)], 0, None],
@@ -213,7 +210,7 @@ PSD_PLOT_DEFINITIONS = [
    # ["Name of Plot", 'channel', [(xmin, xmax), (ymin, ymax)], log_scale, nperseg(optional)]
     ["Front Vertical Acceleration PSD", 'gVertF', [(0, 50), (None, None)], False],
     ["Rear Vertical Acceleration PSD", 'gVertR', [(0, 50), (None, None)], False],
-    ["Plank Force PSD", 'FzPlankF', [(0, 50), (None, None)], False],
+    ["Plank Force PSD", 'FzPlankF', [(0, 50), (None, None)], True],
 ]
 
 POWERPOINT_EXPORT_MAP = {
