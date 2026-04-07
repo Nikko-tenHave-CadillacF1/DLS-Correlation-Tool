@@ -333,10 +333,9 @@ def export_report_to_powerpoint(template_path, output_path, plots_dir, export_ma
 
                 # Aggressive padding for scatter/PSD in double-layout
                 if (
-                    layout == "double_plot"
-                    and (img.startswith("scatter_") or img.startswith("psd_"))
+                    layout == "double_plot" and img.startswith(("scatter_", "psd_", "histogram_"))
                 ):
-                    fill_factor = 1.3
+                    fill_factor = 1.2
                 else:
                     fill_factor = 1.0
 

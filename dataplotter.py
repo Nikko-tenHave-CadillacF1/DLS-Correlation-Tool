@@ -6,7 +6,7 @@ from matplotlib import font_manager
 from pathlib import Path
 import datafunctions
 from collections import Counter
-
+from matplotlib.patches import Patch
 
 def make_unique(names):
     """Make column names unique by appending suffixes to duplicates."""
@@ -38,7 +38,7 @@ class DataPlotter:
         channel_transforms=None,
         calculated_channels=None,
         low_pass_filters=None,
-        fig_size=[(15.5, 6.4), (10, 8), (10, 8)],
+        fig_size=[(15.5, 6.4), (10, 8), (10, 8), (10, 8)],
         units_map=None,
         plot_aspect_ratios=None,
         sample_rate=100,
@@ -90,6 +90,7 @@ class DataPlotter:
         self.waveform_figsize = fig_size[0]
         self.scatter_FIGSIZE = fig_size[1]
         self.psd_FIGSIZE = fig_size[2]
+        self.histogram_FIGSIZE = fig_size[3]
         self.plot_aspect_ratios = plot_aspect_ratios or {}
 
         # Create plots directory
@@ -785,6 +786,121 @@ class DataPlotter:
             print(f"  Saved: {filename}")
 
     # ------------------------------------------------------------
+    # HISTOGRAM PLOTS
+    # ------------------------------------------------------------
+
+    def generate_histogram_plots(self):
+        """Create histogram plots based on HISTOGRAM_PLOT_DEFINITIONS"""
+        plots = self._get_plot_group(3, 'histogram')
+
+        for plot_def in plots:
+            plot_name, channel, axis_limits, log_scale = plot_def
+            print(f"Creating histogram plot: {plot_name} ({channel})")
+
+            filename = self._sanitize_plot_filename("histogram", plot_name)
+            figsize = self._resolve_plot_figsize(filename, self.histogram_FIGSIZE)
+
+            fig, ax = plt.subplots(figsize=figsize)
+            ax.set_xlabel(
+                datafunctions.add_units_to_label(channel, self.units_map),
+                fontsize=13, fontweight='bold'
+            )
+            ax.set_ylabel('Time (s)', fontsize=13, fontweight='bold')
+
+            # ---- Collect data from all runs (for shared bins) ----
+            all_data = []
+
+            for run in self.runs:
+                run_name = run['name'].lower()
+                df = self.run_data[run_name]
+
+                if channel not in df.columns:
+                    continue
+
+                vals = df[channel].dropna()
+                if not vals.empty:
+                    all_data.append(vals.values)
+
+            if not all_data:
+                print(f"  Warning: No valid data for histogram {channel}")
+                continue
+
+            all_data = np.concatenate(all_data)
+
+            # ---- Compute shared bins ----
+            num_bins = 30
+            bins = np.histogram_bin_edges(all_data, bins=num_bins)
+
+            if axis_limits:
+                (xmin, xmax), (ymin, ymax) = axis_limits
+                if xmin is not None and xmax is not None:
+                    ax.set_xlim(xmin, xmax)
+                    bins = bins[(bins >= xmin) & (bins <= xmax)]
+                if ymin is not None and ymax is not None:
+                    if log_scale:
+                        ymin = max(ymin, 1e-6)  # avoid log(0) issues
+                    ax.set_ylim(ymin, ymax)
+
+            # ---- Plot using shared bins ----
+            for run in self.runs:
+                run_name = run['name'].lower()
+                df = self.run_data[run_name]
+
+                if channel not in df.columns:
+                    continue
+
+                data = df[channel].dropna()
+                if data.empty:
+                    continue
+
+                dt = 1.0 / self.FILTER_SAMPLE_RATE
+                weights = np.full(len(data), dt)
+
+                ax.hist(
+                    data,
+                    bins=bins,
+                    weights=weights,
+                    alpha=0.7,
+                    color=run['color'],
+                    label=run['name'].upper(),
+                    edgecolor='black',
+                    linewidth=0.5,
+                    log=log_scale,
+                    stacked=True
+                )
+
+
+            # Padding & styling
+            self._add_axis_edge_padding(ax)
+            ax.grid(True, alpha=0.3)
+            ax.set_axisbelow(True)
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+
+            # Legend
+            legend = ax.legend(
+                fontsize=10,
+                framealpha=1,
+                loc='best',
+                borderpad=0.35,
+                handlelength=1.8,
+                prop={'family': 'Montserrat', 'weight': 'bold', 'size': 12}
+            )
+            self._colorize_legend_labels(legend)
+
+            plt.tight_layout(pad=0.25)
+            fig.savefig(
+                self.plots_dir / filename,
+                dpi=300,
+                pad_inches=0.05,
+                facecolor='white'
+            )
+            plt.close(fig)
+            print(f"  Saved: {filename}")
+
+
+
+    # ------------------------------------------------------------
     # TRENDLINE & GRADIENT BOXES
     # ------------------------------------------------------------
 
@@ -845,30 +961,24 @@ class DataPlotter:
             lines.append(cleaned)
         return "\n".join(lines)
 
-
     def _colorize_legend_labels(self, legend):
-        """
-        Match legend text color to the plotted line/marker color.
-        This keeps multi-run legends visually consistent.
-        """
         if legend is None:
             return
 
         for text, handle in zip(legend.get_texts(), legend.legend_handles):
             color = None
 
-            # Line2D objects (common)
-            if hasattr(handle, "get_color"):
+            if hasattr(handle, "get_color") and not isinstance(handle, Patch):
                 color = handle.get_color()
 
-            # Patch objects (scatter markers)
-            elif hasattr(handle, "get_facecolor"):
+            elif isinstance(handle, Patch):
                 fc = handle.get_facecolor()
-                if isinstance(fc, (list, tuple, np.ndarray)) and len(fc) > 0:
-                    color = fc[0]
+                if isinstance(fc, (list, tuple, np.ndarray)) and len(fc) >= 3:
+                    color = fc[:3]
 
             if color is not None:
                 text.set_color(color)
+
 
 
     def _display_equations(self, ax, eq_list):
@@ -993,4 +1103,5 @@ class DataPlotter:
         self.generate_waveform_plots()
         self.generate_scatter_plots()
         self.generate_psd_plots()
+        self.generate_histogram_plots()
         print(f"\nAll plots saved to: {self.plots_dir}")

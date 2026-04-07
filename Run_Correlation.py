@@ -28,7 +28,7 @@ ROOT_FOLDER = Path(r"C:\GitHub_Local\DLS-Correlation-Tool\Data")
 RUNS = [
     {"name": "dls", "file": "Run TXT Files\\VPG Baselines  SUZ  26R03SUZ v2_-OCv2_DLS_3.txt", "color": "#003CFF"},
     {"name": "car", "file": "Run TXT Files\\26R03SUZ_260328_MAC26-02_BOT_Q_R03.txt", "color": "#FF8C00"},
-    {"name": "oc", "file": "Run TXT Files\\Lap001_20260406-OC-VPG - Correlation - DiL 2603256 FIT SUZ Support Run 7 - Multi - v1-SUZ.oc.txt", "color": "#37FF00"},
+    #{"name": "oc", "file": "Run TXT Files\\Lap001_20260406-OC-VPG - Correlation - DiL 2603256 FIT SUZ Support Run 7 - Multi - v1-SUZ.oc.txt", "color": "#37FF00"},
     # Add additional runs here:
     # {"name": "run2", "file": "somefile.csv", "color": "#0000FF"},
 ]
@@ -225,13 +225,18 @@ SCATTER_PLOT_DEFINITIONS = [
     ["Roll angle gLat", ('gLat', 'aRoll'), None, 1, None],
     ["Steering Moment", ('aSteerWheel', 'MSteerWheel'), None, 0, None],
     ["Plank power acceleration", ('gLong (unsmoothed)', 'PPlankF'), None, 0, None],
+    ## TODO Update best fit defintion to [(x, min, max) or (y, min, max), ...] to allow for plotting multiple best fit lines over specific ranges of the data, rather than the entire dataset.
 ] 
 
 PSD_PLOT_DEFINITIONS = [
    # ["Name of Plot", 'channel', [(xmin, xmax), (ymin, ymax)], log_scale, nperseg(optional)]
     ["Front Vertical Acceleration PSD", 'gVertF', [(0, 50), (None, None)], False],
     ["Rear Vertical Acceleration PSD", 'gVertR', [(0, 50), (None, None)], False],
-    ["Plank Force PSD", 'FzPlankF', [(0, 50), (None, None)], True],
+]
+
+HISTOGRAM_PLOT_DEFINITIONS = [
+   # ["Name of Plot", 'channel', [(xmin, xmax), (ymin, ymax)], log_scale]
+    ["Plank Power Distribution", 'PPlankF', [(1,45), (None, None)], False],
 ]
 
 POWERPOINT_EXPORT_MAP = {
@@ -251,13 +256,14 @@ POWERPOINT_EXPORT_MAP = {
     17: {'layout': 'double_plot', 'images': ['scatter_Ride_Height_Compare.png', 'scatter_Roll_angle_gLat.png']},
     18: {'layout': 'double_plot', 'images': ['psd_Front_Vertical_Acceleration_PSD.png', 'psd_Rear_Vertical_Acceleration_PSD.png']},
     19: {'layout': 'main_plot', 'images': ['waveform_Plank_Wear.png']},
-    20: {'layout': 'double_plot', 'images': ['scatter_Plank_Power_Acceleration.png', 'psd_Plank_Force_PSD.png']},
+    20: {'layout': 'double_plot', 'images': ['scatter_Plank_Power_Acceleration.png', 'histogram_Plank_Power_Distribution.png']},
 }
 
 PLOT_DEFINITIONS = (
-    WAVEFORM_PLOT_DEFINITIONS,
-    SCATTER_PLOT_DEFINITIONS,
-    PSD_PLOT_DEFINITIONS
+    WAVEFORM_PLOT_DEFINITIONS if WAVEFORM_PLOT_DEFINITIONS else [],
+    SCATTER_PLOT_DEFINITIONS if SCATTER_PLOT_DEFINITIONS else [],
+    PSD_PLOT_DEFINITIONS if PSD_PLOT_DEFINITIONS else [],
+    HISTOGRAM_PLOT_DEFINITIONS if HISTOGRAM_PLOT_DEFINITIONS else []
 )
 
 # =====================================================================
