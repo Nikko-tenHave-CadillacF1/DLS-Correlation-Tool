@@ -26,7 +26,7 @@ ROOT_FOLDER = Path(r"C:\GitHub_Local\DLS-Correlation-Tool\Data")
 # ---------------------------------------------------------------------
 
 RUNS = [
-    {"name": "dls", "file": "Run TXT Files\\VPG Baselines  SUZ  26R03SUZ v2_-OCv2_DLS_3.txt", "color": "#003CFF"},
+    {"name": "dls", "file": "Run TXT Files\\26R03SUZ  11  FP3  Run 3 3  Baseline_LTS_Iteration_4.txt", "color": "#002FFF"},
     {"name": "car", "file": "Run TXT Files\\26R03SUZ_260328_MAC26-02_BOT_Q_R03.txt", "color": "#FF8C00"},
     #{"name": "oc", "file": "Run TXT Files\\Lap001_20260406-OC-VPG - Correlation - DiL 2603256 FIT SUZ Support Run 7 - Multi - v1-SUZ.oc.txt", "color": "#37FF00"},
     # Add additional runs here:
@@ -45,7 +45,7 @@ EXPORT_TO_POWERPOINT = True
 CHANNEL_MAPPINGS = {
     'oc': {
     # Example mappings - adjust based on your data:
-    'BSLMActive' : 'SM',
+    'rSLMActive' : 'SM',
     },
     'dil': {
     # Example mappings - adjust based on your data:
@@ -199,33 +199,31 @@ WAVEFORM_PLOT_DEFINITIONS = [
 ] 
 
 SCATTER_PLOT_DEFINITIONS = [
-   #["Name of Plot", ('x Axis', 'y Axis'), [(xmin, xmax), (ymin, ymax)], Best Fit T/F, ('x', x_crossing) or ('y', y_crossing)],
-    ["Gear Ratios", ('nWheelR_Avg', 'nEngine'), None, 0, None],
-    ["Engine Power", ('nEngine', 'PEngine'), None, 0, None],
-    ["Long Acceleration", ('vCar', 'gLong'), [(60,360),(None,None)], 0, None],
-    ["Lat Acceleration", ('vCar', 'gLat_Abs'), [(60,360),(None,None)], 0, None],
-    ["GG Plot", ('gLat', 'gLong'), None , 0, None],
-    ["Understeer Plot", ('vCar', 'aUndersteerFromSlip'), None , 0, None],
-    ["Yaw Rate Response", ('aSteerWheel', 'nYaw'), None , 0, None],
-    ["Lateral Acceleration Response", ('aSteerWheel', 'gLat'), None , 0, None],
-    ["Braking Efficiency", ('pBrakeF', 'gLong'), [(None,None),(-5,0)] , 2, ('y', -0.3)],
-    ["Damper gLat front", ('gLat', 'xDamperDeltaF'), None , 1, None],
-    ["Damper gLat rear", ('gLat', 'xDamperDeltaR'), None , 1, None],
-    ["Pushrod gLat front", ('gLat', 'FPRodDeltaF'), None , 1, None],
-    ["Pushrod gLat rear", ('gLat', 'FPRodDeltaR'), None , 1, None],
-    ["Front Heave", ('xDamperAvgF', 'FPRodAvgF'), None, 2, ('y', 10000)],
-    ["Front Roll", ('xDamperDeltaF', 'FPRodDeltaF'), None, 1, None],
-    ["Rear Heave", ('xDamperAvgR', 'FPRodAvgR'), None, 1, None],
-    ["Rear Roll", ('xDamperDeltaR', 'FPRodDeltaR'), None, 1, None],
-    ["Front Pushrod vCar", ('vCar', 'FPRodAvgF'), None, 1, None],
-    ["Rear Pushrod vCar", ('vCar', 'FPRodAvgR'), None, 1, None],
-    ["Front Ride vCar", ('vCar', 'hRideF'), [(None,None), (0,40)], 1, None],
-    ["Rear Ride vCar", ('vCar', 'hRideR'), [(None,None),(20,80)], 1, None],
-    ["Ride Height Compare", ('hRideF', 'hRideR'), [(0, 40),(20, 70)], 0, None],
-    ["Roll angle gLat", ('gLat', 'aRoll'), None, 1, None],
-    ["Steering Moment", ('aSteerWheel', 'MSteerWheel'), None, 0, None],
-    ["Plank power acceleration", ('gLong (unsmoothed)', 'PPlankF'), None, 0, None],
-    ## TODO Update best fit defintion to [(x, min, max) or (y, min, max), ...] to allow for plotting multiple best fit lines over specific ranges of the data, rather than the entire dataset.
+    ["Gear Ratios", ('nWheelR_Avg', 'nEngine'), None, 0],
+    ["Engine Power", ('nEngine', 'PEngine'), None, 0],
+    ["Long Acceleration", ('vCar', 'gLong'), [(60,360),(None,None)], 0],
+    ["Lat Acceleration", ('vCar', 'gLat_Abs'), [(60,360),(None,None)], 0],
+    ["GG Plot", ('gLat', 'gLong'), None , 0],
+    ["Understeer Plot", ('vCar', 'aUndersteerFromSlip'), None , 0],
+    ["Yaw Rate Response", ('aSteerWheel', 'nYaw'), None , 0],
+    ["Lateral Acceleration Response", ('aSteerWheel', 'gLat'), None , 0],
+    ["Braking Efficiency", ('pBrakeF', 'gLong'), [(None,None),(-5,0)] , [('y', None, -0.3), ('y', -0.3, None)]],
+    ["Damper gLat front", ('gLat', 'xDamperDeltaF'), None , [('x', None, None)]],
+    ["Damper gLat rear", ('gLat', 'xDamperDeltaR'), None , [('x', None, None)]],
+    ["Pushrod gLat front", ('gLat', 'FPRodDeltaF'), None , [('x', None, None)]],
+    ["Pushrod gLat rear", ('gLat', 'FPRodDeltaR'), None , [('x', None, None)]],
+    ["Front Heave", ('xDamperAvgF', 'FPRodAvgF'), None, [('y', None, 10000), ('y', 10000, None)]],
+    ["Front Roll", ('xDamperDeltaF', 'FPRodDeltaF'), None, [('x', None, None)]],
+    ["Rear Heave", ('xDamperAvgR', 'FPRodAvgR'), None, [('x', None, None)]],
+    ["Rear Roll", ('xDamperDeltaR', 'FPRodDeltaR'), None, [('x', None, None)]],
+    ["Front Pushrod vCar", ('vCar', 'FPRodAvgF'), None, [('x', None, None)]],
+    ["Rear Pushrod vCar", ('vCar', 'FPRodAvgR'), None, [('x', None, None)]],
+    ["Front Ride vCar", ('vCar', 'hRideF'), [(None,None), (0,40)], [('x', None, None)]],
+    ["Rear Ride vCar", ('vCar', 'hRideR'), [(None,None),(20,80)], [('x', None, None)]],
+    ["Ride Height Compare", ('hRideF', 'hRideR'), [(0, 40),(20, 70)], 0],
+    ["Roll angle gLat", ('gLat', 'aRoll'), None, [('x', None, None)]],
+    ["Steering Moment", ('aSteerWheel', 'MSteerWheel'), None, 0],
+    ["Plank power acceleration", ('gLong (unsmoothed)', 'PPlankF'), None, 0],
 ] 
 
 PSD_PLOT_DEFINITIONS = [

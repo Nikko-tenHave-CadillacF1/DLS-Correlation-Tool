@@ -543,7 +543,15 @@ class DataPlotter:
         plots = self._get_plot_group(1, "scatter")
 
         for plot_def in plots:
-            plot_name, (x_var, y_var), axis_limits, best_fit, fit_split = plot_def
+            if len(plot_def) == 4:
+                plot_name, (x_var, y_var), axis_limits, best_fit = plot_def
+                fit_split = None
+            elif len(plot_def) == 5:
+                plot_name, (x_var, y_var), axis_limits, best_fit, fit_split = plot_def
+            else:
+                raise ValueError(
+                    f"Scatter plot definition for '{plot_def[0] if plot_def else 'unknown'}' must have 4 or 5 items"
+                )
             print(f"Creating scatter plot: {plot_name} ({x_var} vs {y_var})")
 
             filename = self._sanitize_plot_filename("scatter", plot_name)
@@ -579,7 +587,18 @@ class DataPlotter:
                 y = df[y_var].reindex(x.index).dropna()
                 x = x.reindex(y.index)
 
-                if best_fit == 0:
+                if isinstance(best_fit, (list, tuple)) and best_fit and isinstance(best_fit[0], (list, tuple)):
+                    ok, slopes, intercepts, eq_text, color = datafunctions.plot_scatter_with_multi_fit(
+                        ax, x.values, y.values,
+                        run["name"].upper(), run["color"],
+                        self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
+                        x_var, y_var,
+                        fit_defs=best_fit
+                    )
+                    if ok:
+                        eq_list.append((run["name"].upper(), eq_text, run["color"], x.values, y.values, slopes))
+
+                elif best_fit == 0:
                     datafunctions.plot_scatter(
                         ax, x.values, y.values,
                         run["name"].upper(), run["color"],
@@ -1037,6 +1056,11 @@ class DataPlotter:
             return "undefined" if v is None else f"{v:+.1f}%"
 
         lines = [f"% Error in {label_a.upper()} w.r.t. {label_b.upper()}:"]
+
+        if isinstance(slopes_a, tuple) and isinstance(slopes_b, tuple) and fit_split is None:
+            for idx, (a_val, b_val) in enumerate(zip(slopes_a, slopes_b), start=1):
+                lines.append(f"Fit {idx}: {fmt(percent_error(a_val, b_val))}")
+            return "\n".join(lines)
 
         # --------------------------------------------------------
         # DOUBLE-FIT CASE (tuple slopes)

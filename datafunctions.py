@@ -492,6 +492,79 @@ def plot_scatter_with_double_fit(
 
     return True, (slope_before, slope_after), (interc_before, interc_after), eq_text.strip(), color
 
+def plot_scatter_with_multi_fit(
+    ax, x_data, y_data, label, color, alpha, size, x_var="", y_var="", fit_defs=None
+):
+    """Scatter + as many linear fit segments as provided."""
+    if len(x_data) == 0:
+        print(f" Warning: No data for multi-fit ({label} {x_var} vs {y_var})")
+        return False, None, None, None, None
+
+    if not fit_defs:
+        return plot_scatter_with_1fit(
+            ax, x_data, y_data, label, color, alpha, size, x_var, y_var
+        )
+
+    ax.scatter(x_data, y_data, alpha=alpha, s=size, color=color, label=label, edgecolors="none")
+
+    slopes_list = []
+    intercepts_list = []
+    eq_lines = []
+    line_styles = ["--", "-.", ":"]
+
+    def _format_bound(value):
+        return f"{float(value):.4g}"
+
+    for idx, fit_def in enumerate(fit_defs):
+        try:
+            axis, min_val, max_val = fit_def
+        except (TypeError, ValueError):
+            return plot_scatter_with_1fit(
+                ax, x_data, y_data, label, color, alpha, size, x_var, y_var
+            )
+
+        if axis == "x":
+            min_bound = np.min(x_data) if min_val is None else min_val
+            max_bound = np.max(x_data) if max_val is None else max_val
+            lower_mask = x_data >= min_bound if min_val is None else x_data > min_bound
+            upper_mask = x_data <= max_bound if max_val is None else x_data < max_bound
+            mask = lower_mask & upper_mask
+            axis_name = x_var or "x"
+        elif axis == "y":
+            min_bound = np.min(y_data) if min_val is None else min_val
+            max_bound = np.max(y_data) if max_val is None else max_val
+            lower_mask = y_data >= min_bound if min_val is None else y_data > min_bound
+            upper_mask = y_data <= max_bound if max_val is None else y_data < max_bound
+            mask = lower_mask & upper_mask
+            axis_name = y_var or "y"
+        else:
+            return plot_scatter_with_1fit(
+                ax, x_data, y_data, label, color, alpha, size, x_var, y_var
+            )
+
+        if mask.sum() <= 1:
+            slopes_list.append(None)
+            intercepts_list.append(None)
+            continue
+
+        xb = x_data[mask]
+        yb = y_data[mask]
+        try:
+            slope, interc, _, _, _ = linregress(xb, yb)
+        except ValueError:
+            print(f" Warning: Not enough data for fit ({label} {x_var} vs {y_var})")
+            return False, None, None, None, None
+
+        xr = np.linspace(np.min(xb), np.max(xb), 50)
+        yr = slope * xr + interc
+        ax.plot(xr, yr, color="#000000", linestyle=line_styles[idx % len(line_styles)])
+        eq_lines.append(
+            f"{label} ({_format_bound(min_bound)} < {axis_name} < {_format_bound(max_bound)}): y = {slope:.3f}x + {interc:.3f}"
+        )
+        slopes_list.append(slope)
+        intercepts_list.append(interc)
+
+    return True, tuple(slopes_list), tuple(intercepts_list), "\n".join(eq_lines), color
 
 # ================================================================
 # LABEL HELPERS
