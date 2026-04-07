@@ -516,7 +516,7 @@ class DataPlotter:
                     ax.grid(True, which="major", axis="x", alpha=0.45, linewidth=0.5)
                     ax.grid(True, which="minor", axis="x", alpha=0.225, linewidth=0.3)
 
-            plt.tight_layout(pad=0.3, h_pad=-0.8)
+            plt.tight_layout(pad=0.3, h_pad=-0.4)
 
             # Legend (only show once)
             handles, labels = axes[0].get_legend_handles_labels()
@@ -756,7 +756,7 @@ class DataPlotter:
                     ax.set_ylim(ymin, ymax)
 
             # Padding & styling
-            self._add_axis_edge_padding(ax, x_pad_ratio=0.02, y_pad_ratio=0.04)
+            self._add_axis_edge_padding(ax, x_pad_ratio=0.02, y_pad_ratio= (0.04 if not log_scale else 0))
             ax.grid(True, which='major', alpha=0.3)
             ax.grid(True, which='minor', alpha=0.15)
             ax.set_axisbelow(True)

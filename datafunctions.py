@@ -418,7 +418,11 @@ def plot_scatter_with_1fit(
     else:
         xmin, xmax = np.min(x_data), np.max(x_data)
 
-    slope, interc, rval, _, _ = linregress(x_data, y_data)
+    try:
+        slope, interc, rval, _, _ = linregress(x_data, y_data)
+    except ValueError:
+        print(f" Warning: Not enough data for fit ({label} {x_var} vs {y_var})")
+        return False, None, None, None, None
 
     xr = np.linspace(xmin, xmax, 100)
     yr = slope * xr + interc
@@ -434,7 +438,7 @@ def plot_scatter_with_double_fit(
     """Scatter + piecewise two-segment fit."""
     if len(x_data) == 0:
         print(f" Warning: No data for 2-fit ({label} {x_var} vs {y_var})")
-        return False, None, None
+        return False, None, None, None, None
 
     ax.scatter(x_data, y_data, alpha=alpha, s=size, color=color, label=label, edgecolors="none")
 
@@ -465,7 +469,11 @@ def plot_scatter_with_double_fit(
     if mask_before.sum() > 1:
         xb = x_data[mask_before]
         yb = y_data[mask_before]
-        slope_before, interc_before, _, _, _ = linregress(xb, yb)
+        try:
+            slope_before, interc_before, _, _, _ = linregress(xb, yb)
+        except ValueError:
+            print(f" Warning: Not enough data for fit ({label} {x_var} vs {y_var})")
+            return False, None, None, None, None
         xr = np.linspace(np.min(xb), np.max(xb), 50)
         yr = slope_before * xr + interc_before
         ax.plot(xr, yr, color="#000000", linestyle="--")

@@ -26,8 +26,9 @@ ROOT_FOLDER = Path(r"C:\GitHub_Local\DLS-Correlation-Tool\Data")
 # ---------------------------------------------------------------------
 
 RUNS = [
-    {"name": "dls", "file": "26R03SUZ  77  FP2  Run 2 2 P2R2 NC3 Qsim  Stint 1 2 P2R2 NC3 Qsim_DLS_1.txt", "color": "#0055FF"},
-    {"name": "car", "file": "26R03SUZ_260327_MAC26-02_BOT_P2_R02_1.txt", "color": "#FF8C00"},
+    {"name": "dls", "file": "Run TXT Files\\VPG Baselines  SUZ  26R03SUZ v2_-OCv2_DLS_3.txt", "color": "#003CFF"},
+    {"name": "car", "file": "Run TXT Files\\26R03SUZ_260328_MAC26-02_BOT_Q_R03.txt", "color": "#FF8C00"},
+    {"name": "oc", "file": "Run TXT Files\\Lap001_20260406-OC-VPG - Correlation - DiL 2603256 FIT SUZ Support Run 7 - Multi - v1-SUZ.oc.txt", "color": "#37FF00"},
     # Add additional runs here:
     # {"name": "run2", "file": "somefile.csv", "color": "#0000FF"},
 ]
@@ -42,6 +43,22 @@ EXPORT_TO_POWERPOINT = True
 # =====================================================================
 # CHANNEL MAPPINGS
 CHANNEL_MAPPINGS = {
+    'oc': {
+    # Example mappings - adjust based on your data:
+    'BSLMActive' : 'SM',
+    },
+    'dil': {
+    # Example mappings - adjust based on your data:
+    'BSLMActiveCan': 'SM',
+    'FPushrodFL': 'FPRodFL',
+    'FPushrodFR': 'FPRodFR',
+    'FPushrodRL': 'FPRodRL',
+    'FPushrodRR': 'FPRodRR',
+    'EPlankWearLapF' : 'EPlankF',
+    'PPlankWearF' : 'PPlankF',
+    'pBrakeF1' : 'pBrakeF',
+    'CAN_6_632_aSteerWheel_Can' : 'aSteerWheel',
+    },
     'dls': {
     # Example mappings - adjust based on your data:
     'aRollCarTrack': 'aRoll',
@@ -74,6 +91,10 @@ CHANNEL_MAPPINGS = {
 # CHANNEL TRANSFORMS
 # =====================================================================
 CHANNEL_TRANSFORMS = {
+    'oc' : {
+        'aRoll': lambda x: -x, 
+    },
+    'dil' : None,
     "dls": {
         # DLS load sign corrections
         "FPRodFL": lambda x: -x,
@@ -147,7 +168,7 @@ LOW_PASS_FILTERS = {
     "EPlankF": {"cutoff": 0, "order": 2},
     "PPlankF": {"cutoff": 0, "order": 2},
     "rThrottle": {"cutoff": 0, "order": 2},
-    "all": {"cutoff": 4, "order": 2},
+    "all": {"cutoff": 5, "order": 2},
 }
 
 # =====================================================================
@@ -171,7 +192,7 @@ WAVEFORM_PLOT_DEFINITIONS = [
     ],
     [
         "Plank Wear", ('SM', 'PMGUK','vCar','FzPlankF', 'EPlankF' , 'pBrakeF', 'rThrottle'),
-        ((-0.1, 1.1), (-351, 351), (60, 360), (0, 8000), (0, 100), (-10, 80), (-5,105)), # y-axis limits for each channel
+        ((-0.1, 1.1), (-360, 360), (60, 360), (0, 8000), (0, 100), (-10, 80), (-5,105)), # y-axis limits for each channel
         (None, (-350, 0, 350), (0,7500), (0), None, None), # reference lines for each channel
         (0.1, 0.6, 0.8, 0.7, 0.6, 0.35, 0.35) # subplot height ratios (optional)
     ],
@@ -198,8 +219,8 @@ SCATTER_PLOT_DEFINITIONS = [
     ["Rear Roll", ('xDamperDeltaR', 'FPRodDeltaR'), None, 1, None],
     ["Front Pushrod vCar", ('vCar', 'FPRodAvgF'), None, 1, None],
     ["Rear Pushrod vCar", ('vCar', 'FPRodAvgR'), None, 1, None],
-    ["Front Ride vCar", ('vCar', 'hRideF'), None, 1, None],
-    ["Rear Ride vCar", ('vCar', 'hRideR'), None, 1, None],
+    ["Front Ride vCar", ('vCar', 'hRideF'), [(None,None), (0,40)], 1, None],
+    ["Rear Ride vCar", ('vCar', 'hRideR'), [(None,None),(20,80)], 1, None],
     ["Ride Height Compare", ('hRideF', 'hRideR'), [(0, 40),(20, 70)], 0, None],
     ["Roll angle gLat", ('gLat', 'aRoll'), None, 1, None],
     ["Steering Moment", ('aSteerWheel', 'MSteerWheel'), None, 0, None],
