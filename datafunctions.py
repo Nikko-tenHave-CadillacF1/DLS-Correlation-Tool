@@ -1,3 +1,5 @@
+"""Shared data-cleaning, filtering, PSD, and scatter-fit utilities."""
+
 import pandas as pd
 import numpy as np
 from scipy.stats import linregress
@@ -134,7 +136,7 @@ def apply_transformations(df: pd.DataFrame, source_type: str, channel_transforms
             df[channel] = func(df[channel])
             transformed_channels.append(channel)
         else:
-            print(f" Warning: Cannot transform missing channel '{channel}' for {source_type.upper()}")
+            print(f"[WARNING][datafunctions] Cannot transform missing channel '{channel}' for source '{source_type.upper()}'.")
 
     print(f" Applied transformations to {len(transformed_channels)} channels for {source_type.upper()}")
     #print(f" Transformed channels for {source_type.upper()}: {', '.join(transformed_channels)}")
@@ -171,9 +173,9 @@ def apply_calculated_channels(df: pd.DataFrame, source_type: str, calculated_cha
             df[channel_name] = pd.to_numeric(func(df), errors="coerce")
             calculated_channels.append(channel_name)
         except KeyError as e:
-            print(f" Warning: Missing dependency {e} for calculated channel '{channel_name}'")
+            print(f"[WARNING][datafunctions] Missing dependency {e} for calculated channel '{channel_name}'.")
         except Exception as e:
-            print(f" Warning: Could not compute '{channel_name}' — {e}")
+            print(f"[WARNING][datafunctions] Could not compute calculated channel '{channel_name}': {e}")
     print(f" Added {len(calculated_channels)} calculated channels for {source_type.upper()}")
     #print(f" Added calculated channels for {source_type.upper()}: {', '.join(calculated_channels)}")
     return df
@@ -216,7 +218,7 @@ def apply_lowpass_filters(df: pd.DataFrame, low_pass_filters, sample_rate: float
             continue
 
         if channel not in df.columns:
-            print(f" Warning: Cannot filter missing channel '{channel}'")
+            print(f"[WARNING][datafunctions] Cannot filter missing channel '{channel}'.")
             continue
 
         channels_to_skip.append(channel)
@@ -229,7 +231,7 @@ def apply_lowpass_filters(df: pd.DataFrame, low_pass_filters, sample_rate: float
             config = cfg
 
         if "cutoff" not in config:
-            print(f" Warning: Invalid filter config for '{channel}'")
+            print(f"[WARNING][datafunctions] Invalid filter config for channel '{channel}'.")
             continue
 
         cutoff = config["cutoff"]
@@ -241,14 +243,14 @@ def apply_lowpass_filters(df: pd.DataFrame, low_pass_filters, sample_rate: float
         # Prepare the signal
         data = df[channel].values
         if len(data) <= order * 3 or np.all(np.isnan(data)):
-            print(f" Warning: Not enough data to filter '{channel}'")
+            print(f"[WARNING][datafunctions] Not enough data to filter channel '{channel}'.")
             continue
 
         nyquist = 0.5 * sample_rate
         normal_cutoff = cutoff / nyquist
 
         if normal_cutoff >= 1.0:
-            print(f" Warning: Cutoff too high for '{channel}' — skipping")
+            print(f"[WARNING][datafunctions] Cutoff is too high for channel '{channel}'. Skipping filter.")
             continue
 
         b, a = butter(order, normal_cutoff, btype="low", analog=False)
@@ -313,7 +315,7 @@ def apply_lowpass_filters(df: pd.DataFrame, low_pass_filters, sample_rate: float
 # PSD CALCULATION
 # ================================================================
 
-def calculate_psd(signal, sample_rate, nperseg=256):
+def calculate_psd(signal, sample_rate, nperseg=512):
     """
     Calculate PSD using Welch’s method.
     Returns (frequencies, power).
@@ -396,11 +398,24 @@ def find_best_text_position(ax):
 def plot_scatter(ax, x_data, y_data, label, color, alpha, size, x_var="", y_var=""):
     """Simple scatter plot."""
     if len(x_data) == 0:
-        print(f" Warning: No data for scatter ({label} {x_var} vs {y_var})")
+        print(f"[WARNING][datafunctions] No data for scatter: {label} ({x_var} vs {y_var}).")
         return False, None, None
 
     ax.scatter(x_data, y_data, alpha=alpha, s=size, color=color, label=label, edgecolors="none")
     return True, None, None
+
+
+def _plot_scatter_fit_line(ax, x_values, y_values, color, linestyle="-", linewidth=1.8):
+    """Draw a high-contrast fit line with a distinct linestyle."""
+    ax.plot(
+        x_values,
+        y_values,
+        color="#000000",
+        linestyle=linestyle,
+        linewidth=linewidth,
+        alpha=0.98,
+        zorder=4,
+    )
 
 
 def plot_scatter_with_1fit(
@@ -408,7 +423,7 @@ def plot_scatter_with_1fit(
 ):
     """Scatter + single linear trendline."""
     if len(x_data) == 0:
-        print(f" Warning: No data for fit ({label} {x_var} vs {y_var})")
+        print(f"[WARNING][datafunctions] No data for single fit: {label} ({x_var} vs {y_var}).")
         return False, None, None, None, None
 
     ax.scatter(x_data, y_data, alpha=alpha, s=size, color=color, label=label, edgecolors="none")
@@ -421,12 +436,12 @@ def plot_scatter_with_1fit(
     try:
         slope, interc, rval, _, _ = linregress(x_data, y_data)
     except ValueError:
-        print(f" Warning: Not enough data for fit ({label} {x_var} vs {y_var})")
+        print(f"[WARNING][datafunctions] Not enough data for fit: {label} ({x_var} vs {y_var}).")
         return False, None, None, None, None
 
     xr = np.linspace(xmin, xmax, 100)
     yr = slope * xr + interc
-    ax.plot(xr, yr, color="#000000", linewidth=1.0)
+    _plot_scatter_fit_line(ax, xr, yr, color=color, linestyle="--", linewidth=1.9)
 
     equation = f"y = {slope:.3f}x + {interc:.3f}"
     return True, slope, interc, equation, color
@@ -437,7 +452,7 @@ def plot_scatter_with_double_fit(
 ):
     """Scatter + piecewise two-segment fit."""
     if len(x_data) == 0:
-        print(f" Warning: No data for 2-fit ({label} {x_var} vs {y_var})")
+        print(f"[WARNING][datafunctions] No data for double fit: {label} ({x_var} vs {y_var}).")
         return False, None, None, None, None
 
     ax.scatter(x_data, y_data, alpha=alpha, s=size, color=color, label=label, edgecolors="none")
@@ -472,11 +487,11 @@ def plot_scatter_with_double_fit(
         try:
             slope_before, interc_before, _, _, _ = linregress(xb, yb)
         except ValueError:
-            print(f" Warning: Not enough data for fit ({label} {x_var} vs {y_var})")
+            print(f"[WARNING][datafunctions] Not enough data for fit: {label} ({x_var} vs {y_var}).")
             return False, None, None, None, None
         xr = np.linspace(np.min(xb), np.max(xb), 50)
         yr = slope_before * xr + interc_before
-        ax.plot(xr, yr, color="#000000", linestyle="--")
+        _plot_scatter_fit_line(ax, xr, yr, color=color, linestyle="--", linewidth=1.9)
         eq_text += f"{label} ({axis_name} < {split_val}): y = {slope_before:.3f}x + {interc_before:.3f}\n"
 
     # After split
@@ -486,7 +501,7 @@ def plot_scatter_with_double_fit(
         slope_after, interc_after, _, _, _ = linregress(xa, ya)
         xr = np.linspace(np.min(xa), np.max(xa), 50)
         yr = slope_after * xr + interc_after
-        ax.plot(xr, yr, color="#000000", linestyle="-.")
+        _plot_scatter_fit_line(ax, xr, yr, color=color, linestyle="-.", linewidth=1.9)
 
         eq_text += f"({axis_name} ≥ {split_val}): y = {slope_after:.3f}x + {interc_after:.3f}"
 
@@ -497,7 +512,7 @@ def plot_scatter_with_multi_fit(
 ):
     """Scatter + as many linear fit segments as provided."""
     if len(x_data) == 0:
-        print(f" Warning: No data for multi-fit ({label} {x_var} vs {y_var})")
+        print(f"[WARNING][datafunctions] No data for multi-fit: {label} ({x_var} vs {y_var}).")
         return False, None, None, None, None
 
     if not fit_defs:
@@ -552,12 +567,19 @@ def plot_scatter_with_multi_fit(
         try:
             slope, interc, _, _, _ = linregress(xb, yb)
         except ValueError:
-            print(f" Warning: Not enough data for fit ({label} {x_var} vs {y_var})")
+            print(f"[WARNING][datafunctions] Not enough data for fit: {label} ({x_var} vs {y_var}).")
             return False, None, None, None, None
 
         xr = np.linspace(np.min(xb), np.max(xb), 50)
         yr = slope * xr + interc
-        ax.plot(xr, yr, color="#000000", linestyle=line_styles[idx % len(line_styles)])
+        _plot_scatter_fit_line(
+            ax,
+            xr,
+            yr,
+            color=color,
+            linestyle=line_styles[idx % len(line_styles)],
+            linewidth=1.9,
+        )
         eq_lines.append(
             f"{label} ({_format_bound(min_bound)} < {axis_name} < {_format_bound(max_bound)}): y = {slope:.3f}x + {interc:.3f}"
         )

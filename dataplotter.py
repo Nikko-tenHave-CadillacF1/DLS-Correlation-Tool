@@ -1,3 +1,5 @@
+"""Data loading, preprocessing, and plotting pipeline for correlation reports."""
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -45,6 +47,7 @@ class DataPlotter:
         scatter_dot_size=5,
         scatter_transparency=0.8,
     ):
+        """Build a plotter instance and run the preprocessing pipeline."""
         self.runs = runs
         self._configure_plot_style()
 
@@ -64,7 +67,7 @@ class DataPlotter:
             self.run_filepaths[run_name] = file_path
 
             if not file_path.exists():
-                print(f"Data file for {run_name} not found: {file_path}, skipping this run")
+                print(f"[WARNING][DataPlotter] Missing data file for run '{run_name}': {file_path}. Skipping run.")
                 continue
 
             use_python_engine = (run_name == "car")
@@ -246,7 +249,7 @@ class DataPlotter:
             return df, df.columns, units
 
         except Exception as e:
-            print(f"Error loading {file_path}: {e}")
+            print(f"[ERROR][DataPlotter] Failed to load data file '{file_path}': {e}")
             raise
 
     # ------------------------------------------------------------
@@ -276,6 +279,7 @@ class DataPlotter:
     # ------------------------------------------------------------
 
     def apply_channel_mappings(self):
+        """Apply source-specific channel renaming for every loaded run."""
         for run in self.runs:
             name = run["name"].lower()
             if name in self.run_data:
@@ -284,6 +288,7 @@ class DataPlotter:
                 )
 
     def apply_transformations(self):
+        """Apply configured per-source numeric transforms to each run."""
         for run in self.runs:
             name = run["name"].lower()
             if name in self.run_data:
@@ -292,6 +297,7 @@ class DataPlotter:
                 )
 
     def apply_calculated_channels(self):
+        """Create configured derived channels for each run."""
         for run in self.runs:
             name = run["name"].lower()
             if name in self.run_data:
@@ -300,6 +306,7 @@ class DataPlotter:
                 )
 
     def apply_lowpass_filters(self):
+        """Apply low-pass filtering to each run using shared settings."""
         for run in self.runs:
             name = run["name"].lower()
             if name in self.run_data:
@@ -315,11 +322,13 @@ class DataPlotter:
     # ------------------------------------------------------------
 
     def _get_plot_group(self, index, plot_type):
+        """Return one plot-definition group by index or an empty list."""
         if not self.PLOT_DEFINITIONS or len(self.PLOT_DEFINITIONS) <= index:
             return []
         return self.PLOT_DEFINITIONS[index] or []
 
     def _sanitize_plot_filename(self, prefix, plot_name, suffix=""):
+        """Create a filesystem-safe PNG name from a plot title."""
         safe = (
             plot_name.replace(" ", "_")
             .replace("(", "")
@@ -330,6 +339,7 @@ class DataPlotter:
         return f"{prefix}_{safe}{suffix}.png"
 
     def _resolve_plot_figsize(self, filename, default_size, *, min_height=None):
+        """Resolve figure size using defaults and optional PPT template aspect ratio."""
         w0, h0 = default_size
         target_aspect = self.plot_aspect_ratios.get(filename)
 
@@ -350,6 +360,7 @@ class DataPlotter:
         return (w, h)
 
     def _mask_waveform_discontinuities(self, x_values, y_values):
+        """Mask invalid lap-distance regions so line plots break at discontinuities."""
         xs = pd.Series(x_values).reset_index(drop=True)
         ys = pd.Series(y_values).reset_index(drop=True).copy()
 
@@ -364,6 +375,7 @@ class DataPlotter:
         return xs, ys
 
     def _add_axis_edge_padding(self, ax, x_pad_ratio=0.02, y_pad_ratio=0.03):
+        """Add proportional padding to current axis limits."""
         xmin, xmax = ax.get_xlim()
         ymin, ymax = ax.get_ylim()
 
@@ -375,11 +387,108 @@ class DataPlotter:
             pad = (ymax - ymin) * y_pad_ratio
             ax.set_ylim(ymin - pad, ymax + pad)
 
+    def _format_psd_ylabel(self, channel):
+        """Format PSD y-axis text with units when available."""
+        units = ""
+        if self.units_map:
+            for key, value in self.units_map.items():
+                if key.lower() == channel.lower():
+                    units = value
+                    break
+
+        if units:
+            return f"{channel} PSD ({units}^2/Hz)"
+        return f"{channel} PSD"
+
+    def _compute_nice_histogram_bins(self, data, num_bins=30):
+        """Compute round-number histogram bins with integer-preferred widths."""
+        values = np.asarray(data, dtype=float)
+        values = values[np.isfinite(values)]
+        if values.size == 0:
+            return np.array([0.0, 1.0])
+
+        data_min = float(np.min(values))
+        data_max = float(np.max(values))
+
+        if np.isclose(data_min, data_max):
+            start = np.floor(data_min)
+            return np.array([start, start + 1.0])
+
+        raw_step = (data_max - data_min) / max(num_bins, 1)
+        exponent = np.floor(np.log10(raw_step))
+        fraction = raw_step / (10 ** exponent)
+
+        if fraction <= 1:
+            nice_fraction = 1
+        elif fraction <= 2:
+            nice_fraction = 2
+        elif fraction <= 5:
+            nice_fraction = 5
+        else:
+            nice_fraction = 10
+
+        step = nice_fraction * (10 ** exponent)
+        if step >= 1:
+            step = max(1.0, float(np.round(step)))
+
+        start = np.floor(data_min / step) * step
+        end = np.ceil(data_max / step) * step
+        bins = np.arange(start, end + step * 0.5, step)
+
+        if bins.size < 2:
+            bins = np.array([start, start + step])
+
+        return bins
+
+    def _compute_equal_width_bins_in_limits(self, xmin, xmax, reference_bins):
+        """Compute equal-width bins in [xmin, xmax] with a count derived from a near-nice step."""
+        xmin = float(xmin)
+        xmax = float(xmax)
+        if xmax <= xmin:
+            return np.array([xmin, xmin + 1.0])
+
+        if reference_bins is not None and len(reference_bins) > 1:
+            target_step = float(reference_bins[1] - reference_bins[0])
+        else:
+            target_step = (xmax - xmin) / 30.0
+
+        if target_step <= 0:
+            target_step = (xmax - xmin) / 30.0
+
+        bin_count = max(1, int(np.round((xmax - xmin) / target_step)))
+        return np.linspace(xmin, xmax, bin_count + 1)
+
+    def _build_gradient_segment_labels(self, fit_defs, x_var=None, y_var=None):
+        """Create descriptive labels for segmented gradient error reporting."""
+        if not isinstance(fit_defs, (list, tuple)):
+            return None
+
+        labels = []
+        for idx, fit_def in enumerate(fit_defs, start=1):
+            if not isinstance(fit_def, (list, tuple)) or len(fit_def) != 3:
+                labels.append(f"Segment {idx}")
+                continue
+
+            axis, min_val, max_val = fit_def
+            axis_name = x_var if axis == "x" else y_var if axis == "y" else str(axis)
+
+            if min_val is None and max_val is None:
+                labels.append(f"{axis_name}: full range")
+            elif min_val is None:
+                labels.append(f"{axis_name} < {max_val:g}")
+            elif max_val is None:
+                labels.append(f"{axis_name} >= {min_val:g}")
+            else:
+                labels.append(f"{min_val:g} <= {axis_name} < {max_val:g}")
+
+        return labels if labels else None
+
     # ------------------------------------------------------------
     # WAVEFORM PLOTS
     # ------------------------------------------------------------
 
     def _prepare_waveform_channels(self, channels, axis_limits, reference_lines, subplot_heights):
+        """Filter waveform channel definitions to channels available in all runs."""
         available_channels = []
         avail_lims = []
         avail_refs = []
@@ -389,11 +498,13 @@ class DataPlotter:
             count = sum(ch in self.run_data[r["name"].lower()].columns for r in self.runs)
 
             if count == 0:
-                print(f"  Warning: Channel {ch} missing from all runs, skipping")
+                print(f"[WARNING][DataPlotter] Waveform channel '{ch}' missing from all runs. Skipping channel.")
                 continue
 
             if count < len(self.runs):
-                print(f"  Warning: Channel {ch} only present in {count}/{len(self.runs)}, skipping")
+                print(
+                    f"[WARNING][DataPlotter] Waveform channel '{ch}' present in {count}/{len(self.runs)} runs. Skipping channel."
+                )
                 continue
 
             available_channels.append(ch)
@@ -404,6 +515,7 @@ class DataPlotter:
         return available_channels, avail_lims, avail_refs, avail_heights
 
     def generate_waveform_plots(self):
+        """Generate all configured waveform subplot figures."""
         plots = self._get_plot_group(0, "waveform")
 
         for plot_def in plots:
@@ -512,25 +624,15 @@ class DataPlotter:
                         ax.set_xlim(0, xv)
 
                 for ax in axes:
-                    ax.xaxis.set_major_locator(ticker.MultipleLocator(500))
-                    ax.xaxis.set_minor_locator(ticker.MultipleLocator(100))
+                    ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=8, min_n_ticks=5, steps=[1, 2, 2.5, 5, 10]))
+                    ax.xaxis.set_minor_locator(ticker.AutoMinorLocator(5))
                     ax.grid(True, which="major", axis="x", alpha=0.45, linewidth=0.5)
                     ax.grid(True, which="minor", axis="x", alpha=0.225, linewidth=0.3)
 
-            plt.tight_layout(pad=0.3, h_pad=-0.4)
-
-            # Legend (only show once)
+            # Legend (only show once, outside data area)
             handles, labels = axes[0].get_legend_handles_labels()
-            legend = axes[-1].legend(
-                handles,
-                labels,
-                loc="lower left",
-                bbox_to_anchor=(0.015, 0.02),
-                framealpha=0.99,
-                prop={"family": "Montserrat", "weight": "bold", "size": 10.4},
-            )
-
-            self._colorize_legend_labels(legend)
+            self._add_waveform_figure_legend(fig, handles, labels)
+            plt.tight_layout(pad=0.3, h_pad=-0.4, rect=(0, 0, 1, 0.95))
             fig.savefig(self.plots_dir / filename, dpi=300, facecolor="white", bbox_inches="tight")
             plt.close(fig)
             print(f"  Saved: {filename}")
@@ -540,6 +642,7 @@ class DataPlotter:
     # ------------------------------------------------------------
 
     def generate_scatter_plots(self):
+        """Generate all configured scatter plots and optional fit overlays."""
         plots = self._get_plot_group(1, "scatter")
 
         for plot_def in plots:
@@ -580,7 +683,9 @@ class DataPlotter:
                 df = self.run_data[rn]
 
                 if x_var not in df.columns or y_var not in df.columns:
-                    print(f"  Missing {x_var} or {y_var} in run {rn}, skipping")
+                    print(
+                        f"[WARNING][DataPlotter] Scatter plot '{plot_name}': missing '{x_var}' or '{y_var}' in run '{rn}'. Skipping run."
+                    )
                     continue
 
                 x = df[x_var].dropna()
@@ -654,23 +759,23 @@ class DataPlotter:
             if eq_list:
                 anchor = self._display_equations(ax, eq_list)
 
-                # gradient comparison only meaningful for exactly 2 runs
-                if len(self.runs) == 2:
-                    txt = self._format_gradient_error_text(eq_list, x_var, fit_split, y_var)
-                    if txt:
-                        self._display_gradient_error(ax, txt, anchor)
+                fit_labels = None
+                if (
+                    isinstance(best_fit, (list, tuple))
+                    and best_fit
+                    and isinstance(best_fit[0], (list, tuple))
+                ):
+                    fit_labels = self._build_gradient_segment_labels(
+                        best_fit, x_var=x_var, y_var=y_var
+                    )
+                txt = self._format_gradient_error_text(
+                    eq_list, x_var, fit_split, y_var, fit_labels=fit_labels
+                )
+                if txt:
+                    self._display_gradient_error(ax, txt, anchor)
 
             # Legend
-            handles, labels = ax.get_legend_handles_labels()
-            if handles:
-                legend = ax.legend(
-                    fontsize=10,
-                    framealpha=1,
-                    loc="best",
-                    handlelength=1.8,
-                    prop={"family": "Montserrat", "weight": "bold", "size": 12},
-                )
-            self._colorize_legend_labels(legend)
+            self._add_standard_legend(ax, loc="best")
 
             plt.tight_layout(pad=0.25)
             fig.savefig(self.plots_dir / filename, dpi=300, facecolor="white")
@@ -682,7 +787,7 @@ class DataPlotter:
     # ------------------------------------------------------------
 
     def generate_psd_plots(self):
-        """Create PSD plots based on PSD_PLOT_DEFINITIONS"""
+        """Create PSD plots from definitions, skipping only runs with unavailable/invalid channel data."""
         plots = self._get_plot_group(2, 'psd')
 
         for plot_def in plots:
@@ -690,25 +795,16 @@ class DataPlotter:
             if len(plot_def) == 3:
                 plot_name, channel, axis_limits = plot_def
                 log_scale = True
-                nperseg = 256
+                nperseg = 512
             elif len(plot_def) == 4:
                 plot_name, channel, axis_limits, log_scale = plot_def
-                nperseg = 256
+                nperseg = 512
             elif len(plot_def) == 5:
                 plot_name, channel, axis_limits, log_scale, nperseg = plot_def
             else:
                 raise ValueError("Invalid PSD plot definition")
 
             print(f"Creating PSD plot: {plot_name} ({channel})")
-
-            # Ensure the channel exists in all runs
-            missing = [
-                run['name'] for run in self.runs
-                if channel not in self.run_data[run['name'].lower()].columns
-            ]
-            if missing:
-                print(f"  Warning: PSD skipped for {channel} — missing in runs: {missing}")
-                continue
 
             # Setup figure
             filename = self._sanitize_plot_filename("psd", plot_name)
@@ -717,25 +813,40 @@ class DataPlotter:
             fig, ax = plt.subplots(figsize=figsize)
             ax.set_xlabel('Frequency (Hz)', fontsize=13, fontweight='bold')
             ax.set_ylabel(
-                f"{datafunctions.add_units_to_label(channel, self.units_map)} PSD",
+                self._format_psd_ylabel(channel),
                 fontsize=13, fontweight='bold'
             )
+
+            plotted_any = False
 
             # ---- RUN LOOP ----
             for run in self.runs:
                 run_name = run['name'].lower()
+                if run_name not in self.run_data:
+                    print(f"[WARNING][DataPlotter] PSD plot '{plot_name}': run '{run_name}' has no loaded dataframe. Skipping run.")
+                    continue
                 df = self.run_data[run_name]
+
+                if channel not in df.columns:
+                    print(
+                        f"[WARNING][DataPlotter] PSD plot '{plot_name}': channel '{channel}' missing in run '{run_name}'. Skipping run."
+                    )
+                    continue
 
                 signal = df[channel]
 
                 # SAFETY CHECKS: ensure valid signal type
                 # ----------------------------------------
                 if isinstance(signal, tuple):
-                    print(f"  Warning: PSD skipped for {channel} in run '{run_name}' (signal is tuple)")
+                    print(
+                        f"[WARNING][DataPlotter] PSD plot '{plot_name}': channel '{channel}' in run '{run_name}' has invalid tuple type. Skipping run."
+                    )
                     continue
 
                 if not isinstance(signal, (pd.Series, np.ndarray, list)):
-                    print(f"  Warning: PSD skipped for {channel} in run '{run_name}' (invalid type {type(signal)})")
+                    print(
+                        f"[WARNING][DataPlotter] PSD plot '{plot_name}': channel '{channel}' in run '{run_name}' has unsupported type {type(signal)}. Skipping run."
+                    )
                     continue
 
                 # Convert to Series for safe processing
@@ -743,7 +854,9 @@ class DataPlotter:
 
                 # Must be numeric
                 if not np.issubdtype(signal.dtype, np.number):
-                    print(f"  Warning: PSD skipped for {channel} in run '{run_name}' (non-numeric dtype)")
+                    print(
+                        f"[WARNING][DataPlotter] PSD plot '{plot_name}': channel '{channel}' in run '{run_name}' is non-numeric. Skipping run."
+                    )
                     continue
 
                 # Compute PSD
@@ -754,7 +867,9 @@ class DataPlotter:
                 )
 
                 if freq is None:
-                    print(f"  Warning: Not enough data for PSD of {channel} in run '{run_name}'")
+                    print(
+                        f"[WARNING][DataPlotter] PSD plot '{plot_name}': not enough data for channel '{channel}' in run '{run_name}'. Skipping run."
+                    )
                     continue
 
                 # Plot PSD
@@ -764,6 +879,14 @@ class DataPlotter:
                           color=run['color'],
                           alpha=0.9,
                           label=run['name'].upper())
+                plotted_any = True
+
+            if not plotted_any:
+                print(
+                    f"[WARNING][DataPlotter] PSD plot '{plot_name}': no valid runs available for channel '{channel}'. Plot not saved."
+                )
+                plt.close(fig)
+                continue
 
             # Axis limits
             if axis_limits:
@@ -784,15 +907,7 @@ class DataPlotter:
             ax.spines['right'].set_visible(False)
 
             # Legend
-            legend = ax.legend(
-                fontsize=10,
-                framealpha=1,
-                loc='best',
-                borderpad=0.35,
-                handlelength=1.8,
-                prop={'family': 'Montserrat', 'weight': 'bold', 'size': 12}
-            )
-            self._colorize_legend_labels(legend)
+            self._add_standard_legend(ax, loc="best")
 
             plt.tight_layout(pad=0.25)
             fig.savefig(
@@ -841,26 +956,34 @@ class DataPlotter:
                     all_data.append(vals.values)
 
             if not all_data:
-                print(f"  Warning: No valid data for histogram {channel}")
+                print(
+                    f"[WARNING][DataPlotter] Histogram plot '{plot_name}': no valid data for channel '{channel}'. Plot not saved."
+                )
                 continue
 
             all_data = np.concatenate(all_data)
 
             # ---- Compute shared bins ----
             num_bins = 30
-            bins = np.histogram_bin_edges(all_data, bins=num_bins)
+            bins = self._compute_nice_histogram_bins(all_data, num_bins=num_bins)
 
             if axis_limits:
                 (xmin, xmax), (ymin, ymax) = axis_limits
                 if xmin is not None and xmax is not None:
                     ax.set_xlim(xmin, xmax)
-                    bins = bins[(bins >= xmin) & (bins <= xmax)]
+                    bins = self._compute_equal_width_bins_in_limits(xmin, xmax, bins)
                 if ymin is not None and ymax is not None:
                     if log_scale:
                         ymin = max(ymin, 1e-6)  # avoid log(0) issues
                     ax.set_ylim(ymin, ymax)
 
             # ---- Plot using shared bins ----
+            histogram_data = []
+            histogram_weights = []
+            histogram_colors = []
+            histogram_labels = []
+            dt = 1.0 / self.FILTER_SAMPLE_RATE
+
             for run in self.runs:
                 run_name = run['name'].lower()
                 df = self.run_data[run_name]
@@ -872,40 +995,58 @@ class DataPlotter:
                 if data.empty:
                     continue
 
-                dt = 1.0 / self.FILTER_SAMPLE_RATE
-                weights = np.full(len(data), dt)
+                histogram_data.append(data.to_numpy())
+                histogram_weights.append(np.full(len(data), dt))
+                histogram_colors.append(run['color'])
+                histogram_labels.append(run['name'].upper())
 
+            if histogram_data:
                 ax.hist(
-                    data,
+                    histogram_data,
                     bins=bins,
-                    weights=weights,
+                    weights=histogram_weights,
                     alpha=0.7,
-                    color=run['color'],
-                    label=run['name'].upper(),
+                    color=histogram_colors,
+                    label=histogram_labels,
                     edgecolor='black',
                     linewidth=0.5,
                     log=log_scale,
-                    stacked=True
+                    stacked=False,
+                    histtype='bar',
+                    rwidth=0.9
                 )
+
+            if len(bins) > 1:
+                max_major_ticks = 8
+                major_step = max(1, int(np.ceil((len(bins) - 1) / (max_major_ticks - 1))))
+                major_ticks = bins[::major_step]
+                if not np.isclose(major_ticks[-1], bins[-1]):
+                    major_ticks = np.append(major_ticks, bins[-1])
+
+                ax.set_xticks(major_ticks)
+                ax.xaxis.set_major_formatter(
+                    ticker.FuncFormatter(lambda x, pos: f"{x:.4g}")
+                )
+
+                if len(bins) <= 31:
+                    ax.set_xticks(bins, minor=True)
+                    ax.grid(True, which='minor', axis='x', alpha=0.12, linewidth=0.3)
+
+                ax.grid(True, which='major', axis='x', alpha=0.22, linewidth=0.45)
 
 
             # Padding & styling
-            self._add_axis_edge_padding(ax)
-            ax.grid(True, alpha=0.3)
+            has_x_limits = bool(
+                axis_limits and axis_limits[0][0] is not None and axis_limits[0][1] is not None
+            )
+            self._add_axis_edge_padding(ax, x_pad_ratio=(0 if has_x_limits else 0.02))
+            ax.grid(True, axis='y', alpha=0.3)
             ax.set_axisbelow(True)
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
 
             # Legend
-            legend = ax.legend(
-                fontsize=10,
-                framealpha=1,
-                loc='best',
-                borderpad=0.35,
-                handlelength=1.8,
-                prop={'family': 'Montserrat', 'weight': 'bold', 'size': 12}
-            )
-            self._colorize_legend_labels(legend)
+            self._add_standard_legend(ax, loc="best")
 
             plt.tight_layout(pad=0.25)
             fig.savefig(
@@ -971,6 +1112,7 @@ class DataPlotter:
         return corners[best]
 
     def _format_trendline_text(self, label, equation):
+        """Normalize equation text before placing it on the plot."""
         lines = []
         for line in str(equation).splitlines():
             cleaned = line.strip()
@@ -981,6 +1123,7 @@ class DataPlotter:
         return "\n".join(lines)
 
     def _colorize_legend_labels(self, legend):
+        """Match legend text color to the corresponding series color."""
         if legend is None:
             return
 
@@ -998,16 +1141,69 @@ class DataPlotter:
             if color is not None:
                 text.set_color(color)
 
+    def _add_standard_legend(self, ax, handles=None, labels=None, loc="best", bbox_to_anchor=None, ncol=1):
+        """Add a consistently styled axis legend and colorize labels."""
+        if handles is None or labels is None:
+            handles, labels = ax.get_legend_handles_labels()
+        if not handles:
+            return None
+
+        legend = ax.legend(
+            handles,
+            labels,
+            fontsize=10,
+            framealpha=1,
+            loc=loc,
+            bbox_to_anchor=bbox_to_anchor,
+            borderpad=0.35,
+            handlelength=1.8,
+            ncol=ncol,
+            prop={"family": "Montserrat", "weight": "bold", "size": 12},
+        )
+        self._colorize_legend_labels(legend)
+        return legend
+
+    def _add_waveform_figure_legend(self, fig, handles, labels):
+        """Place waveform legend above subplots to avoid covering trace data."""
+        if not handles:
+            return None
+
+        legend = fig.legend(
+            handles,
+            labels,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.995),
+            ncol=max(1, min(len(handles), 5)),
+            framealpha=1,
+            borderpad=0.35,
+            handlelength=1.8,
+            prop={"family": "Montserrat", "weight": "bold", "size": 11},
+        )
+        self._colorize_legend_labels(legend)
+        return legend
+
 
 
     def _display_equations(self, ax, eq_list):
+        """Render trendline equation callouts and return their anchor metadata."""
         x_anchor, y_anchor, halign, valign = self._select_trendline_anchor(ax, eq_list)
-        y_step = 0.06 / max(len(eq_list) - 1, 1)
+        line_height = 0.042
+        box_gap = 0.018
         boxes = []
+        cursor = y_anchor
 
         for i, (label, equation, color, _, _, _) in enumerate(eq_list):
-            ypos = y_anchor - i * y_step if valign == "top" else y_anchor + i * y_step
             text = self._format_trendline_text(label, equation)
+            line_count = max(1, len(text.splitlines()))
+            box_height = line_count * line_height
+
+            if valign == "top":
+                ypos = cursor
+                cursor -= (box_height + box_gap)
+            else:
+                ypos = cursor
+                cursor += (box_height + box_gap)
+
             ax.text(
                 x_anchor,
                 ypos,
@@ -1030,64 +1226,75 @@ class DataPlotter:
             boxes.append(ypos)
 
         return x_anchor, halign, valign, boxes
-
-    def _format_gradient_error_text(self, equations_list, x_var=None, fit_split=None, y_var=None):
+    def _format_gradient_error_text(
+        self, equations_list, x_var=None, fit_split=None, y_var=None, fit_labels=None
+    ):
         """
-        Create gradient error text comparing slopes between the first two runs.
-        Safely handles cases where one or both slope values are None.
+        Create baseline-relative gradient error text.
+        The first run in RUNS is treated as baseline and excluded from listed rows.
         """
-
-        # Only defined for exactly two runs
-        if len(equations_list) != 2:
+        if len(equations_list) < 2:
             return None
 
-        # Extract labels + slopes
-        label_a, _, _, _, _, slopes_a = equations_list[0]
-        label_b, _, _, _, _, slopes_b = equations_list[1]
+        baseline_target = self.runs[0]["name"].upper() if self.runs else None
+        baseline_entry = next(
+            (entry for entry in equations_list if entry[0].upper() == baseline_target),
+            equations_list[0],
+        )
+        baseline_label, _, _, _, _, baseline_slopes = baseline_entry
+        comparison_entries = [entry for entry in equations_list if entry is not baseline_entry]
+        if not comparison_entries:
+            return None
+        ordered_entries = comparison_entries
 
-        def percent_error(a, b):
-            """Return percentage error or None if undefined."""
-            if a is None or b is None or b == 0:
+        def percent_error(value, baseline):
+            if value is None or baseline is None or baseline == 0:
                 return None
-            return ((a - b) / b) * 100
+            return ((value - baseline) / baseline) * 100
 
-        # Formatter that handles None safely
-        def fmt(v):
-            return "undefined" if v is None else f"{v:+.1f}%"
+        def fmt(value):
+            return "undefined" if value is None else f"{value:+.1f}%"
 
-        lines = [f"% Error in {label_a.upper()} w.r.t. {label_b.upper()}:"]
+        lines = [f"% Error vs {baseline_label.upper()}:"]
+        label_width = max(len(entry[0].upper()) for entry in ordered_entries)
 
-        if isinstance(slopes_a, tuple) and isinstance(slopes_b, tuple) and fit_split is None:
-            for idx, (a_val, b_val) in enumerate(zip(slopes_a, slopes_b), start=1):
-                lines.append(f"Fit {idx}: {fmt(percent_error(a_val, b_val))}")
-            return "\n".join(lines)
+        if isinstance(baseline_slopes, tuple):
+            segment_count = len(baseline_slopes)
+            for idx in range(segment_count):
+                if fit_labels and idx < len(fit_labels):
+                    segment_name = fit_labels[idx]
+                elif fit_split is not None and segment_count == 2:
+                    split_axis, split_value = fit_split
+                    axis_name = x_var if split_axis == "x" else y_var
+                    segment_name = (
+                        f"{axis_name} < {split_value}" if idx == 0 else f"{axis_name} >= {split_value}"
+                    )
+                else:
+                    segment_name = f"Segment {idx + 1}"
 
-        # --------------------------------------------------------
-        # DOUBLE-FIT CASE (tuple slopes)
-        # --------------------------------------------------------
-        if isinstance(slopes_a, tuple) and isinstance(slopes_b, tuple) and fit_split is not None:
-            split_axis, split_value = fit_split
-            axis_name = x_var if split_axis == "x" else y_var
+                lines.append(f"{segment_name}:")
+                base_val = baseline_slopes[idx] if idx < len(baseline_slopes) else None
 
-            a1, a2 = slopes_a
-            b1, b2 = slopes_b
-
-            e1 = percent_error(a1, b1)
-            e2 = percent_error(a2, b2)
-
-            lines.append(f"{axis_name} < {split_value}: {fmt(e1)}")
-            lines.append(f"{axis_name} ≥ {split_value}: {fmt(e2)}")
-
-        # --------------------------------------------------------
-        # SINGLE-FIT CASE (one slope each)
-        # --------------------------------------------------------
+                for label, _, _, _, _, run_slopes in ordered_entries:
+                    run_val = (
+                        run_slopes[idx]
+                        if isinstance(run_slopes, tuple) and idx < len(run_slopes)
+                        else None
+                    )
+                    lines.append(
+                        f"  {label.upper():<{label_width}} : {fmt(percent_error(run_val, base_val))}"
+                    )
         else:
-            e = percent_error(slopes_a, slopes_b)
-            lines.append(fmt(e))
+            lines.append("Overall:")
+            for label, _, _, _, _, run_slopes in ordered_entries:
+                lines.append(
+                    f"  {label.upper():<{label_width}} : {fmt(percent_error(run_slopes, baseline_slopes))}"
+                )
 
         return "\n".join(lines)
 
     def _display_gradient_error(self, ax, text, anchor):
+        """Render slope-error callout below the equation boxes."""
         if anchor is None:
             return
 
@@ -1124,8 +1331,10 @@ class DataPlotter:
     # ------------------------------------------------------------
 
     def plot_all(self):
+        """Run all plot generators in sequence."""
         self.generate_waveform_plots()
         self.generate_scatter_plots()
         self.generate_psd_plots()
         self.generate_histogram_plots()
         print(f"\nAll plots saved to: {self.plots_dir}")
+

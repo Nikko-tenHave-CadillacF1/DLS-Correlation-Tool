@@ -317,7 +317,7 @@ def export_report_to_powerpoint(template_path, output_path, plots_dir, export_ma
             for i, img in enumerate(image_list):
                 img_path = plots_dir / img
                 if not img_path.exists():
-                    print(f" Warning: Missing plot for slide {slide_num}: {img}")
+                    print(f"[WARNING][powerpointexporter] Missing plot for slide {slide_num}: {img}")
                     continue
 
                 if i < len(target_boxes):
@@ -349,14 +349,16 @@ def export_report_to_powerpoint(template_path, output_path, plots_dir, export_ma
         except Exception as exc:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             fallback = output_path.with_name(f"{output_path.stem}_{ts}{output_path.suffix}")
-            print(f" Warning: Could not save to {output_path} ({exc}). Using fallback: {fallback}")
+            print(
+                f"[WARNING][powerpointexporter] Could not save to {output_path} ({exc}). Using fallback: {fallback}"
+            )
             pres.SaveAs(str(fallback))
             final = fallback
 
         print(f"PowerPoint report saved to: {final}")
 
     except Exception as exc:
-        print(f"Error during PowerPoint export: {exc}")
+        print(f"[ERROR][powerpointexporter] PowerPoint export failed: {exc}")
 
     finally:
         if pres:

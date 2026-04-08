@@ -26,9 +26,9 @@ ROOT_FOLDER = Path(r"C:\GitHub_Local\DLS-Correlation-Tool\Data")
 # ---------------------------------------------------------------------
 
 RUNS = [
-    {"name": "dls", "file": "Run TXT Files\\26R03SUZ  11  FP3  Run 3 3  Baseline_LTS_Iteration_4.txt", "color": "#002FFF"},
     {"name": "car", "file": "Run TXT Files\\26R03SUZ_260328_MAC26-02_BOT_Q_R03.txt", "color": "#FF8C00"},
-    #{"name": "oc", "file": "Run TXT Files\\Lap001_20260406-OC-VPG - Correlation - DiL 2603256 FIT SUZ Support Run 7 - Multi - v1-SUZ.oc.txt", "color": "#37FF00"},
+    {"name": "dls", "file": "Run TXT Files\\26R03SUZ  11  FP3  Run 3 3  Baseline_LTS_Iteration_4.txt", "color": "#002FFF"},
+    {"name": "oc", "file": "Run TXT Files\\Lap001_20260406-OC-VPG - Correlation - DiL 2603256 FIT SUZ Support Run 7 - Multi - v1-SUZ.oc.txt", "color": "#37FF00"},
     # Add additional runs here:
     # {"name": "run2", "file": "somefile.csv", "color": "#0000FF"},
 ]
@@ -45,7 +45,7 @@ EXPORT_TO_POWERPOINT = True
 CHANNEL_MAPPINGS = {
     'oc': {
     # Example mappings - adjust based on your data:
-    'rSLMActive' : 'SM',
+    'rSLMActive' : 'SM'
     },
     'dil': {
     # Example mappings - adjust based on your data:
@@ -91,9 +91,7 @@ CHANNEL_MAPPINGS = {
 # CHANNEL TRANSFORMS
 # =====================================================================
 CHANNEL_TRANSFORMS = {
-    'oc' : {
-        'aRoll': lambda x: -x, 
-    },
+    'oc' : None,
     'dil' : None,
     "dls": {
         # DLS load sign corrections
@@ -207,7 +205,7 @@ SCATTER_PLOT_DEFINITIONS = [
     ["Understeer Plot", ('vCar', 'aUndersteerFromSlip'), None , 0],
     ["Yaw Rate Response", ('aSteerWheel', 'nYaw'), None , 0],
     ["Lateral Acceleration Response", ('aSteerWheel', 'gLat'), None , 0],
-    ["Braking Efficiency", ('pBrakeF', 'gLong'), [(None,None),(-5,0)] , [('y', None, -0.3), ('y', -0.3, None)]],
+    ["Braking Efficiency", ('pBrakeF', 'gLong'), [(None,None),(-5,0)] , [('y', None, -0.3)]],
     ["Damper gLat front", ('gLat', 'xDamperDeltaF'), None , [('x', None, None)]],
     ["Damper gLat rear", ('gLat', 'xDamperDeltaR'), None , [('x', None, None)]],
     ["Pushrod gLat front", ('gLat', 'FPRodDeltaF'), None , [('x', None, None)]],
