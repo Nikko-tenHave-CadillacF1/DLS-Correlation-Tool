@@ -26,9 +26,9 @@ ROOT_FOLDER = Path(r"C:\GitHub_Local\DLS-Correlation-Tool\Data")
 # ---------------------------------------------------------------------
 
 RUNS = [
-    {"name": "car", "file": "Run TXT Files\\26R03SUZ_260328_MAC26-02_BOT_Q_R03.txt", "color": "#FF8C00"},
+    {"name": "car", "file": "Run TXT Files\\26R03SUZ_260327_MAC26-02_BOT_P2_R02_1.txt", "color": "#FF8C00"},
     {"name": "dls", "file": "Run TXT Files\\26R03SUZ  11  FP3  Run 3 3  Baseline_LTS_Iteration_4.txt", "color": "#002FFF"},
-    {"name": "oc", "file": "Run TXT Files\\Lap001_20260406-OC-VPG - Correlation - DiL 2603256 FIT SUZ Support Run 7 - Multi - v1-SUZ.oc.txt", "color": "#37FF00"},
+    #{"name": "oc", "file": "Run TXT Files\\Lap001_20260406-OC-VPG - Correlation - DiL 2603256 FIT SUZ Support Run 7 - Multi - v1-SUZ.oc.txt", "color": "#37FF00"},
     # Add additional runs here:
     # {"name": "run2", "file": "somefile.csv", "color": "#0000FF"},
 ]
@@ -177,22 +177,22 @@ WAVEFORM_PLOT_DEFINITIONS = [
    # ["Name", (channels...), ((ymin,ymax)...), (reference lines...), (subplot height ratios...)]
    # `subplot height ratios` is optional; omit it to give every channel the same height.
     [
-        "Driver Input", ('SM','PMGUK', 'NGear','vCar', 'aSteerWheel' , 'pBrakeF', 'rThrottle'),
-        ((-0.2, 1.2), (-360, 360), (1, 9), (60, 360), (-160, 160), (-10, 80), (-5, 105)), # y-axis limits for each channel
+        "Driver Input", ('SM','PMGUK', 'NGear','vCar', 'aSteerWheel', 'pBrakeF', 'rThrottle'),
+        ((-0.2, 1.2), (-360, 360), (0, 10), (60, 360), (-160, 160), (-10, 80), (-5, 105)), # y-axis limits for each channel
         (None, (-350, 0, 350), None, None, (0), None, None), # reference lines for each channel
-        (0.1, 0.7, 0.6, 1,0.6, 0.35, 0.35) # subplot height ratios (optional)
+        (0.15, 0.4, 0.4, 0.8, 0.4, 0.4, 0.4) # subplot height ratios (optional)
     ],
     [
-        "Power Unit", ('PMGUK', 'PEngine','NGear','vCar', 'nEngine', 'gLong' , 'pBrakeF', 'rThrottle'),
-        ((-360, 360), (-100, 500), (1, 9), (60, 360), (7000, 13000), None, (-10, 80), (-5,105)), # y-axis limits for each channel
-        ((-350, 0, 350), (0), None, None, (10000), (0), None, None), # reference lines for each channel
-        (0.4, 0.4, 0.3, 0.7, 0.5, 0.5, 0.35, 0.35) # subplot height ratios (optional)
+        "Power Unit", ('PMGUK', 'PEngine','vCar', 'nEngine', 'NGear', 'dmInjector', 'rThrottle'),
+        ((-360, 360), (-100, 500), (60, 360), (7000, 13000), (0,10), None, (-5,105)), # y-axis limits for each channel
+        ((-350, 0, 350), (0), None, (10000), None, None, None), # reference lines for each channel
+        (0.4, 0.4, 0.6, 0.4, 0.4, 0.4, 0.4) # subplot height ratios (optional)
     ],
     [
         "Plank Wear", ('SM', 'PMGUK','vCar','FzPlankF', 'EPlankF' , 'pBrakeF', 'rThrottle'),
-        ((-0.1, 1.1), (-360, 360), (60, 360), (0, 8000), (0, 100), (-10, 80), (-5,105)), # y-axis limits for each channel
+        ((-0.1, 1.1), (-360, 360), (60, 360), (0, 8000), None, (-10, 80), (-5,105)), # y-axis limits for each channel
         (None, (-350, 0, 350), (0,7500), (0), None, None), # reference lines for each channel
-        (0.1, 0.6, 0.8, 0.7, 0.6, 0.35, 0.35) # subplot height ratios (optional)
+        (0.15, 0.4, 0.6, 0.4, 0.6, 0.4, 0.4) # subplot height ratios (optional)
     ],
 ] 
 
@@ -226,8 +226,8 @@ SCATTER_PLOT_DEFINITIONS = [
 
 PSD_PLOT_DEFINITIONS = [
    # ["Name of Plot", 'channel', [(xmin, xmax), (ymin, ymax)], log_scale, nperseg(optional)]
-    ["Front Vertical Acceleration PSD", 'gVertF', [(0, 50), (None, None)], False],
-    ["Rear Vertical Acceleration PSD", 'gVertR', [(0, 50), (None, None)], False],
+    ["Front Vertical Acceleration PSD", 'gVertF', [(0, 50), (1e-4, None)], True],
+    ["Rear Vertical Acceleration PSD", 'gVertR', [(0, 50), (1e-4, None)], True],
 ]
 
 HISTOGRAM_PLOT_DEFINITIONS = [

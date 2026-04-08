@@ -488,7 +488,7 @@ class DataPlotter:
     # ------------------------------------------------------------
 
     def _prepare_waveform_channels(self, channels, axis_limits, reference_lines, subplot_heights):
-        """Filter waveform channel definitions to channels available in all runs."""
+        """Filter waveform channels to those available in at least one run."""
         available_channels = []
         avail_lims = []
         avail_refs = []
@@ -503,9 +503,8 @@ class DataPlotter:
 
             if count < len(self.runs):
                 print(
-                    f"[WARNING][DataPlotter] Waveform channel '{ch}' present in {count}/{len(self.runs)} runs. Skipping channel."
+                    f"[WARNING][DataPlotter] Waveform channel '{ch}' present in {count}/{len(self.runs)} runs. Plotting available runs only."
                 )
-                continue
 
             available_channels.append(ch)
             avail_lims.append(axis_limits[i] if axis_limits and i < len(axis_limits) else None)
@@ -593,8 +592,8 @@ class DataPlotter:
 
                 if avail_lims[idx] is not None:
                     yl, yh = avail_lims[idx]
-                    if yl is not None and yh is not None:
-                        ax.set_ylim(yl, yh)
+                    if yl is not None or yh is not None:
+                        ax.set_ylim(bottom=yl, top=yh)
 
                 if avail_refs[idx] is not None:
                     vals = avail_refs[idx]
@@ -733,14 +732,22 @@ class DataPlotter:
                         eq_list.append((run["name"].upper(), eq_text, run["color"], x.values, y.values, slopes))
 
             # Axis limits
+            has_x_limits = False
+            has_y_limits = False
             if axis_limits:
                 (xmin, xmax), (ymin, ymax) = axis_limits
-                if xmin is not None and xmax is not None:
-                    ax.set_xlim(xmin, xmax)
-                if ymin is not None and ymax is not None:
-                    ax.set_ylim(ymin, ymax)
+                if xmin is not None or xmax is not None:
+                    ax.set_xlim(left=xmin, right=xmax)
+                    has_x_limits = True
+                if ymin is not None or ymax is not None:
+                    ax.set_ylim(bottom=ymin, top=ymax)
+                    has_y_limits = True
 
-            self._add_axis_edge_padding(ax)
+            self._add_axis_edge_padding(
+                ax,
+                x_pad_ratio=(0 if has_x_limits else 0.02),
+                y_pad_ratio=(0 if has_y_limits else 0.03),
+            )
 
             # Axis lines
             xl, xr = ax.get_xlim()
@@ -889,17 +896,26 @@ class DataPlotter:
                 continue
 
             # Axis limits
+            has_x_limits = False
+            has_y_limits = False
             if axis_limits:
                 (xmin, xmax), (ymin, ymax) = axis_limits
-                if xmin is not None and xmax is not None:
-                    ax.set_xlim(xmin, xmax)
-                if ymin is not None and ymax is not None:
-                    if log_scale:
-                        ymin = max(ymin, 1e-6)  # avoid log(0) issues
-                    ax.set_ylim(ymin, ymax)
+                if xmin is not None or xmax is not None:
+                    ax.set_xlim(left=xmin, right=xmax)
+                    has_x_limits = True
+                if ymin is not None or ymax is not None:
+                    if log_scale and ymin is not None:
+                        ymin = max(ymin, 1e-4)  # avoid log(0) issues
+                    ax.set_ylim(bottom=ymin, top=ymax)
+                    has_y_limits = True
 
             # Padding & styling
-            self._add_axis_edge_padding(ax, x_pad_ratio=0.02, y_pad_ratio= (0.04 if not log_scale else 0))
+            default_y_pad = 0 if log_scale else 0.04
+            self._add_axis_edge_padding(
+                ax,
+                x_pad_ratio=(0 if has_x_limits else 0.02),
+                y_pad_ratio=(0 if has_y_limits else default_y_pad),
+            )
             ax.grid(True, which='major', alpha=0.3)
             ax.grid(True, which='minor', alpha=0.15)
             ax.set_axisbelow(True)
@@ -969,13 +985,14 @@ class DataPlotter:
 
             if axis_limits:
                 (xmin, xmax), (ymin, ymax) = axis_limits
+                if xmin is not None or xmax is not None:
+                    ax.set_xlim(left=xmin, right=xmax)
                 if xmin is not None and xmax is not None:
-                    ax.set_xlim(xmin, xmax)
                     bins = self._compute_equal_width_bins_in_limits(xmin, xmax, bins)
-                if ymin is not None and ymax is not None:
-                    if log_scale:
+                if ymin is not None or ymax is not None:
+                    if log_scale and ymin is not None:
                         ymin = max(ymin, 1e-6)  # avoid log(0) issues
-                    ax.set_ylim(ymin, ymax)
+                    ax.set_ylim(bottom=ymin, top=ymax)
 
             # ---- Plot using shared bins ----
             histogram_data = []
@@ -1037,9 +1054,16 @@ class DataPlotter:
 
             # Padding & styling
             has_x_limits = bool(
-                axis_limits and axis_limits[0][0] is not None and axis_limits[0][1] is not None
+                axis_limits and (axis_limits[0][0] is not None or axis_limits[0][1] is not None)
             )
-            self._add_axis_edge_padding(ax, x_pad_ratio=(0 if has_x_limits else 0.02))
+            has_y_limits = bool(
+                axis_limits and (axis_limits[1][0] is not None or axis_limits[1][1] is not None)
+            )
+            self._add_axis_edge_padding(
+                ax,
+                x_pad_ratio=(0 if has_x_limits else 0.02),
+                y_pad_ratio=(0 if has_y_limits else 0.03),
+            )
             ax.grid(True, axis='y', alpha=0.3)
             ax.set_axisbelow(True)
             ax.spines['top'].set_visible(False)
@@ -1130,13 +1154,28 @@ class DataPlotter:
         for text, handle in zip(legend.get_texts(), legend.legend_handles):
             color = None
 
+            # Line-based legend handles (e.g., waveform/PSD)
             if hasattr(handle, "get_color") and not isinstance(handle, Patch):
                 color = handle.get_color()
+                if isinstance(color, (list, tuple, np.ndarray)):
+                    if len(color) == 0:
+                        color = None
+                    elif isinstance(color[0], (list, tuple, np.ndarray)):
+                        color = color[0]
 
+            # Patch-based legend handles (e.g., histogram)
             elif isinstance(handle, Patch):
                 fc = handle.get_facecolor()
                 if isinstance(fc, (list, tuple, np.ndarray)) and len(fc) >= 3:
                     color = fc[:3]
+
+            # Collection handles (e.g., scatter PathCollection)
+            if color is None and hasattr(handle, "get_facecolor"):
+                fc = handle.get_facecolor()
+                if isinstance(fc, np.ndarray) and fc.size > 0:
+                    color = fc[0]
+                elif isinstance(fc, (list, tuple)) and len(fc) > 0:
+                    color = fc[0] if isinstance(fc[0], (list, tuple, np.ndarray)) else fc
 
             if color is not None:
                 text.set_color(color)
