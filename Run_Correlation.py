@@ -201,20 +201,20 @@ WAVEFORM_PLOT_DEFINITIONS = [
    # ["Waveform Example", ('vCar', 'gLong'), ((60, 360), (-5, 2)), (None, (0,)), (0.7, 0.5)]
     [
         "Driver Input", ('SM','PMGUK', 'NGear','vCar', 'aSteerWheel', 'pBrakeF', 'rThrottle'),
-        ((-0.2, 1.2), (-360, 360), (0, 10), (60, 360), (-160, 160), (-10, 80), (-5, 105)), # y-axis limits for each channel
+        ((-0.2, 1.2), (-360, 360), (0, 10), None, (-160, 160), (-10, 80), (-5, 105)), # y-axis limits for each channel
         (None, (-350, 0, 350), None, None, (0), None, None), # reference lines for each channel
         (0.15, 0.4, 0.4, 0.8, 0.4, 0.4, 0.4) # subplot height ratios (optional)
     ],
     [
         "Power Unit", ('PMGUK', 'PEngine','vCar', 'nEngine', 'NGear', 'dmInjector', 'rThrottle'),
-        ((-360, 360), (-100, 500), (60, 360), (7000, 13000), (0,10), None, (-5,105)), # y-axis limits for each channel
+        ((-360, 360), (-100, 500), None, (7000, 13000), (0,10), None, (-5,105)), # y-axis limits for each channel
         ((-350, 0, 350), (0), None, (10000), None, None, None), # reference lines for each channel
         (0.4, 0.4, 0.6, 0.4, 0.4, 0.4, 0.4) # subplot height ratios (optional)
     ],
     [
         "Plank Wear", ('SM', 'PMGUK','vCar','FzPlankF', 'EPlankF' , 'pBrakeF', 'rThrottle'),
-        ((-0.1, 1.1), (-360, 360), (60, 360), (0, 8000), None, (-10, 80), (-5,105)), # y-axis limits for each channel
-        (None, (-350, 0, 350), (0,7500), (0), None, None), # reference lines for each channel
+        ((-0.1, 1.1), (-360, 360), None, (0, 8000), None, (-10, 80), (-5,105)), # y-axis limits for each channel
+        (None, (-350, 0, 350), None, (0,7500), (0), None, None), # reference lines for each channel
         (0.15, 0.4, 0.6, 0.4, 0.6, 0.4, 0.4) # subplot height ratios (optional)
     ],
 ] 
@@ -266,6 +266,7 @@ SCATTER_PLOT_DEFINITIONS = [
     ["Plank power acceleration", ('gLong (raw)', 'PPlankF'), None, 0],
     ["engine efficiency", ('dmInjector', 'PEngine'), None, [('x', None, None)]],
     ["throttle application", ('rThrottle', 'PPUTotal'), None, 0],
+    ["gLat Understeer", ('gLat_Abs', 'aUndersteerFromSlip'), None, [('x', None, None)]],
 ] 
 
 PSD_PLOT_DEFINITIONS = [
@@ -291,21 +292,22 @@ POWERPOINT_EXPORT_MAP = {
     4: {'layout': 'main_plot', 'images': ['waveform_Driver_Input.png']},
     5: {'layout': 'main_plot', 'images': ['waveform_Power_Unit.png']},
     6: {'layout': 'double_plot', 'images': ['scatter_Gear_Ratios.png', 'scatter_Engine_Power.png']},
-    7: {'layout': 'double_plot', 'images': ['scatter_Long_Acceleration.png', 'scatter_Lat_Acceleration.png']},
-    8: {'layout': 'double_plot', 'images': ['scatter_GG_Plot.png', 'scatter_Understeer_Plot.png']},
-    9: {'layout': 'double_plot', 'images': ['scatter_Yaw_Rate_Response.png', 'scatter_Lateral_Acceleration_Response.png']},
-    10: {'layout': 'double_plot', 'images': ['scatter_Braking_Efficiency.png', 'scatter_Steering_Moment.png']},
-    11: {'layout': 'double_plot', 'images': ['scatter_Damper_gLat_front.png', 'scatter_Damper_gLat_rear.png']},
-    12: {'layout': 'double_plot', 'images': ['scatter_Pushrod_gLat_front.png', 'scatter_Pushrod_gLat_rear.png']},
-    13: {'layout': 'double_plot', 'images': ['scatter_Front_Heave.png', 'scatter_Rear_Heave.png']},
-    14: {'layout': 'double_plot', 'images': ['scatter_Front_Roll.png', 'scatter_Rear_Roll.png']},
-    15: {'layout': 'double_plot', 'images': ['scatter_Front_Pushrod_vCar.png', 'scatter_Rear_Pushrod_vCar.png']},
-    16: {'layout': 'double_plot', 'images': ['scatter_Front_Ride_vCar.png', 'scatter_Rear_Ride_vCar.png']},
-    17: {'layout': 'double_plot', 'images': ['scatter_Ride_Height_Compare.png', 'scatter_Roll_angle_gLat.png']},
-    18: {'layout': 'double_plot', 'images': ['psd_Front_Vertical_Acceleration_PSD.png', 'psd_Rear_Vertical_Acceleration_PSD.png']},
-    19: {'layout': 'double_plot', 'images': ['psd_Front_Ride_PSD.png', 'psd_Rear_Ride_PSD.png']},
-    20: {'layout': 'main_plot', 'images': ['waveform_Plank_Wear.png']},
-    21: {'layout': 'double_plot', 'images': ['scatter_Plank_Power_Acceleration.png', 'histogram_Plank_Power_Distribution.png']},
+    7: {'layout': 'double_plot', 'images': ['scatter_throttle_application.png', 'scatter_engine_efficiency.png']},
+    8: {'layout': 'double_plot', 'images': ['scatter_Long_Acceleration.png', 'scatter_Lat_Acceleration.png']},
+    9: {'layout': 'double_plot', 'images': ['scatter_GG_Plot.png', 'scatter_Understeer_Plot.png']},
+    10: {'layout': 'double_plot', 'images': ['scatter_Yaw_Rate_Response.png', 'scatter_Lateral_Acceleration_Response.png']},
+    11: {'layout': 'double_plot', 'images': ['scatter_Braking_Efficiency.png', 'scatter_Steering_Moment.png']},
+    12: {'layout': 'double_plot', 'images': ['scatter_Damper_gLat_front.png', 'scatter_Damper_gLat_rear.png']},
+    13: {'layout': 'double_plot', 'images': ['scatter_Pushrod_gLat_front.png', 'scatter_Pushrod_gLat_rear.png']},
+    14: {'layout': 'double_plot', 'images': ['scatter_Front_Heave.png', 'scatter_Rear_Heave.png']},
+    15: {'layout': 'double_plot', 'images': ['scatter_Front_Roll.png', 'scatter_Rear_Roll.png']},
+    16: {'layout': 'double_plot', 'images': ['scatter_Front_Pushrod_vCar.png', 'scatter_Rear_Pushrod_vCar.png']},
+    17: {'layout': 'double_plot', 'images': ['scatter_Front_Ride_vCar.png', 'scatter_Rear_Ride_vCar.png']},
+    18: {'layout': 'double_plot', 'images': ['scatter_Ride_Height_Compare.png', 'scatter_Roll_angle_gLat.png']},
+    19: {'layout': 'double_plot', 'images': ['psd_Front_Vertical_Acceleration_PSD.png', 'psd_Rear_Vertical_Acceleration_PSD.png']},
+    20: {'layout': 'double_plot', 'images': ['psd_Front_Ride_PSD.png', 'psd_Rear_Ride_PSD.png']},
+    21: {'layout': 'main_plot', 'images': ['waveform_Plank_Wear.png']},
+    22: {'layout': 'double_plot', 'images': ['scatter_Plank_Power_Acceleration.png', 'histogram_Plank_Power_Distribution.png']},
 }
 
 PLOT_DEFINITIONS = (

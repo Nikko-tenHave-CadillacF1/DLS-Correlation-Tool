@@ -885,7 +885,7 @@ def format_gate_text(gate_spec):
         return None
 
     conditions = _normalize_gate_conditions(gate_spec)
-    lines = ["Gate:"]
+    lines = ["Gated For:"]
 
     for condition in conditions:
         if not isinstance(condition, (list, tuple)) or len(condition) != 3:
