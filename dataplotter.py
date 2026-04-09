@@ -7,6 +7,7 @@ from matplotlib import ticker
 from matplotlib import font_manager
 from pathlib import Path
 import datafunctions
+import data_quality_report
 from collections import Counter
 from matplotlib.patches import Patch
 
@@ -46,6 +47,10 @@ class DataPlotter:
         sample_rate=100,
         scatter_dot_size=5,
         scatter_transparency=0.8,
+        scatter_render_mode="auto",
+        scatter_density_threshold=25000,
+        scatter_max_points=45000,
+        scatter_hexbin_gridsize=70,
     ):
         """Build a plotter instance and run the preprocessing pipeline."""
         self.runs = runs
@@ -89,6 +94,10 @@ class DataPlotter:
 
         self.SCATTER_DOT_SIZE = scatter_dot_size
         self.SCATTER_TRANSPARENCY = scatter_transparency
+        self.SCATTER_RENDER_MODE = scatter_render_mode
+        self.SCATTER_DENSITY_THRESHOLD = scatter_density_threshold
+        self.SCATTER_MAX_POINTS = scatter_max_points
+        self.SCATTER_HEXBIN_GRIDSIZE = scatter_hexbin_gridsize
 
         self.waveform_figsize = fig_size[0]
         self.scatter_FIGSIZE = fig_size[1]
@@ -106,6 +115,7 @@ class DataPlotter:
         self.clean_data()
         self.apply_calculated_channels()
         self.apply_lowpass_filters()
+        self.run_data_quality_checks()
 
     # ------------------------------------------------------------
     # STYLE
@@ -359,21 +369,6 @@ class DataPlotter:
 
         return (w, h)
 
-    def _mask_waveform_discontinuities(self, x_values, y_values):
-        """Mask invalid lap-distance regions so line plots break at discontinuities."""
-        xs = pd.Series(x_values).reset_index(drop=True)
-        ys = pd.Series(y_values).reset_index(drop=True).copy()
-
-        neg_mask = xs < 0
-        xs.loc[neg_mask] = np.nan
-        ys.loc[neg_mask] = np.nan
-
-        if xs.notna().sum() > 1:
-            reset_mask = xs.diff() < 0
-            ys.loc[reset_mask] = np.nan
-
-        return xs, ys
-
     def _add_axis_edge_padding(self, ax, x_pad_ratio=0.02, y_pad_ratio=0.03):
         """Add proportional padding to current axis limits."""
         xmin, xmax = ax.get_xlim()
@@ -386,77 +381,6 @@ class DataPlotter:
         if ymax > ymin:
             pad = (ymax - ymin) * y_pad_ratio
             ax.set_ylim(ymin - pad, ymax + pad)
-
-    def _format_psd_ylabel(self, channel):
-        """Format PSD y-axis text with units when available."""
-        units = ""
-        if self.units_map:
-            for key, value in self.units_map.items():
-                if key.lower() == channel.lower():
-                    units = value
-                    break
-
-        if units:
-            return f"{channel} PSD ({units}^2/Hz)"
-        return f"{channel} PSD"
-
-    def _compute_nice_histogram_bins(self, data, num_bins=30):
-        """Compute round-number histogram bins with integer-preferred widths."""
-        values = np.asarray(data, dtype=float)
-        values = values[np.isfinite(values)]
-        if values.size == 0:
-            return np.array([0.0, 1.0])
-
-        data_min = float(np.min(values))
-        data_max = float(np.max(values))
-
-        if np.isclose(data_min, data_max):
-            start = np.floor(data_min)
-            return np.array([start, start + 1.0])
-
-        raw_step = (data_max - data_min) / max(num_bins, 1)
-        exponent = np.floor(np.log10(raw_step))
-        fraction = raw_step / (10 ** exponent)
-
-        if fraction <= 1:
-            nice_fraction = 1
-        elif fraction <= 2:
-            nice_fraction = 2
-        elif fraction <= 5:
-            nice_fraction = 5
-        else:
-            nice_fraction = 10
-
-        step = nice_fraction * (10 ** exponent)
-        if step >= 1:
-            step = max(1.0, float(np.round(step)))
-
-        start = np.floor(data_min / step) * step
-        end = np.ceil(data_max / step) * step
-        bins = np.arange(start, end + step * 0.5, step)
-
-        if bins.size < 2:
-            bins = np.array([start, start + step])
-
-        return bins
-
-    def _compute_equal_width_bins_in_limits(self, xmin, xmax, reference_bins):
-        """Compute equal-width bins in [xmin, xmax] with a count derived from a near-nice step."""
-        xmin = float(xmin)
-        xmax = float(xmax)
-        if xmax <= xmin:
-            return np.array([xmin, xmin + 1.0])
-
-        if reference_bins is not None and len(reference_bins) > 1:
-            target_step = float(reference_bins[1] - reference_bins[0])
-        else:
-            target_step = (xmax - xmin) / 30.0
-
-        if target_step <= 0:
-            target_step = (xmax - xmin) / 30.0
-
-        bin_count = max(1, int(np.round((xmax - xmin) / target_step)))
-        return np.linspace(xmin, xmax, bin_count + 1)
 
     def _build_gradient_segment_labels(self, fit_defs, x_var=None, y_var=None):
         """Create descriptive labels for segmented gradient error reporting."""
@@ -482,6 +406,23 @@ class DataPlotter:
                 labels.append(f"{min_val:g} <= {axis_name} < {max_val:g}")
 
         return labels if labels else None
+
+    def run_data_quality_checks(self):
+        """Run lightweight checks and write a report before plotting."""
+        sections = data_quality_report.build_quality_sections(
+            runs=self.runs,
+            run_data=self.run_data,
+            plot_definitions=self.PLOT_DEFINITIONS,
+        )
+
+        total_items = sum(len(v) for _, v in sections)
+        if total_items:
+            print(f"[WARNING][DataPlotter] Data-quality preflight found {total_items} issue(s).")
+        else:
+            print("[INFO][DataPlotter] Data-quality preflight found no issues.")
+
+        report_path = data_quality_report.write_data_quality_report(self.plots_dir, sections)
+        print(f"[INFO][DataPlotter] Wrote data quality report: {report_path}")
 
     # ------------------------------------------------------------
     # WAVEFORM PLOTS
@@ -569,7 +510,7 @@ class DataPlotter:
                     x_vals = df["sLap"] if "sLap" in df.columns else df.index
                     y_vals = df[ch]
 
-                    x_plot, y_plot = self._mask_waveform_discontinuities(x_vals, y_vals)
+                    x_plot, y_plot = datafunctions.mask_waveform_discontinuities(x_vals, y_vals)
                     ax.plot(
                         x_plot,
                         y_plot,
@@ -697,7 +638,11 @@ class DataPlotter:
                         run["name"].upper(), run["color"],
                         self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
                         x_var, y_var,
-                        fit_defs=best_fit
+                        fit_defs=best_fit,
+                        render_mode=self.SCATTER_RENDER_MODE,
+                        density_threshold=self.SCATTER_DENSITY_THRESHOLD,
+                        max_points=self.SCATTER_MAX_POINTS,
+                        hexbin_gridsize=self.SCATTER_HEXBIN_GRIDSIZE,
                     )
                     if ok:
                         eq_list.append((run["name"].upper(), eq_text, run["color"], x.values, y.values, slopes))
@@ -707,7 +652,11 @@ class DataPlotter:
                         ax, x.values, y.values,
                         run["name"].upper(), run["color"],
                         self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
-                        x_var, y_var
+                        x_var, y_var,
+                        render_mode=self.SCATTER_RENDER_MODE,
+                        density_threshold=self.SCATTER_DENSITY_THRESHOLD,
+                        max_points=self.SCATTER_MAX_POINTS,
+                        hexbin_gridsize=self.SCATTER_HEXBIN_GRIDSIZE,
                     )
 
                 elif best_fit == 1:
@@ -715,7 +664,11 @@ class DataPlotter:
                         ax, x.values, y.values,
                         run["name"].upper(), run["color"],
                         self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
-                        x_var, y_var
+                        x_var, y_var,
+                        render_mode=self.SCATTER_RENDER_MODE,
+                        density_threshold=self.SCATTER_DENSITY_THRESHOLD,
+                        max_points=self.SCATTER_MAX_POINTS,
+                        hexbin_gridsize=self.SCATTER_HEXBIN_GRIDSIZE,
                     )
                     if ok:
                         eq_list.append((run["name"].upper(), eq_text, run["color"], x.values, y.values, slope))
@@ -726,7 +679,11 @@ class DataPlotter:
                         run["name"].upper(), run["color"],
                         self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
                         x_var, y_var,
-                        fit_split=fit_split
+                        fit_split=fit_split,
+                        render_mode=self.SCATTER_RENDER_MODE,
+                        density_threshold=self.SCATTER_DENSITY_THRESHOLD,
+                        max_points=self.SCATTER_MAX_POINTS,
+                        hexbin_gridsize=self.SCATTER_HEXBIN_GRIDSIZE,
                     )
                     if ok:
                         eq_list.append((run["name"].upper(), eq_text, run["color"], x.values, y.values, slopes))
@@ -820,7 +777,7 @@ class DataPlotter:
             fig, ax = plt.subplots(figsize=figsize)
             ax.set_xlabel('Frequency (Hz)', fontsize=13, fontweight='bold')
             ax.set_ylabel(
-                self._format_psd_ylabel(channel),
+                datafunctions.format_psd_ylabel(channel, self.units_map),
                 fontsize=13, fontweight='bold'
             )
 
@@ -981,14 +938,14 @@ class DataPlotter:
 
             # ---- Compute shared bins ----
             num_bins = 30
-            bins = self._compute_nice_histogram_bins(all_data, num_bins=num_bins)
+            bins = datafunctions.compute_nice_histogram_bins(all_data, num_bins=num_bins)
 
             if axis_limits:
                 (xmin, xmax), (ymin, ymax) = axis_limits
                 if xmin is not None or xmax is not None:
                     ax.set_xlim(left=xmin, right=xmax)
                 if xmin is not None and xmax is not None:
-                    bins = self._compute_equal_width_bins_in_limits(xmin, xmax, bins)
+                    bins = datafunctions.compute_equal_width_bins_in_limits(xmin, xmax, bins)
                 if ymin is not None or ymax is not None:
                     if log_scale and ymin is not None:
                         ymin = max(ymin, 1e-6)  # avoid log(0) issues

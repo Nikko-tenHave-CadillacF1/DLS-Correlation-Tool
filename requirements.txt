@@ -2,5 +2,9 @@ pandas>=1.3.0
 numpy>=1.21.0
 matplotlib>=3.4.0
 scipy>=1.7.0
+
+# Optional but recommended for this project:
+# - pywin32: required for PowerPoint export on Windows
+# - pyarrow: required when reading parquet input files
 pywin32>=306
 pyarrow>=15.0.0

@@ -22,12 +22,12 @@ from powerpointexporter import (
 ROOT_FOLDER = Path(r"C:\GitHub_Local\DLS-Correlation-Tool\Data")
 
 # ---------------------------------------------------------------------
-# RUN DEFINITIONS (MULTI‑RUN FRIENDLY)
+# RUN DEFINITIONS (MULTI-RUN FRIENDLY)
 # ---------------------------------------------------------------------
 
 RUNS = [
-    {"name": "car", "file": "Run TXT Files\\26R03SUZ_260327_MAC26-02_BOT_P2_R02_1.txt", "color": "#FF8C00"},
-    {"name": "dls", "file": "Run TXT Files\\26R03SUZ  11  FP3  Run 3 3  Baseline_LTS_Iteration_4.txt", "color": "#002FFF"},
+    {"name": "car", "file": "Run TXT Files\\26R03SUZ_260328_MAC26-02_BOT_Q_R03_1.txt", "color": "#FF8C00"},
+    {"name": "dls", "file": "Run TXT Files\\26R03SUZ  77  Quali  Run 2 Q1R2  Stint 1 Stint 2_-FINAL_DLS_2.txt", "color": "#002FFF"},
     #{"name": "oc", "file": "Run TXT Files\\Lap001_20260406-OC-VPG - Correlation - DiL 2603256 FIT SUZ Support Run 7 - Multi - v1-SUZ.oc.txt", "color": "#37FF00"},
     # Add additional runs here:
     # {"name": "run2", "file": "somefile.csv", "color": "#0000FF"},
@@ -102,7 +102,7 @@ CHANNEL_TRANSFORMS = {
         "aRoll": lambda x: -x,
     },
     "car": {
-        "PMGUK": lambda x: x / 1000,   # W → kW
+        "PMGUK": lambda x: x / 1000,   # W -> kW
         "sLap": lambda x: x - 10,      # GPS alignment shift
     }
 }
@@ -114,7 +114,7 @@ UNITS_MAP = {
     "glat": "g", "glong": "g", "gvertf": "g", "gvertr": "g", "glat_abs": "g",
     "gLong (unsmoothed)": "g",
     "vcar": "kph",
-    "aroll": "°", "asteer": "°", "asteerwheel": "°", "aundersteerfromslip": "°",
+    "aroll": "deg", "asteer": "deg", "asteerwheel": "deg", "aundersteerfromslip": "deg",
     "xrh": "mm", "laser": "mm", "hrider": "mm", "hridef": "mm",
     "damper": "mm", "xdamper": "mm",
     "fprod": "N", "fpushrod": "N", "pushrod": "N",
@@ -127,7 +127,7 @@ UNITS_MAP = {
     "nengine": "rpm", "mengine": "Nm", "msteerwheel": "Nm",
     "brake": "bar", "throttle": "%", "pmguk": "kW", "pengine": "kW",
     "nwheelr_avg": "rpm",
-    "nyaw": "°/s",
+    "nyaw": "deg/s",
     "pbrakef": "bar",
     "rthrottle": "%",
     "EPlankF": "kJ",
@@ -148,7 +148,9 @@ CALCULATED_CHANNELS = {
     "xDamperAvgF": lambda df: (df["xDamperFL"] + df["xDamperFR"]) / 2,
     "xDamperAvgR": lambda df: (df["xDamperRL"] + df["xDamperRR"]) / 2,
     "gLat_Abs": lambda df: df["gLat"].abs(),
-    "gLong (unsmoothed)": lambda df: df["gLong"],
+    "gLong (raw)": lambda df: df["gLong"],
+    "hRideF (raw)": lambda df: df["hRideF"],
+    "hRideR (raw)": lambda df: df["hRideR"],
 }
 
 # =====================================================================
@@ -166,8 +168,20 @@ LOW_PASS_FILTERS = {
     "EPlankF": {"cutoff": 0, "order": 2},
     "PPlankF": {"cutoff": 0, "order": 2},
     "rThrottle": {"cutoff": 0, "order": 2},
+    "gLong (raw)": {"cutoff": 0, "order": 2},
+    "hRideF (raw)": {"cutoff": 0, "order": 2},
+    "hRideR (raw)": {"cutoff": 0, "order": 2},
     "all": {"cutoff": 5, "order": 2},
 }
+
+# =====================================================================
+# SCATTER RENDERING
+# =====================================================================
+# "auto" switches to density hexbin for very large clouds.
+SCATTER_RENDER_MODE = "auto"   # "auto", "scatter", "hexbin"
+SCATTER_DENSITY_THRESHOLD = 25000
+SCATTER_MAX_POINTS = 45000
+SCATTER_HEXBIN_GRIDSIZE = 70
 
 # =====================================================================
 # PLOT DEFINITIONS
@@ -221,13 +235,15 @@ SCATTER_PLOT_DEFINITIONS = [
     ["Ride Height Compare", ('hRideF', 'hRideR'), [(0, 40),(20, 70)], 0],
     ["Roll angle gLat", ('gLat', 'aRoll'), None, [('x', None, None)]],
     ["Steering Moment", ('aSteerWheel', 'MSteerWheel'), None, 0],
-    ["Plank power acceleration", ('gLong (unsmoothed)', 'PPlankF'), None, 0],
+    ["Plank power acceleration", ('gLong (raw)', 'PPlankF'), None, 0],
 ] 
 
 PSD_PLOT_DEFINITIONS = [
    # ["Name of Plot", 'channel', [(xmin, xmax), (ymin, ymax)], log_scale, nperseg(optional)]
     ["Front Vertical Acceleration PSD", 'gVertF', [(0, 50), (1e-4, None)], True],
     ["Rear Vertical Acceleration PSD", 'gVertR', [(0, 50), (1e-4, None)], True],
+    ["Front Ride PSD", 'hRideF (raw)', [(0, 50), (1e-4, None)], True],
+    ["Rear Ride PSD", 'hRideR (raw)', [(0, 50), (1e-4, None)], True],
 ]
 
 HISTOGRAM_PLOT_DEFINITIONS = [
@@ -251,8 +267,9 @@ POWERPOINT_EXPORT_MAP = {
     16: {'layout': 'double_plot', 'images': ['scatter_Front_Ride_vCar.png', 'scatter_Rear_Ride_vCar.png']},
     17: {'layout': 'double_plot', 'images': ['scatter_Ride_Height_Compare.png', 'scatter_Roll_angle_gLat.png']},
     18: {'layout': 'double_plot', 'images': ['psd_Front_Vertical_Acceleration_PSD.png', 'psd_Rear_Vertical_Acceleration_PSD.png']},
-    19: {'layout': 'main_plot', 'images': ['waveform_Plank_Wear.png']},
-    20: {'layout': 'double_plot', 'images': ['scatter_Plank_Power_Acceleration.png', 'histogram_Plank_Power_Distribution.png']},
+    19: {'layout': 'double_plot', 'images': ['psd_Front_Ride_PSD.png', 'psd_Rear_Ride_PSD.png']},
+    20: {'layout': 'main_plot', 'images': ['waveform_Plank_Wear.png']},
+    21: {'layout': 'double_plot', 'images': ['scatter_Plank_Power_Acceleration.png', 'histogram_Plank_Power_Distribution.png']},
 }
 
 PLOT_DEFINITIONS = (
@@ -287,6 +304,10 @@ if __name__ == "__main__":
         low_pass_filters=LOW_PASS_FILTERS,
         units_map=UNITS_MAP,
         plot_aspect_ratios=plot_aspect_ratios,
+        scatter_render_mode=SCATTER_RENDER_MODE,
+        scatter_density_threshold=SCATTER_DENSITY_THRESHOLD,
+        scatter_max_points=SCATTER_MAX_POINTS,
+        scatter_hexbin_gridsize=SCATTER_HEXBIN_GRIDSIZE,
     )
 
     # Generate all plots
@@ -303,3 +324,4 @@ if __name__ == "__main__":
         )
 
         os.startfile(POWERPOINT_OUTPUT)
+
