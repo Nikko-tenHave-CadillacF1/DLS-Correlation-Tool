@@ -606,6 +606,14 @@ class DataPlotter:
                 raise ValueError(
                     f"Scatter plot definition for '{plot_def[0] if plot_def else 'unknown'}' must have 4, 5, or 6 items"
                 )
+
+            # Backward-compatible fallback: treat None as no-fit scatter.
+            if best_fit is None:
+                print(
+                    f"[WARNING][DataPlotter] Scatter plot '{plot_name}': best_fit=None interpreted as 0 (no fit)."
+                )
+                best_fit = 0
+
             print(f"Creating scatter plot: {plot_name} ({x_var} vs {y_var})")
 
             filename = self._sanitize_plot_filename("scatter", plot_name)

@@ -105,7 +105,7 @@ CHANNEL_TRANSFORMS = {
     },
     "car": {
         "PMGUK": lambda x: x / 1000,   # W -> kW
-        "sLap": lambda x: x - 10,      # GPS alignment shift
+        "sLap": lambda x: x - 15,      # GPS alignment shift
     }
 }
 
@@ -135,6 +135,7 @@ UNITS_MAP = {
     "EPlankF": "kJ",
     "PPlankF": "kW",
     "FzPlankF": "N",
+    "dmInjector": "kg/h",
 }
 
 # =====================================================================
@@ -153,6 +154,7 @@ CALCULATED_CHANNELS = {
     "gLong (raw)": lambda df: df["gLong"],
     "hRideF (raw)": lambda df: df["hRideF"],
     "hRideR (raw)": lambda df: df["hRideR"],
+    "PPUTotal": lambda df: df["PMGUK"] + df["PEngine"]
 }
 
 # =====================================================================
@@ -173,6 +175,8 @@ LOW_PASS_FILTERS = {
     "gLong (raw)": {"cutoff": 0, "order": 2},
     "hRideF (raw)": {"cutoff": 0, "order": 2},
     "hRideR (raw)": {"cutoff": 0, "order": 2},
+    "dmInjector": {"cutoff": 0, "order": 2},
+    "PPUTotal": {"cutoff": 0, "order": 2},
     "all": {"cutoff": 5, "order": 2},
 }
 
@@ -236,13 +240,14 @@ SCATTER_PLOT_DEFINITIONS = [
     # ["Gated Braking", ('pBrakeF', 'gLong'), [(None,None),(-5,0)], 1, ('vCar', '>', 120)]
     ["Gear Ratios", ('nWheelR_Avg', 'nEngine'), None, 0],
     ["Engine Power", ('nEngine', 'PEngine'), None, 0],
-    ["Long Acceleration", ('vCar', 'gLong'), [(60,360),(None,None)], 0],
+    ["Long Acceleration", ('vCar', 'gLong'), [(60,360),(None,None)], None],
+    #["Long Acceleration Gated", ('vCar', 'gLong'), [(60,360),(None,None)], [('x', 150, None)], [('gLong', '>', 0), ('rThrottle', '>', 98)]],
     ["Lat Acceleration", ('vCar', 'gLat_Abs'), [(60,360),(None,None)], 0],
     ["GG Plot", ('gLat', 'gLong'), None , 0],
-    ["Understeer Plot", ('vCar', 'aUndersteerFromSlip'), None , 0],
-    ["Yaw Rate Response", ('aSteerWheel', 'nYaw'), None , 0],
-    ["Lateral Acceleration Response", ('aSteerWheel', 'gLat'), None , 0],
-    ["Braking Efficiency", ('pBrakeF', 'gLong'), [(None,None),(-5,0)] , [('y', None, -0.3)]],
+    ["Understeer Plot", ('vCar', 'aUndersteerFromSlip'), [(None, None), (-4, 6)] , 0],
+    ["Yaw Rate Response", ('aSteerWheel', 'nYaw'), [(-160,160),(None, None)] , 0],
+    ["Lateral Acceleration Response", ('aSteerWheel', 'gLat'),[ (-160, 160),(None, None)] , 0],
+    ["Braking Efficiency", ('pBrakeF', 'gLong'), None , [('y', None, -0.3)], ('gLong', '<', 0)],
     ["Damper gLat front", ('gLat', 'xDamperDeltaF'), None , [('x', None, None)]],
     ["Damper gLat rear", ('gLat', 'xDamperDeltaR'), None , [('x', None, None)]],
     ["Pushrod gLat front", ('gLat', 'FPRodDeltaF'), None , [('x', None, None)]],
@@ -251,14 +256,16 @@ SCATTER_PLOT_DEFINITIONS = [
     ["Front Roll", ('xDamperDeltaF', 'FPRodDeltaF'), None, [('x', None, None)]],
     ["Rear Heave", ('xDamperAvgR', 'FPRodAvgR'), None, [('x', None, None)]],
     ["Rear Roll", ('xDamperDeltaR', 'FPRodDeltaR'), None, [('x', None, None)]],
-    ["Front Pushrod vCar", ('vCar', 'FPRodAvgF'), None, [('x', None, None)], ('gLat_Abs', '<', 1)],
-    ["Rear Pushrod vCar", ('vCar', 'FPRodAvgR'), None, [('x', None, None)], ('gLat_Abs', '<', 1)],
+    ["Front Pushrod vCar", ('vCar', 'FPRodAvgF'), None, [('x', None, None)], [('gLat_Abs', '<', 1), ('SM', '<', 1)]],
+    ["Rear Pushrod vCar", ('vCar', 'FPRodAvgR'), None, [('x', None, None)], [('gLat_Abs', '<', 1), ('SM', '<', 1)]],
     ["Front Ride vCar", ('vCar', 'hRideF'), [(None,None), (0,40)], [('x', None, None)]],
     ["Rear Ride vCar", ('vCar', 'hRideR'), [(None,None),(20,80)], [('x', None, None)]],
     ["Ride Height Compare", ('hRideF', 'hRideR'), [(0, 40),(20, 70)], 0],
     ["Roll angle gLat", ('gLat', 'aRoll'), None, [('x', None, None)]],
-    ["Steering Moment", ('aSteerWheel', 'MSteerWheel'), None, 0],
+    ["Steering Moment", ('aSteerWheel', 'MSteerWheel'), [(-160, 160), (None, None)], 0],
     ["Plank power acceleration", ('gLong (raw)', 'PPlankF'), None, 0],
+    ["engine efficiency", ('dmInjector', 'PEngine'), None, [('x', None, None)]],
+    ["throttle application", ('rThrottle', 'PPUTotal'), None, 0],
 ] 
 
 PSD_PLOT_DEFINITIONS = [
