@@ -588,12 +588,23 @@ class DataPlotter:
         for plot_def in plots:
             if len(plot_def) == 4:
                 plot_name, (x_var, y_var), axis_limits, best_fit = plot_def
-                fit_split = None
+                gate_spec = None
             elif len(plot_def) == 5:
-                plot_name, (x_var, y_var), axis_limits, best_fit, fit_split = plot_def
+                plot_name, (x_var, y_var), axis_limits, best_fit, gate_spec = plot_def
+                if not datafunctions.is_gate_spec(gate_spec):
+                    raise ValueError(
+                        f"Scatter plot '{plot_name}' has legacy 5th item. fit_split is removed; use gate spec or omit 5th item."
+                    )
+            elif len(plot_def) == 6:
+                plot_name, (x_var, y_var), axis_limits, best_fit, _legacy_fit_split, gate_spec = plot_def
+                if not datafunctions.is_gate_spec(gate_spec):
+                    raise ValueError(
+                        f"Scatter plot '{plot_name}' has invalid 6th item. fit_split is removed; 6th item must be gate spec."
+                    )
+                print(f"[WARNING][DataPlotter] Scatter plot '{plot_name}': fit_split is deprecated and ignored.")
             else:
                 raise ValueError(
-                    f"Scatter plot definition for '{plot_def[0] if plot_def else 'unknown'}' must have 4 or 5 items"
+                    f"Scatter plot definition for '{plot_def[0] if plot_def else 'unknown'}' must have 4, 5, or 6 items"
                 )
             print(f"Creating scatter plot: {plot_name} ({x_var} vs {y_var})")
 
@@ -631,6 +642,14 @@ class DataPlotter:
                 x = df[x_var].dropna()
                 y = df[y_var].reindex(x.index).dropna()
                 x = x.reindex(y.index)
+                x, y = datafunctions.apply_scatter_gate(
+                    df,
+                    x,
+                    y,
+                    gate_spec,
+                    plot_name=plot_name,
+                    run_name=rn,
+                )
 
                 if isinstance(best_fit, (list, tuple)) and best_fit and isinstance(best_fit[0], (list, tuple)):
                     ok, slopes, intercepts, eq_text, color = datafunctions.plot_scatter_with_multi_fit(
@@ -674,19 +693,21 @@ class DataPlotter:
                         eq_list.append((run["name"].upper(), eq_text, run["color"], x.values, y.values, slope))
 
                 elif best_fit == 2:
-                    ok, slopes, intercepts, eq_text, color = datafunctions.plot_scatter_with_double_fit(
+                    print(
+                        f"[WARNING][DataPlotter] Scatter plot '{plot_name}': best_fit=2 uses removed fit_split behavior; falling back to single fit."
+                    )
+                    ok, slope, intercept, eq_text, color = datafunctions.plot_scatter_with_1fit(
                         ax, x.values, y.values,
                         run["name"].upper(), run["color"],
                         self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
                         x_var, y_var,
-                        fit_split=fit_split,
                         render_mode=self.SCATTER_RENDER_MODE,
                         density_threshold=self.SCATTER_DENSITY_THRESHOLD,
                         max_points=self.SCATTER_MAX_POINTS,
                         hexbin_gridsize=self.SCATTER_HEXBIN_GRIDSIZE,
                     )
                     if ok:
-                        eq_list.append((run["name"].upper(), eq_text, run["color"], x.values, y.values, slopes))
+                        eq_list.append((run["name"].upper(), eq_text, run["color"], x.values, y.values, slope))
 
             # Axis limits
             has_x_limits = False
@@ -720,6 +741,7 @@ class DataPlotter:
             ax.spines["right"].set_visible(False)
 
             # Trendline boxes
+            anchor = None
             if eq_list:
                 anchor = self._display_equations(ax, eq_list)
 
@@ -733,13 +755,23 @@ class DataPlotter:
                         best_fit, x_var=x_var, y_var=y_var
                     )
                 txt = self._format_gradient_error_text(
-                    eq_list, x_var, fit_split, y_var, fit_labels=fit_labels
+                    eq_list, x_var, y_var, fit_labels=fit_labels
                 )
                 if txt:
                     self._display_gradient_error(ax, txt, anchor)
 
-            # Legend
-            self._add_standard_legend(ax, loc="best")
+            # Legend first, then gate callout to avoid overlaps.
+            legend = self._add_standard_legend(ax, loc="best")
+
+            if gate_spec is not None:
+                gate_text = datafunctions.format_gate_text(gate_spec)
+                if gate_text:
+                    self._display_gate_info(
+                        ax,
+                        gate_text,
+                        legend=legend,
+                        trend_anchor=anchor,
+                    )
 
             plt.tight_layout(pad=0.25)
             fig.savefig(self.plots_dir / filename, dpi=300, facecolor="white")
@@ -1066,6 +1098,7 @@ class DataPlotter:
         }
 
         def count(corner):
+            """Count points that fall inside a candidate annotation box."""
             xa, ya, hal, val = corners[corner]
             # define box size
             w = (x1 - x0) * 0.22
@@ -1223,7 +1256,7 @@ class DataPlotter:
 
         return x_anchor, halign, valign, boxes
     def _format_gradient_error_text(
-        self, equations_list, x_var=None, fit_split=None, y_var=None, fit_labels=None
+        self, equations_list, x_var=None, y_var=None, fit_labels=None
     ):
         """
         Create baseline-relative gradient error text.
@@ -1244,11 +1277,13 @@ class DataPlotter:
         ordered_entries = comparison_entries
 
         def percent_error(value, baseline):
+            """Compute percentage difference vs baseline slope."""
             if value is None or baseline is None or baseline == 0:
                 return None
             return ((value - baseline) / baseline) * 100
 
         def fmt(value):
+            """Format percent values while preserving undefined states."""
             return "undefined" if value is None else f"{value:+.1f}%"
 
         lines = [f"% Error vs {baseline_label.upper()}:"]
@@ -1259,12 +1294,6 @@ class DataPlotter:
             for idx in range(segment_count):
                 if fit_labels and idx < len(fit_labels):
                     segment_name = fit_labels[idx]
-                elif fit_split is not None and segment_count == 2:
-                    split_axis, split_value = fit_split
-                    axis_name = x_var if split_axis == "x" else y_var
-                    segment_name = (
-                        f"{axis_name} < {split_value}" if idx == 0 else f"{axis_name} >= {split_value}"
-                    )
                 else:
                     segment_name = f"Segment {idx + 1}"
 
@@ -1318,6 +1347,74 @@ class DataPlotter:
                 linewidth=1.2,
             ),
             color="#3F3F3F",
+            fontweight="bold",
+            family="Montserrat",
+        )
+
+    def _display_gate_info(self, ax, text, legend=None, trend_anchor=None):
+        """Render gate condition callout while avoiding legend/trendline overlap."""
+        candidates = [
+            (0.03, 0.97, "left", "top"),
+            (0.97, 0.97, "right", "top"),
+            (0.03, 0.03, "left", "bottom"),
+            (0.97, 0.03, "right", "bottom"),
+        ]
+
+        # Avoid the trendline corner entirely when present.
+        if trend_anchor is not None:
+            _, trend_halign, trend_valign, _ = trend_anchor
+            candidates = [
+                c for c in candidates if not (c[2] == trend_halign and c[3] == trend_valign)
+            ] or candidates
+
+        fig = ax.figure
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        legend_bbox = legend.get_window_extent(renderer) if legend is not None else None
+
+        def _candidate_overlaps_legend(candidate):
+            """Check whether a candidate gate-info box collides with the legend."""
+            if legend_bbox is None:
+                return False
+            xa, ya, hal, val = candidate
+            probe = ax.text(
+                xa,
+                ya,
+                text,
+                transform=ax.transAxes,
+                fontsize=9.5,
+                verticalalignment=val,
+                horizontalalignment=hal,
+                bbox=dict(boxstyle="round,pad=0.26"),
+                visible=False,
+            )
+            bbox = probe.get_window_extent(renderer)
+            probe.remove()
+            return bbox.overlaps(legend_bbox)
+
+        chosen = candidates[0]
+        for candidate in candidates:
+            if not _candidate_overlaps_legend(candidate):
+                chosen = candidate
+                break
+
+        x_anchor, y_anchor, halign, valign = chosen
+        ax.text(
+            x_anchor,
+            y_anchor,
+            text,
+            transform=ax.transAxes,
+            fontsize=9.5,
+            verticalalignment=valign,
+            horizontalalignment=halign,
+            bbox=dict(
+                boxstyle="round,pad=0.26",
+                facecolor="white",
+                alpha=0.92,
+                edgecolor="#5E5E5E",
+                linewidth=1.1,
+            ),
+            color="#333333",
             fontweight="bold",
             family="Montserrat",
         )

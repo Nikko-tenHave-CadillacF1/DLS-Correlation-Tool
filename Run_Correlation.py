@@ -26,11 +26,13 @@ ROOT_FOLDER = Path(r"C:\GitHub_Local\DLS-Correlation-Tool\Data")
 # ---------------------------------------------------------------------
 
 RUNS = [
+    # Format:
+    # {"name": "<run_id>", "file": "<relative_path_from_Data>", "color": "<#RRGGBB>"}
+    # Example:
+    # {"name": "run2", "file": "Run TXT Files\\my_run_2.txt", "color": "#00A6FF"},
     {"name": "car", "file": "Run TXT Files\\26R03SUZ_260328_MAC26-02_BOT_Q_R03_1.txt", "color": "#FF8C00"},
     {"name": "dls", "file": "Run TXT Files\\26R03SUZ  77  Quali  Run 2 Q1R2  Stint 1 Stint 2_-FINAL_DLS_2.txt", "color": "#002FFF"},
     #{"name": "oc", "file": "Run TXT Files\\Lap001_20260406-OC-VPG - Correlation - DiL 2603256 FIT SUZ Support Run 7 - Multi - v1-SUZ.oc.txt", "color": "#37FF00"},
-    # Add additional runs here:
-    # {"name": "run2", "file": "somefile.csv", "color": "#0000FF"},
 ]
 
 # ---------------------------------------------------------------------
@@ -188,8 +190,11 @@ SCATTER_HEXBIN_GRIDSIZE = 70
 # =====================================================================
 
 WAVEFORM_PLOT_DEFINITIONS = [
+   # Format:
    # ["Name", (channels...), ((ymin,ymax)...), (reference lines...), (subplot height ratios...)]
-   # `subplot height ratios` is optional; omit it to give every channel the same height.
+   # `subplot height ratios` is optional; omit it to give equal heights.
+   # Example:
+   # ["Waveform Example", ('vCar', 'gLong'), ((60, 360), (-5, 2)), (None, (0,)), (0.7, 0.5)]
     [
         "Driver Input", ('SM','PMGUK', 'NGear','vCar', 'aSteerWheel', 'pBrakeF', 'rThrottle'),
         ((-0.2, 1.2), (-360, 360), (0, 10), (60, 360), (-160, 160), (-10, 80), (-5, 105)), # y-axis limits for each channel
@@ -211,6 +216,24 @@ WAVEFORM_PLOT_DEFINITIONS = [
 ] 
 
 SCATTER_PLOT_DEFINITIONS = [
+    # Format:
+    # ["Name", (x_channel, y_channel), [(xmin,xmax),(ymin,ymax)], best_fit]
+    # ["Name", (x_channel, y_channel), [(xmin,xmax),(ymin,ymax)], best_fit, gate_spec]
+    # ["Name", (x_channel, y_channel), [(xmin,xmax),(ymin,ymax)], best_fit, legacy_item, gate_spec]
+    #
+    # best_fit:
+    #   0 -> no fit line
+    #   1 -> single fit line
+    #   2 -> treated as single fit (legacy compatibility)
+    #   [('<axis>', min, max), ...] -> segmented fit definitions
+    #
+    # gate_spec (single or AND list):
+    #   ('channel', '>', value)
+    #   ('channel', 'between', (min, max))
+    #   [('channel_a', '>', value_a), ('channel_b', '<', value_b)]
+    #
+    # Example:
+    # ["Gated Braking", ('pBrakeF', 'gLong'), [(None,None),(-5,0)], 1, ('vCar', '>', 120)]
     ["Gear Ratios", ('nWheelR_Avg', 'nEngine'), None, 0],
     ["Engine Power", ('nEngine', 'PEngine'), None, 0],
     ["Long Acceleration", ('vCar', 'gLong'), [(60,360),(None,None)], 0],
@@ -228,8 +251,8 @@ SCATTER_PLOT_DEFINITIONS = [
     ["Front Roll", ('xDamperDeltaF', 'FPRodDeltaF'), None, [('x', None, None)]],
     ["Rear Heave", ('xDamperAvgR', 'FPRodAvgR'), None, [('x', None, None)]],
     ["Rear Roll", ('xDamperDeltaR', 'FPRodDeltaR'), None, [('x', None, None)]],
-    ["Front Pushrod vCar", ('vCar', 'FPRodAvgF'), None, [('x', None, None)]],
-    ["Rear Pushrod vCar", ('vCar', 'FPRodAvgR'), None, [('x', None, None)]],
+    ["Front Pushrod vCar", ('vCar', 'FPRodAvgF'), None, [('x', None, None)], ('gLat_Abs', '<', 1)],
+    ["Rear Pushrod vCar", ('vCar', 'FPRodAvgR'), None, [('x', None, None)], ('gLat_Abs', '<', 1)],
     ["Front Ride vCar", ('vCar', 'hRideF'), [(None,None), (0,40)], [('x', None, None)]],
     ["Rear Ride vCar", ('vCar', 'hRideR'), [(None,None),(20,80)], [('x', None, None)]],
     ["Ride Height Compare", ('hRideF', 'hRideR'), [(0, 40),(20, 70)], 0],
@@ -239,7 +262,10 @@ SCATTER_PLOT_DEFINITIONS = [
 ] 
 
 PSD_PLOT_DEFINITIONS = [
+   # Format:
    # ["Name of Plot", 'channel', [(xmin, xmax), (ymin, ymax)], log_scale, nperseg(optional)]
+   # Example:
+   # ["PSD Example", 'gVertF', [(0, 60), (1e-4, None)], True, 1024]
     ["Front Vertical Acceleration PSD", 'gVertF', [(0, 50), (1e-4, None)], True],
     ["Rear Vertical Acceleration PSD", 'gVertR', [(0, 50), (1e-4, None)], True],
     ["Front Ride PSD", 'hRideF (raw)', [(0, 50), (1e-4, None)], True],
@@ -247,7 +273,10 @@ PSD_PLOT_DEFINITIONS = [
 ]
 
 HISTOGRAM_PLOT_DEFINITIONS = [
+   # Format:
    # ["Name of Plot", 'channel', [(xmin, xmax), (ymin, ymax)], log_scale]
+   # Example:
+   # ["Histogram Example", 'vCar', [(60, 360), (None, None)], False]
     ["Plank Power Distribution", 'PPlankF', [(1,45), (None, None)], False],
 ]
 

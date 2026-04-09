@@ -656,76 +656,23 @@ def plot_scatter_with_double_fit(
     max_points=45000,
     hexbin_gridsize=70,
 ):
-    """Scatter + piecewise two-segment fit."""
+    """Legacy wrapper: fit_split is removed; falls back to single linear fit."""
     if len(x_data) == 0:
         print(f"[WARNING][datafunctions] No data for double fit: {label} ({x_var} vs {y_var}).")
         return False, None, None, None, None
 
-    _plot_scatter_layer(
-        ax, x_data, y_data, label, color, alpha, size,
+    if fit_split is not None:
+        print(
+            f"[WARNING][datafunctions] plot_scatter_with_double_fit: fit_split is deprecated and ignored for {label}."
+        )
+
+    return plot_scatter_with_1fit(
+        ax, x_data, y_data, label, color, alpha, size, x_var, y_var,
         render_mode=render_mode,
         density_threshold=density_threshold,
         max_points=max_points,
         hexbin_gridsize=hexbin_gridsize,
     )
-
-    if fit_split is None:
-        return plot_scatter_with_1fit(
-            ax, x_data, y_data, label, color, alpha, size, x_var, y_var,
-            render_mode=render_mode,
-            density_threshold=density_threshold,
-            max_points=max_points,
-            hexbin_gridsize=hexbin_gridsize,
-        )
-
-    axis, split_val = fit_split
-    if axis == "x":
-        mask_before = x_data < split_val
-        mask_after = x_data >= split_val
-        axis_name = x_var or "x"
-    elif axis == "y":
-        mask_before = y_data < split_val
-        mask_after = y_data >= split_val
-        axis_name = y_var or "y"
-    else:
-        return plot_scatter_with_1fit(
-            ax, x_data, y_data, label, color, alpha, size, x_var, y_var,
-            render_mode=render_mode,
-            density_threshold=density_threshold,
-            max_points=max_points,
-            hexbin_gridsize=hexbin_gridsize,
-        )
-
-    eq_text = ""
-    slope_before = interc_before = None
-    slope_after = interc_after = None
-
-    # Before split
-    if mask_before.sum() > 1:
-        xb = x_data[mask_before]
-        yb = y_data[mask_before]
-        try:
-            slope_before, interc_before, _, _, _ = linregress(xb, yb)
-        except ValueError:
-            print(f"[WARNING][datafunctions] Not enough data for fit: {label} ({x_var} vs {y_var}).")
-            return False, None, None, None, None
-        xr = np.linspace(np.min(xb), np.max(xb), 50)
-        yr = slope_before * xr + interc_before
-        _plot_scatter_fit_line(ax, xr, yr, color=color, linestyle="--", linewidth=1.9)
-        eq_text += f"{label} ({axis_name} < {split_val}): y = {slope_before:.3f}x + {interc_before:.3f}\n"
-
-    # After split
-    if mask_after.sum() > 1:
-        xa = x_data[mask_after]
-        ya = y_data[mask_after]
-        slope_after, interc_after, _, _, _ = linregress(xa, ya)
-        xr = np.linspace(np.min(xa), np.max(xa), 50)
-        yr = slope_after * xr + interc_after
-        _plot_scatter_fit_line(ax, xr, yr, color=color, linestyle="-.", linewidth=1.9)
-
-        eq_text += f"({axis_name} >= {split_val}): y = {slope_after:.3f}x + {interc_after:.3f}"
-
-    return True, (slope_before, slope_after), (interc_before, interc_after), eq_text.strip(), color
 
 def plot_scatter_with_multi_fit(
     ax,
@@ -771,6 +718,7 @@ def plot_scatter_with_multi_fit(
     line_styles = ["--", "-.", ":"]
 
     def _format_bound(value):
+        """Format range bounds compactly for multi-fit equation labels."""
         return f"{float(value):.4g}"
 
     for idx, fit_def in enumerate(fit_defs):
@@ -852,3 +800,101 @@ def add_units_to_label(var_name: str, units_map: dict):
         if k.lower() == key:
             return f"{var_name} ({v})"
     return var_name
+
+
+# ================================================================
+# SCATTER GATING HELPERS
+# ================================================================
+
+def is_gate_spec(value):
+    """Return True if value matches supported scatter gate formats."""
+    if isinstance(value, (list, tuple)) and len(value) == 3 and isinstance(value[0], str):
+        return True
+    if isinstance(value, (list, tuple)) and value and all(
+        isinstance(v, (list, tuple)) and len(v) == 3 and isinstance(v[0], str)
+        for v in value
+    ):
+        return True
+    return False
+
+
+def _normalize_gate_conditions(gate_spec):
+    """Normalize a gate spec into a list of 3-item conditions."""
+    if gate_spec is None:
+        return []
+    if isinstance(gate_spec, (list, tuple)) and len(gate_spec) == 3 and isinstance(gate_spec[0], str):
+        return [gate_spec]
+    return list(gate_spec)
+
+
+def apply_scatter_gate(df, x, y, gate_spec, plot_name="", run_name=""):
+    """Apply optional gate condition(s) to aligned scatter x/y series."""
+    if gate_spec is None:
+        return x, y
+
+    conditions = _normalize_gate_conditions(gate_spec)
+    mask = pd.Series(True, index=x.index)
+
+    for gate_channel, operator, gate_value in conditions:
+        if gate_channel not in df.columns:
+            print(
+                f"[WARNING][datafunctions] Scatter plot '{plot_name}': gate channel '{gate_channel}' missing in run '{run_name}'. Skipping run."
+            )
+            return x.iloc[0:0], y.iloc[0:0]
+
+        gate_series = pd.to_numeric(df[gate_channel], errors="coerce").reindex(x.index)
+
+        if operator == ">":
+            gate_mask = gate_series > gate_value
+        elif operator == ">=":
+            gate_mask = gate_series >= gate_value
+        elif operator == "<":
+            gate_mask = gate_series < gate_value
+        elif operator == "<=":
+            gate_mask = gate_series <= gate_value
+        elif operator == "==":
+            gate_mask = gate_series == gate_value
+        elif operator == "!=":
+            gate_mask = gate_series != gate_value
+        elif operator == "between":
+            if not isinstance(gate_value, (list, tuple)) or len(gate_value) != 2:
+                print(
+                    f"[WARNING][datafunctions] Scatter plot '{plot_name}': invalid 'between' gate for '{gate_channel}'. Skipping run."
+                )
+                return x.iloc[0:0], y.iloc[0:0]
+            low, high = gate_value
+            gate_mask = pd.Series(True, index=gate_series.index)
+            if low is not None:
+                gate_mask &= gate_series >= low
+            if high is not None:
+                gate_mask &= gate_series <= high
+        else:
+            print(
+                f"[WARNING][datafunctions] Scatter plot '{plot_name}': unsupported gate operator '{operator}'. Skipping run."
+            )
+            return x.iloc[0:0], y.iloc[0:0]
+
+        mask &= gate_mask.fillna(False)
+
+    return x[mask], y[mask]
+
+
+def format_gate_text(gate_spec):
+    """Format scatter gate condition(s) for display in a compact info box."""
+    if gate_spec is None:
+        return None
+
+    conditions = _normalize_gate_conditions(gate_spec)
+    lines = ["Gate:"]
+
+    for condition in conditions:
+        if not isinstance(condition, (list, tuple)) or len(condition) != 3:
+            continue
+        channel, operator, value = condition
+        if operator == "between" and isinstance(value, (list, tuple)) and len(value) == 2:
+            low, high = value
+            lines.append(f"{channel} in [{low}, {high}]")
+        else:
+            lines.append(f"{channel} {operator} {value}")
+
+    return "\n".join(lines) if len(lines) > 1 else None
