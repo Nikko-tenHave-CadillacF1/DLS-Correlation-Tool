@@ -10,6 +10,7 @@ import datafunctions
 import data_quality_report
 from collections import Counter
 from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
 
 def make_unique(names):
     """Make column names unique by appending suffixes to duplicates."""
@@ -150,6 +151,15 @@ class DataPlotter:
         """Determine which columns to load from files."""
         required_channels = set()
 
+        def _extract_channels(spec_item):
+            """Recursively collect channel names from strings/tuples/lists."""
+            if isinstance(spec_item, str):
+                required_channels.add(spec_item)
+                return
+            if isinstance(spec_item, (list, tuple)):
+                for part in spec_item:
+                    _extract_channels(part)
+
         # Always include sLap for waveform alignment
         if (
             self.PLOT_DEFINITIONS
@@ -165,10 +175,7 @@ class DataPlotter:
                     continue
                 for plot_def in plot_group:
                     if len(plot_def) >= 2:
-                        if isinstance(plot_def[1], tuple):
-                            required_channels.update(plot_def[1])
-                        elif isinstance(plot_def[1], str):
-                            required_channels.add(plot_def[1])
+                        _extract_channels(plot_def[1])
 
         # Resolve calculated dependencies
         resolved_channels = set()
@@ -428,31 +435,127 @@ class DataPlotter:
     # WAVEFORM PLOTS
     # ------------------------------------------------------------
 
+    def _normalize_waveform_row_spec(self, row_spec):
+        """Normalize a waveform row spec to (primary_channel, secondary_channel_or_None)."""
+        if isinstance(row_spec, str):
+            return row_spec, None
+
+        if isinstance(row_spec, (list, tuple)):
+            if len(row_spec) == 1 and isinstance(row_spec[0], str):
+                return row_spec[0], None
+            if len(row_spec) == 2 and all(isinstance(v, str) for v in row_spec):
+                return row_spec[0], row_spec[1]
+
+        raise ValueError(
+            "Waveform channel row must be 'channel' or ('primary_channel', 'secondary_channel')."
+        )
+
+    def _normalize_waveform_axis_limits(self, raw_limits, has_secondary, row_name):
+        """Normalize waveform y-limit config for one row."""
+        if raw_limits is None:
+            return None, None
+
+        if not has_secondary:
+            return raw_limits, None
+
+        if (
+            isinstance(raw_limits, (list, tuple))
+            and len(raw_limits) == 2
+            and all(isinstance(v, (list, tuple)) or v is None for v in raw_limits)
+        ):
+            return raw_limits[0], raw_limits[1]
+
+        print(
+            f"[WARNING][DataPlotter] Waveform row '{row_name}': dual-channel row expects axis limits as "
+            f"((y1_min,y1_max),(y2_min,y2_max)). Applying provided limits to primary channel only."
+        )
+        return raw_limits, None
+
+    def _normalize_waveform_reference_lines(self, raw_refs, has_secondary):
+        """Normalize waveform reference-line config for one row."""
+        if raw_refs is None:
+            return None, None
+
+        if not has_secondary:
+            return raw_refs, None
+
+        if isinstance(raw_refs, (list, tuple)) and len(raw_refs) == 2:
+            return raw_refs[0], raw_refs[1]
+
+        return raw_refs, None
+
     def _prepare_waveform_channels(self, channels, axis_limits, reference_lines, subplot_heights):
-        """Filter waveform channels to those available in at least one run."""
-        available_channels = []
-        avail_lims = []
-        avail_refs = []
-        avail_heights = []
+        """Build validated waveform rows with optional two-channel overlays."""
+        prepared_rows = []
+        row_heights = []
 
-        for i, ch in enumerate(channels):
-            count = sum(ch in self.run_data[r["name"].lower()].columns for r in self.runs)
+        for i, row_spec in enumerate(channels):
+            primary, secondary = self._normalize_waveform_row_spec(row_spec)
 
-            if count == 0:
-                print(f"[WARNING][DataPlotter] Waveform channel '{ch}' missing from all runs. Skipping channel.")
+            p_count = sum(primary in self.run_data[r["name"].lower()].columns for r in self.runs)
+            if secondary is not None:
+                s_count = sum(secondary in self.run_data[r["name"].lower()].columns for r in self.runs)
+            else:
+                s_count = 0
+
+            if p_count == 0 and (secondary is None or s_count == 0):
+                missing_name = (
+                    f"'{primary}' and '{secondary}'" if secondary is not None else f"'{primary}'"
+                )
+                print(f"[WARNING][DataPlotter] Waveform row {missing_name} missing from all runs. Skipping row.")
                 continue
 
-            if count < len(self.runs):
+            if p_count == 0 and secondary is not None and s_count > 0:
                 print(
-                    f"[WARNING][DataPlotter] Waveform channel '{ch}' present in {count}/{len(self.runs)} runs. Plotting available runs only."
+                    f"[WARNING][DataPlotter] Waveform row primary channel '{primary}' missing in all runs; "
+                    f"using '{secondary}' as single-channel row."
+                )
+                primary, secondary = secondary, None
+                p_count = s_count
+                s_count = 0
+
+            if p_count < len(self.runs):
+                print(
+                    f"[WARNING][DataPlotter] Waveform channel '{primary}' present in {p_count}/{len(self.runs)} runs. Plotting available runs only."
                 )
 
-            available_channels.append(ch)
-            avail_lims.append(axis_limits[i] if axis_limits and i < len(axis_limits) else None)
-            avail_refs.append(reference_lines[i] if reference_lines and i < len(reference_lines) else None)
-            avail_heights.append(subplot_heights[i] if subplot_heights and i < len(subplot_heights) else 1.0)
+            if secondary is not None:
+                if s_count == 0:
+                    print(
+                        f"[WARNING][DataPlotter] Waveform secondary channel '{secondary}' missing from all runs; "
+                        "rendering row as single-channel."
+                    )
+                    secondary = None
+                elif s_count < len(self.runs):
+                    print(
+                        f"[WARNING][DataPlotter] Waveform secondary channel '{secondary}' present in {s_count}/{len(self.runs)} runs. Plotting available runs only."
+                    )
 
-        return available_channels, avail_lims, avail_refs, avail_heights
+            raw_lim = axis_limits[i] if axis_limits and i < len(axis_limits) else None
+            raw_ref = reference_lines[i] if reference_lines and i < len(reference_lines) else None
+            y1_lim, y2_lim = self._normalize_waveform_axis_limits(raw_lim, secondary is not None, primary)
+            y1_refs, y2_refs = self._normalize_waveform_reference_lines(raw_ref, secondary is not None)
+
+            row = {
+                "primary": primary,
+                "secondary": secondary,
+                "y1_lim": y1_lim,
+                "y2_lim": y2_lim,
+                "y1_refs": y1_refs,
+                "y2_refs": y2_refs,
+            }
+            prepared_rows.append(row)
+            row_heights.append(subplot_heights[i] if subplot_heights and i < len(subplot_heights) else 1.0)
+
+        return prepared_rows, row_heights
+
+    def _format_waveform_channel_label(self, channel, *, secondary=False, show_style_hint=False):
+        """Format waveform channel label and optional line-style hint."""
+        base = datafunctions.add_units_to_label(channel, units_map=self.units_map)
+        if not show_style_hint:
+            return base
+        style_hint = "- - - - -" if secondary else "_______"
+        return f"{base}\n{style_hint}"
 
     def generate_waveform_plots(self):
         """Generate all configured waveform subplot figures."""
@@ -469,10 +572,10 @@ class DataPlotter:
 
             print(f"Creating waveform plot: {plot_name}")
 
-            (avail_channels, avail_lims, avail_refs, avail_heights) = \
+            (prepared_rows, avail_heights) = \
                 self._prepare_waveform_channels(channels, axis_limits, ref_lines, subplot_heights)
 
-            if not avail_channels:
+            if not prepared_rows:
                 print(f"  No valid channels for {plot_name}")
                 continue
 
@@ -481,7 +584,7 @@ class DataPlotter:
             figsize = self._resolve_plot_figsize(filename, self.waveform_figsize, min_height=min_height)
 
             fig, axes = plt.subplots(
-                len(avail_channels),
+                len(prepared_rows),
                 1,
                 figsize=figsize,
                 sharex=True,
@@ -489,14 +592,18 @@ class DataPlotter:
                 gridspec_kw={"height_ratios": avail_heights},
             )
             axes = axes.flatten()
+            plotted_runs = set()
 
             xlabel = "sLap (m)" if all(
                 "sLap" in self.run_data[r["name"].lower()].columns for r in self.runs
             ) else "Sample"
 
             # Draw channels
-            for idx, ch in enumerate(avail_channels):
+            for idx, row in enumerate(prepared_rows):
                 ax = axes[idx]
+                ch_primary = row["primary"]
+                ch_secondary = row["secondary"]
+                ax_right = ax.twinx() if ch_secondary is not None else None
 
                 for run in self.runs:
                     rn = run["name"].lower()
@@ -504,11 +611,11 @@ class DataPlotter:
                         continue
 
                     df = self.run_data[rn]
-                    if ch not in df.columns:
+                    if ch_primary not in df.columns:
                         continue
 
                     x_vals = df["sLap"] if "sLap" in df.columns else df.index
-                    y_vals = df[ch]
+                    y_vals = df[ch_primary]
 
                     x_plot, y_plot = datafunctions.mask_waveform_discontinuities(x_vals, y_vals)
                     ax.plot(
@@ -519,9 +626,28 @@ class DataPlotter:
                         label=run["name"].upper(),
                         alpha=0.85,
                     )
+                    plotted_runs.add(rn)
+
+                    if ax_right is not None and ch_secondary in df.columns:
+                        y2_vals = df[ch_secondary]
+                        x2_plot, y2_plot = datafunctions.mask_waveform_discontinuities(x_vals, y2_vals)
+                        ax_right.plot(
+                            x2_plot,
+                            y2_plot,
+                            linewidth=1.45,
+                            linestyle="--",
+                            color=run["color"],
+                            label="_nolegend_",
+                            alpha=0.85,
+                        )
+                        plotted_runs.add(rn)
 
                 ax.set_ylabel(
-                    datafunctions.add_units_to_label(ch, units_map=self.units_map),
+                    self._format_waveform_channel_label(
+                        ch_primary,
+                        secondary=False,
+                        show_style_hint=(ch_secondary is not None),
+                    ),
                     fontsize=8.2,
                     fontweight="bold",
                     rotation=0,
@@ -531,19 +657,49 @@ class DataPlotter:
                 ax.yaxis.set_label_coords(-0.035, 0.5)
                 ax.grid(True, axis="y", alpha=0.28, linewidth=0.45)
 
-                if avail_lims[idx] is not None:
-                    yl, yh = avail_lims[idx]
+                if row["y1_lim"] is not None:
+                    yl, yh = row["y1_lim"]
                     if yl is not None or yh is not None:
                         ax.set_ylim(bottom=yl, top=yh)
 
-                if avail_refs[idx] is not None:
-                    vals = avail_refs[idx]
+                if row["y1_refs"] is not None:
+                    vals = row["y1_refs"]
                     if np.isscalar(vals):
                         vals = [vals]
                     for vv in vals:
                         ax.axhline(vv, linestyle="--", color="gray", alpha=0.4)
 
-                if idx < len(avail_channels) - 1:
+                if ax_right is not None:
+                    ax_right.set_ylabel(
+                        self._format_waveform_channel_label(
+                            ch_secondary,
+                            secondary=True,
+                            show_style_hint=True,
+                        ),
+                        fontsize=8.2,
+                        fontweight="bold",
+                        rotation=0,
+                        ha="left",
+                        va="center",
+                    )
+                    ax_right.yaxis.set_label_coords(1.03, 0.5)
+                    ax_right.spines["top"].set_visible(False)
+                    ax_right.grid(False)
+                    ax_right.tick_params(axis="y", labelsize=8.5)
+
+                    if row["y2_lim"] is not None:
+                        yl2, yh2 = row["y2_lim"]
+                        if yl2 is not None or yh2 is not None:
+                            ax_right.set_ylim(bottom=yl2, top=yh2)
+
+                    if row["y2_refs"] is not None:
+                        vals2 = row["y2_refs"]
+                        if np.isscalar(vals2):
+                            vals2 = [vals2]
+                        for vv2 in vals2:
+                            ax_right.axhline(vv2, linestyle=":", color="gray", alpha=0.36)
+
+                if idx < len(prepared_rows) - 1:
                     ax.tick_params(labelbottom=False)
 
             # Style x-axis
@@ -569,9 +725,17 @@ class DataPlotter:
                     ax.grid(True, which="major", axis="x", alpha=0.45, linewidth=0.5)
                     ax.grid(True, which="minor", axis="x", alpha=0.225, linewidth=0.3)
 
-            # Legend (only show once, outside data area)
-            handles, labels = axes[0].get_legend_handles_labels()
-            self._add_waveform_figure_legend(fig, handles, labels)
+            # Run legend (only once, outside data area)
+            run_handles = []
+            run_labels = []
+            for run in self.runs:
+                rn = run["name"].lower()
+                if rn not in plotted_runs:
+                    continue
+                run_handles.append(Line2D([0], [0], color=run["color"], linewidth=2.0))
+                run_labels.append(run["name"].upper())
+            self._add_waveform_figure_legend(fig, run_handles, run_labels)
+
             plt.tight_layout(pad=0.3, h_pad=-0.4, rect=(0, 0, 1, 0.95))
             fig.savefig(self.plots_dir / filename, dpi=300, facecolor="white", bbox_inches="tight")
             plt.close(fig)

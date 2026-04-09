@@ -9,15 +9,21 @@ import pandas as pd
 def collect_referenced_channels(plot_definitions):
     """Collect channels referenced by configured plot definitions."""
     referenced = set()
+
+    def _extract(item):
+        """Recursively collect channel names from strings/tuples/lists."""
+        if isinstance(item, str):
+            referenced.add(item)
+            return
+        if isinstance(item, (list, tuple)):
+            for value in item:
+                _extract(value)
+
     for plot_group in plot_definitions or []:
         for plot_def in plot_group or []:
             if len(plot_def) < 2:
                 continue
-            item = plot_def[1]
-            if isinstance(item, tuple):
-                referenced.update([v for v in item if isinstance(v, str)])
-            elif isinstance(item, str):
-                referenced.add(item)
+            _extract(plot_def[1])
     return sorted(referenced)
 
 

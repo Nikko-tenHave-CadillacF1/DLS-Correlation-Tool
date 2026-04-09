@@ -102,6 +102,7 @@ CHANNEL_TRANSFORMS = {
         "FPRodRL": lambda x: -x,
         "FPRodRR": lambda x: -x,
         "aRoll": lambda x: -x,
+        "gVert": lambda x: x - 1,
     },
     "car": {
         "PMGUK": lambda x: x / 1000,   # W -> kW
@@ -114,7 +115,7 @@ CHANNEL_TRANSFORMS = {
 # =====================================================================
 UNITS_MAP = {
     "glat": "g", "glong": "g", "gvertf": "g", "gvertr": "g", "glat_abs": "g",
-    "gLong (unsmoothed)": "g",
+    "gLong (raw)": "g", "gVert" : "g",
     "vcar": "kph",
     "aroll": "deg", "asteer": "deg", "asteerwheel": "deg", "aundersteerfromslip": "deg",
     "xrh": "mm", "laser": "mm", "hrider": "mm", "hridef": "mm",
@@ -163,6 +164,7 @@ CALCULATED_CHANNELS = {
 LOW_PASS_FILTERS = {
     "gVertF": {"cutoff": 0, "order": 2},
     "gVertR": {"cutoff": 0, "order": 2},
+    "gVert": {"cutoff": 0, "order": 2},
     "FzPlankF": {"cutoff": 0, "order": 2},
     "PMGUK": {"cutoff": 0, "order": 2},
     "SM": {"cutoff": 0, "order": 2},
@@ -195,10 +197,22 @@ SCATTER_HEXBIN_GRIDSIZE = 70
 
 WAVEFORM_PLOT_DEFINITIONS = [
    # Format:
-   # ["Name", (channels...), ((ymin,ymax)...), (reference lines...), (subplot height ratios...)]
+   # ["Name", (row_specs...), (axis_limits...), (reference_lines...), (subplot height ratios...)]
+   #
+   # row_specs:
+   #   "channel"                      -> single y-axis row (backward compatible)
+   #   ("channel_left", "channel_right") -> dual y-axis row (left/right overlay)
+   #
+   # axis_limits for each row:
+   #   single row -> (ymin, ymax)
+   #   dual row   -> ((left_ymin, left_ymax), (right_ymin, right_ymax))
+   #
+   # reference_lines for each row:
+   #   single row -> None, scalar, or tuple/list of values
+   #   dual row   -> (left_refs, right_refs)
    # `subplot height ratios` is optional; omit it to give equal heights.
    # Example:
-   # ["Waveform Example", ('vCar', 'gLong'), ((60, 360), (-5, 2)), (None, (0,)), (0.7, 0.5)]
+   # ["Waveform Example", ("SM", ("vCar", "nEngine")), ((-0.2, 1.2), ((60, 360), (7000, 13000))), (None, (None, (10000,))), (0.4, 0.8)]
     [
         "Driver Input", ('SM','PMGUK', 'NGear','vCar', 'aSteerWheel', 'pBrakeF', 'rThrottle'),
         ((-0.2, 1.2), (-360, 360), (0, 10), None, (-160, 160), (-10, 80), (-5, 105)), # y-axis limits for each channel
@@ -217,6 +231,12 @@ WAVEFORM_PLOT_DEFINITIONS = [
         (None, (-350, 0, 350), None, (0,7500), (0), None, None), # reference lines for each channel
         (0.15, 0.4, 0.6, 0.4, 0.6, 0.4, 0.4) # subplot height ratios (optional)
     ],
+    [
+        "DIL TELEM", ('SM', 'gVert', 'PMGUK', 'NGear','vCar', 'aSteerWheel', ('rThrottle', 'pBrakeF')),
+        ((-0.2, 1.2), (-3,3), (-360, 360), (0, 10), None, (-160, 160), ((-5, 105),(-10, 80))), # y-axis limits for each channel
+        (None, None, (-350, 0, 350), None, None, (0), None), # reference lines for each channel
+        (0.15, 0.2, 0.3, 0.3, 0.5, 0.3, 0.3) # subplot height ratios (optional)
+    ]
 ] 
 
 SCATTER_PLOT_DEFINITIONS = [
