@@ -20,6 +20,8 @@ Use [Run_Correlation.py](/c:/GitHub_Local/DLS-Correlation-Tool/Run_Correlation.p
 pip install -r requirements.txt
 ```
 
+Parquet inputs require a parquet backend (`pyarrow` or `fastparquet`) in your active Python environment.
+
 ## Run
 
 ```powershell
@@ -38,6 +40,8 @@ Generated plots are saved to `Data/plots`.
 ```powershell
 pip install -r requirements.txt
 ```
+
+If you use `.parquet` run files, make sure at least one parquet backend is installed (`pyarrow` or `fastparquet`).
 
 4. Run:
 

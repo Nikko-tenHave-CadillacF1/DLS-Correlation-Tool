@@ -28,14 +28,20 @@ ROOT_FOLDER = Path(r"C:\GitHub_Local\DLS-Correlation-Tool\Data")
 
 RUNS = [
     # Format:
-    # {"name": "<run_id>", "file": "<relative_path_from_Data>", "color": "<#RRGGBB>"}
+    # {"name": "<run_id>", "file": "<relative_path_from_Data>", "color": "<#RRGGBB>", "nrun": <optional_ranked_run_index>, "nlap": <optional_lap_number>}
+    # Notes:
+    # - "nrun" is optional and only used for parquet inputs.
+    #   nrun is rank-based on nRun values:
+    #   nrun=1 -> lowest nRun value in file, nrun=2 -> next lowest, etc.
+    # - "nlap" remains optional as fallback exact filter on "nLap".
+    # - If both are provided, nrun takes priority.
     # Example:
     # {"name": "run2", "file": "Run TXT Files\\my_run_2.txt", "color": "#00A6FF"},
-    #{"name": "v35b", "file": r"Run TXT Files\\OC-Corr\\CF126v035b - Reference Dataset - v7-MZA - RACE.oc.txt", "color": "#0051FF"},
-    #{"name": "v38a", "file": r"Run TXT Files\\OC-Corr\\Ref Data Set - CF1-26v038a - v1-MZA - RACE.oc.txt", "color": "#FF0000"},
+    {"name": "v37", "file": r"Run TXT Files\\OC Version Compare - BCN\\20260408-OC-VPG - Ref Data Set - CF1-26v037 - v1-BCN.parquet", "color": "#0051FF", "nrun" : 1},
+    {"name": "v38a", "file": r"Run TXT Files\\OC Version Compare - BCN\\20260408-OC-VPG - Ref Data Set - CF1-26v038a - v1-BCN.parquet", "color": "#FF0000", "nrun" : 1},
     #{"name": "car", "file": "Run TXT Files\\26R03SUZ_260328_MAC26-02_BOT_Q_R03_1.txt", "color": "#FF8C00"},
-    {"name": "lts", "file": "Run TXT Files\\VPG Baselines  MIA  26R04MIA v0a_-CORR_LTS_Iteration_5.txt", "color": "#0011FF"},
-    {"name": "oc", "file": "Run TXT Files\\26R04MIA - Pre-Event OC-LTS COR - v4-MIA.oc.txt", "color": "#39D700"},
+    #{"name": "lts", "file": "Run TXT Files\\26R03SUZ  77  Quali  Run 2 Q1R2  Stint 1 Stint 2_-FINAL_DLS_2.txt", "color": "#0011FF"},
+    #{"name": "oc", "file": "Run TXT Files\\26R04MIA - Pre-Event OC-LTS COR - v4-MIA.oc.txt", "color": "#39D700"},
 ]
 
 # ---------------------------------------------------------------------
@@ -51,23 +57,26 @@ EXPORT_TO_POWERPOINT = True
 ENABLE_MAIN_CORRELATION_SUMMARY = True
 MAIN_CORRELATION_INCLUDE_CSV = False
 MAIN_CORRELATION_LOW_SAMPLE_THRESHOLD = 200
-MAIN_CORRELATION_CORR_CHECK_THRESHOLD = 0.90
-MAIN_CORRELATION_SLOPE_DELTA_CHECK_PCT = 10.0
+MAIN_CORRELATION_CORR_CHECK_THRESHOLD = 0.85
+MAIN_CORRELATION_SLOPE_DELTA_CHECK_PCT = 5.0
 
 # =====================================================================
 # CHANNEL MAPPINGS
 CHANNEL_MAPPINGS = {
-    'v35b': {
+    'v37': {
     # Example mappings - adjust based on your data:
-    'rSLMActive' : 'SM'
+    'rSLMActive' : 'SM',
+    'aUndersteer_aSlip' : 'aUndersteerFromSlip'
     },
     'v38a': {
     # Example mappings - adjust based on your data:
-    'rSLMActive' : 'SM'
+    'rSLMActive' : 'SM',
+    'aUndersteer_aSlip' : 'aUndersteerFromSlip'
     },
     'oc': {
     # Example mappings - adjust based on your data:
-    'rSLMActive' : 'SM'
+    'rSLMActive' : 'SM',
+    'aUndersteer_aSlip' : 'aUndersteerFromSlip'
     },
     'dil': {
     # Example mappings - adjust based on your data:
@@ -140,7 +149,7 @@ CHANNEL_MAPPINGS = {
 # =====================================================================
 CHANNEL_TRANSFORMS = {
     'oc' : None,
-    'v35b' : None,
+    'v37' : None,
     'v38a' : None,
     'gm' : {
         # DLS load sign corrections
@@ -221,7 +230,8 @@ CALCULATED_CHANNELS = {
     "gLong (raw)": lambda df: df["gLong"],
     "hRideF (raw)": lambda df: df["hRideF"],
     "hRideR (raw)": lambda df: df["hRideR"],
-    "PPUTotal": lambda df: df["PMGUK"] + df["PEngine"]
+    "PPUTotal": lambda df: df["PMGUK"] + df["PEngine"],
+    "nWheelR_Avg": lambda df: (df["nWheelRL"] + df["nWheelRR"])/2
 }
 
 # =====================================================================
@@ -286,7 +296,7 @@ WAVEFORM_PLOT_DEFINITIONS = [
         (0.4, 0.8, 0.4, 0.4, 0.4) # subplot height ratios (optional)
     ],
     [
-        "Power Unit", ('PMGUK', 'PEngine',('vCar', 'NGear'), 'nEngine', 'dmInjector', ('rThrottle','SM')),
+        "Power Unit", ('PMGUK', 'PEngine', ('vCar', 'NGear'), 'nEngine', 'dmInjector', ('rThrottle','SM')),
         (None, None, ((60,400),(-1,9)), None, None, ((0, 105), (0,1.3))), # y-axis limits for each channel
         ((-350, 0, 350), (0), None, (10000), None, None), # reference lines for each channel
         (0.4, 0.4, 0.6, 0.4, 0.4, 0.4) # subplot height ratios (optional)
@@ -298,10 +308,10 @@ WAVEFORM_PLOT_DEFINITIONS = [
         (0.4, 0.6, 0.4, 0.6, 0.4, 0.4) # subplot height ratios (optional)
     ],
     [
-        "DIL TELEM", ('SM', 'gVert', 'PMGUK', 'NGear','vCar', 'aSteerWheel', ('rThrottle', 'pBrakeF')),
-        ((-0.2, 1.2), (-3,3), (-360, 360), (0, 10), None, (-160, 160), ((0, 105),(None, None))), # y-axis limits for each channel
+        "DIL TELEM", ('SM', 'gVert', 'PMGUK',  ('vCar', 'NGear'), 'aSteerWheel', ('rThrottle', 'pBrakeF')),
+        ((-0.2, 1.2), (-3,3), (-360, 360), ((60,400),(-1,9)), (-160, 160), ((0, 105),(None, None))), # y-axis limits for each channel
         (None, None, (-350, 0, 350), None, None, (0), None), # reference lines for each channel
-        (0.15, 0.2, 0.3, 0.3, 0.5, 0.3, 0.3) # subplot height ratios (optional)
+        (0.15, 0.2, 0.3, 0.5, 0.3, 0.3) # subplot height ratios (optional)
     ]
 ] 
 
@@ -356,7 +366,6 @@ SCATTER_PLOT_DEFINITIONS = [
     ["Steering Moment", ('aSteerWheel', 'MSteerWheel'), [(-160, 160), (None, None)], 0],
     ["Plank power acceleration", ('gLong (raw)', 'PPlankF'), None, 0],
     ["engine efficiency", ('dmInjector', 'PEngine'), None, [('x', None, None)]],
-    ["throttle application", ('rThrottle', 'PEngine'), None, 0],
     ["gLat Understeer", ('gLat_Abs', 'aUndersteerFromSlip'), None, [('x', None, None)]],
 ] 
 
@@ -379,11 +388,21 @@ HISTOGRAM_PLOT_DEFINITIONS = [
     ["Plank Power Distribution", 'PPlankF', [(1,51), (None, None)], False],
 ]
 
+BAR_PLOT_DEFINITIONS = [
+   # Format:
+   # ["Name", ("channel1", "channel2", ...)]
+   # ["Name", (("channel1", "integral"), ("channel2", "sum")), default_aggregation(optional), (ymin, ymax)(optional)]
+   # Default aggregation is "last" when not specified.
+   # Example:
+   # ["Cumulative Metrics", (("dmInjector", "integral"), ("EPlankF", "sum"))]
+   ["Cumulative Metrics", ("ELapCharge", "ELapDischarge")]
+]
+
 POWERPOINT_EXPORT_MAP = {
     4: {'layout': 'main_plot', 'images': ['waveform_Driver_Input.png']},
     5: {'layout': 'main_plot', 'images': ['waveform_Power_Unit.png']},
     6: {'layout': 'double_plot', 'images': ['scatter_Gear_Ratios.png', 'scatter_Engine_Power.png']},
-    7: {'layout': 'double_plot', 'images': ['scatter_throttle_application.png', 'scatter_engine_efficiency.png']},
+    7: {'layout': 'double_plot', 'images': ['bar_Cumulative_Metrics.png', 'scatter_engine_efficiency.png']},
     8: {'layout': 'double_plot', 'images': ['scatter_Long_Acceleration.png', 'scatter_Lat_Acceleration.png']},
     9: {'layout': 'double_plot', 'images': ['scatter_GG_Plot.png', 'scatter_Understeer_Plot.png']},
     10: {'layout': 'double_plot', 'images': ['scatter_Yaw_Rate_Response.png', 'scatter_Lateral_Acceleration_Response.png']},
@@ -405,7 +424,8 @@ PLOT_DEFINITIONS = (
     WAVEFORM_PLOT_DEFINITIONS if WAVEFORM_PLOT_DEFINITIONS else [],
     SCATTER_PLOT_DEFINITIONS if SCATTER_PLOT_DEFINITIONS else [],
     PSD_PLOT_DEFINITIONS if PSD_PLOT_DEFINITIONS else [],
-    HISTOGRAM_PLOT_DEFINITIONS if HISTOGRAM_PLOT_DEFINITIONS else []
+    HISTOGRAM_PLOT_DEFINITIONS if HISTOGRAM_PLOT_DEFINITIONS else [],
+    BAR_PLOT_DEFINITIONS if BAR_PLOT_DEFINITIONS else [],
 )
 
 # =====================================================================

@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib import ticker
 from matplotlib import font_manager
 from pathlib import Path
+import importlib.util
 import datafunctions
 import data_quality_report
 from collections import Counter
@@ -83,6 +84,9 @@ class DataPlotter:
                 file_path,
                 use_python_engine=use_python_engine,
                 columns_to_load=self.run_required_cols[run_name],
+                parquet_nrun=run.get("nrun"),
+                parquet_nlap=run.get("nlap"),
+                run_name=run_name,
             )
 
             self.run_data[run_name] = data
@@ -242,12 +246,264 @@ class DataPlotter:
     # LOAD RUN DATA
     # ------------------------------------------------------------
 
-    def _load_run_data(self, file_path, use_python_engine=False, columns_to_load=None):
+    def _available_parquet_engines(self):
+        """Return parquet engines available in the current Python environment."""
+        engines = []
+        if importlib.util.find_spec("pyarrow") is not None:
+            engines.append("pyarrow")
+        if importlib.util.find_spec("fastparquet") is not None:
+            engines.append("fastparquet")
+        return engines
+
+    def _normalize_parquet_column_aliases(self, df):
+        """
+        Normalize parquet column aliases where a leading underscore indicates
+        an upper-case first character (e.g. '_fzTyreFL' -> 'FzTyreFL').
+        """
+        raw_columns = [str(c).strip() for c in df.columns]
+        rename_map = {}
+        existing = set(raw_columns)
+
+        for col in raw_columns:
+            if col.startswith("_") and len(col) > 1 and col[1].isalpha():
+                canonical = col[1].upper() + col[2:]
+                # Do not overwrite an already present canonical channel.
+                if canonical not in existing:
+                    rename_map[col] = canonical
+
+        if rename_map:
+            df = df.rename(columns=rename_map)
+
+        return df
+
+    def _find_parquet_column(self, df, logical_name):
+        """Find a parquet column by canonical logical name (supports underscore aliases)."""
+        columns = [str(c).strip() for c in df.columns]
+        lower_target = logical_name.lower()
+
+        # Exact/canonical-first candidates
+        candidates = [
+            logical_name,
+            logical_name.lower(),
+            logical_name.upper(),
+            f"_{logical_name}",
+            f"_{logical_name.lower()}",
+            logical_name[0].upper() + logical_name[1:],  # e.g. NRun / NLap
+        ]
+        for candidate in candidates:
+            if candidate in columns:
+                return candidate
+
+        insensitive = [c for c in columns if c.lower() == lower_target]
+        if insensitive:
+            if len(insensitive) > 1:
+                print(
+                    f"[WARNING][DataPlotter] Multiple {logical_name}-like columns found: "
+                    f"{', '.join(insensitive)}. Using '{insensitive[0]}'."
+                )
+            return insensitive[0]
+        return None
+
+    def _apply_parquet_nrun_filter(self, df, nrun, file_path, run_name=""):
+        """
+        Filter parquet rows by nRun rank:
+        nrun=1 -> lowest nRun value, nrun=2 -> next lowest, etc.
+        """
+        if nrun is None:
+            return df
+
+        run_col = self._find_parquet_column(df, "nRun")
+        run_label = run_name.upper() if run_name else file_path.name
+
+        if run_col is None:
+            raise KeyError(
+                f"Run '{run_label}' requested nrun={nrun}, but parquet has no nRun column "
+                f"(accepted aliases: nRun, nrun, _nRun, _nrun)."
+            )
+
+        rank_numeric = pd.to_numeric(pd.Series([nrun]), errors="coerce").iloc[0]
+        if pd.isna(rank_numeric):
+            raise ValueError(
+                f"Run '{run_label}' nrun must be an integer rank (1-based). Got: {nrun!r}"
+            )
+
+        rank = int(rank_numeric)
+        if rank < 1:
+            raise ValueError(
+                f"Run '{run_label}' nrun must be >= 1. Got: {nrun!r}"
+            )
+
+        series = df[run_col]
+        numeric = pd.to_numeric(series, errors="coerce")
+
+        if numeric.notna().any():
+            unique_vals = sorted(numeric.dropna().unique().tolist())
+            if rank > len(unique_vals):
+                raise ValueError(
+                    f"Run '{run_label}' requested nrun={rank}, but only {len(unique_vals)} unique nRun values "
+                    f"exist in '{run_col}'. Available: {unique_vals[:12]}"
+                    + (" ..." if len(unique_vals) > 12 else "")
+                )
+            target_value = unique_vals[rank - 1]
+            mask = numeric == target_value
+        else:
+            str_vals = series.astype(str).str.strip()
+            unique_vals = sorted([v for v in str_vals.unique().tolist() if v and v.lower() != "nan"])
+            if rank > len(unique_vals):
+                raise ValueError(
+                    f"Run '{run_label}' requested nrun={rank}, but only {len(unique_vals)} unique nRun values "
+                    f"exist in '{run_col}'. Available: {unique_vals[:12]}"
+                    + (" ..." if len(unique_vals) > 12 else "")
+                )
+            target_value = unique_vals[rank - 1]
+            mask = str_vals == target_value
+
+        filtered = df.loc[mask].copy()
+        if filtered.empty:
+            raise ValueError(
+                f"Run '{run_label}' nrun={rank} resolved to nRun value '{target_value}' "
+                f"but produced 0 rows in '{run_col}'."
+            )
+
+        print(
+            f"[INFO][DataPlotter] Run '{run_label}' filtered parquet by ranked nRun: "
+            f"nrun={rank} -> {run_col}={target_value} ({len(filtered)}/{len(df)} rows kept)."
+        )
+        return filtered
+
+    def _apply_parquet_lap_filter(self, df, nlap, file_path, run_name=""):
+        """Filter parquet rows to a specific lap index using nLap."""
+        if nlap is None:
+            return df
+
+        run_col = self._find_parquet_column(df, "nLap")
+        run_label = run_name.upper() if run_name else file_path.name
+
+        if run_col is None:
+            print(
+                f"[WARNING][DataPlotter] Run '{run_label}' requested nlap={nlap}, "
+                f"but parquet has no 'nLap' column. Skipping lap filter."
+            )
+            return df
+
+        target_series = pd.to_numeric(pd.Series([nlap]), errors="coerce")
+        target_numeric = target_series.iloc[0]
+
+        if pd.notna(target_numeric):
+            run_numeric = pd.to_numeric(df[run_col], errors="coerce")
+            mask = run_numeric == float(target_numeric)
+        else:
+            mask = df[run_col].astype(str).str.strip() == str(nlap).strip()
+
+        filtered = df.loc[mask].copy()
+
+        if filtered.empty:
+            print(
+                f"[WARNING][DataPlotter] Run '{run_label}' nlap={nlap} produced 0 rows "
+                f"from parquet column '{run_col}'."
+            )
+        else:
+            print(
+                f"[INFO][DataPlotter] Run '{run_label}' filtered parquet by {run_col}={nlap}: "
+                f"{len(filtered)}/{len(df)} rows kept."
+            )
+
+        return filtered
+
+    def _load_parquet_with_fallback(
+        self,
+        file_path,
+        columns_to_load=None,
+        parquet_nrun=None,
+        parquet_nlap=None,
+        run_name="",
+    ):
+        """Load parquet with automatic engine fallback and optional column filtering."""
+        available_engines = self._available_parquet_engines()
+        if not available_engines:
+            raise ImportError(
+                "Parquet input requires 'pyarrow' or 'fastparquet', but neither is installed. "
+                "Install one parquet backend and rerun."
+            )
+
+        errors = []
+        for engine in available_engines:
+            try:
+                # Read full parquet first so we can normalize underscore aliases
+                # before applying required-column filtering.
+                df = pd.read_parquet(file_path, engine=engine)
+                df.columns = [str(c).strip() for c in df.columns]
+                df = self._normalize_parquet_column_aliases(df)
+                if parquet_nrun is not None and parquet_nlap is not None:
+                    print(
+                        f"[INFO][DataPlotter] Run '{run_name.upper() if run_name else file_path.name}' "
+                        f"provided both nrun and nlap; applying nrun filter and ignoring nlap."
+                    )
+
+                if parquet_nrun is not None:
+                    df = self._apply_parquet_nrun_filter(
+                        df,
+                        nrun=parquet_nrun,
+                        file_path=file_path,
+                        run_name=run_name,
+                    )
+                elif parquet_nlap is not None:
+                    df = self._apply_parquet_lap_filter(
+                        df,
+                        nlap=parquet_nlap,
+                        file_path=file_path,
+                        run_name=run_name,
+                    )
+
+                if columns_to_load:
+                    requested = sorted(set(columns_to_load))
+                    available = [c for c in requested if c in df.columns]
+                    missing = [c for c in requested if c not in df.columns]
+                    if missing:
+                        print(
+                            f"[WARNING][DataPlotter] Parquet file '{file_path.name}' is missing "
+                            f"{len(missing)} requested channel(s): {', '.join(missing[:10])}"
+                            + (" ..." if len(missing) > 10 else "")
+                        )
+                    if available:
+                        df = df[available]
+                    else:
+                        raise KeyError(
+                            f"No requested channels found after parquet alias normalization. "
+                            f"Requested: {requested[:10]}"
+                            + (" ..." if len(requested) > 10 else "")
+                        )
+
+                return df
+            except Exception as exc:
+                errors.append(f"{engine}: {exc}")
+
+        details = " | ".join(errors)
+        raise RuntimeError(
+            f"Unable to load parquet file '{file_path}' using available engines {available_engines}. "
+            f"Errors: {details}"
+        )
+
+    def _load_run_data(
+        self,
+        file_path,
+        use_python_engine=False,
+        columns_to_load=None,
+        parquet_nrun=None,
+        parquet_nlap=None,
+        run_name="",
+    ):
         """Load CSV/TXT or Parquet, applying column filtering."""
         try:
             if file_path.suffix.lower() == ".parquet":
-                df = pd.read_parquet(file_path)
-                df.columns = make_unique([str(c) for c in df.columns])
+                df = self._load_parquet_with_fallback(
+                    file_path,
+                    columns_to_load=columns_to_load,
+                    parquet_nrun=parquet_nrun,
+                    parquet_nlap=parquet_nlap,
+                    run_name=run_name,
+                )
+                df.columns = make_unique([str(c).strip() for c in df.columns])
                 units = {c: "" for c in df.columns}
                 return df, df.columns, units
 
@@ -1268,6 +1524,131 @@ class DataPlotter:
             print(f"  Saved: {filename}")
 
 
+    # ------------------------------------------------------------
+    # BAR PLOTS
+    # ------------------------------------------------------------
+
+    def generate_bar_plots(self):
+        """Create grouped bar plots for aggregated channel metrics."""
+        plots = self._get_plot_group(4, "bar")
+
+        for plot_def in plots:
+            # Format:
+            # ["Name", ("ch1", "ch2", ...)]
+            # ["Name", (("ch1", "integral"), ("ch2", "sum")), default_agg(optional), (ymin, ymax)(optional)]
+            plot_name = plot_def[0]
+            metric_specs_raw = plot_def[1] if len(plot_def) > 1 else ()
+            default_agg = plot_def[2] if len(plot_def) > 2 and isinstance(plot_def[2], str) else "last"
+            axis_limits = plot_def[3] if len(plot_def) > 3 else None
+
+            metric_specs = datafunctions.normalize_bar_metric_specs(
+                metric_specs_raw,
+                default_aggregation=default_agg,
+            )
+
+            if not metric_specs:
+                print(f"[WARNING][DataPlotter] Bar plot '{plot_name}' has no valid metric specs. Skipping.")
+                continue
+
+            filename = self._sanitize_plot_filename("bar", plot_name)
+            figsize = self._resolve_plot_figsize(filename, self.histogram_FIGSIZE)
+            fig, ax = plt.subplots(figsize=figsize)
+
+            metric_labels = [metric for metric, _ in metric_specs]
+            x = np.arange(len(metric_specs))
+
+            loaded_runs = [run for run in self.runs if run["name"].lower() in self.run_data]
+            if not loaded_runs:
+                print(f"[WARNING][DataPlotter] Bar plot '{plot_name}' has no loaded runs. Skipping.")
+                plt.close(fig)
+                continue
+
+            group_width = 0.82
+            bar_width = group_width / max(len(loaded_runs), 1)
+            left_edge = -group_width / 2.0
+
+            for run_index, run in enumerate(loaded_runs):
+                run_name = run["name"].lower()
+                df = self.run_data[run_name]
+
+                values = []
+                for channel, aggregation in metric_specs:
+                    if channel not in df.columns:
+                        print(
+                            f"[WARNING][DataPlotter] Bar plot '{plot_name}': missing channel '{channel}' "
+                            f"in run '{run_name.upper()}'."
+                        )
+                        values.append(np.nan)
+                        continue
+
+                    metric_value = datafunctions.aggregate_channel_for_bar(
+                        df[channel],
+                        aggregation=aggregation,
+                        sample_rate=self.FILTER_SAMPLE_RATE,
+                    )
+                    values.append(metric_value)
+
+                offsets = x + left_edge + (run_index + 0.5) * bar_width
+                ax.bar(
+                    offsets,
+                    values,
+                    width=bar_width,
+                    color=run["color"],
+                    alpha=0.92,
+                    label=run["name"].upper(),
+                    edgecolor="white",
+                    linewidth=0.6,
+                )
+
+            if len(set(agg for _, agg in metric_specs)) == 1:
+                ylabel = f"Aggregated Value ({metric_specs[0][1]})"
+            else:
+                ylabel = "Aggregated Value"
+
+            ax.set_xticks(x)
+            ax.set_xticklabels(metric_labels, rotation=0, fontweight="bold")
+            ax.set_ylabel(ylabel, fontsize=12, fontweight="bold")
+            ax.set_title(plot_name, fontsize=14, fontweight="bold")
+            ax.tick_params(axis="x", labelsize=10)
+            ax.tick_params(axis="y", labelsize=10)
+
+            if isinstance(axis_limits, (list, tuple)) and len(axis_limits) == 2:
+                ymin, ymax = axis_limits
+                if ymin is not None or ymax is not None:
+                    ax.set_ylim(bottom=ymin, top=ymax)
+
+            self._add_axis_edge_padding(ax, x_pad_ratio=0.06, y_pad_ratio=0.04)
+
+            # Add a zero reference line when zero is visible, matching scatter style cues.
+            y0, y1 = ax.get_ylim()
+            if y0 <= 0 <= y1:
+                ax.axhline(
+                    0,
+                    color="#4F4F4F",
+                    linestyle="--",
+                    linewidth=1.0,
+                    alpha=0.9,
+                    zorder=0,
+                )
+
+            ax.grid(True, axis="y", alpha=0.3)
+            ax.set_axisbelow(True)
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+
+            self._add_standard_legend(ax, loc="upper right")
+
+            plt.tight_layout(pad=0.25)
+            fig.savefig(
+                self.plots_dir / filename,
+                dpi=300,
+                pad_inches=0.05,
+                facecolor="white",
+            )
+            plt.close(fig)
+            print(f"  Saved: {filename}")
+
+
 
     # ------------------------------------------------------------
     # TRENDLINE & GRADIENT BOXES
@@ -1627,5 +2008,6 @@ class DataPlotter:
         self.generate_scatter_plots()
         self.generate_psd_plots()
         self.generate_histogram_plots()
+        self.generate_bar_plots()
         print(f"\nAll plots saved to: {self.plots_dir}")
 

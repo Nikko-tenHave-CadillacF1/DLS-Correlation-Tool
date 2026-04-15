@@ -433,6 +433,79 @@ def compute_equal_width_bins_in_limits(xmin, xmax, reference_bins):
 
 
 # ================================================================
+# BAR-PLOT HELPERS
+# ================================================================
+
+def normalize_bar_metric_specs(metric_specs, default_aggregation="last"):
+    """Normalize bar metric specs into [(channel, aggregation), ...]."""
+    if isinstance(metric_specs, str):
+        metric_specs = (metric_specs,)
+
+    if not isinstance(metric_specs, (list, tuple)):
+        return []
+
+    normalized = []
+    valid_aggs = {
+        "sum", "mean", "min", "max", "median", "integral",
+        "abs_sum", "abs_integral", "first", "last",
+    }
+
+    for item in metric_specs:
+        if isinstance(item, str):
+            normalized.append((item, default_aggregation))
+            continue
+
+        if isinstance(item, (list, tuple)) and len(item) >= 1:
+            channel = item[0]
+            if not isinstance(channel, str):
+                continue
+            aggregation = item[1] if len(item) >= 2 else default_aggregation
+            if not isinstance(aggregation, str):
+                aggregation = default_aggregation
+            aggregation = aggregation.lower().strip()
+            if aggregation not in valid_aggs:
+                aggregation = default_aggregation
+            normalized.append((channel, aggregation))
+
+    return normalized
+
+
+def aggregate_channel_for_bar(series, aggregation="last", sample_rate=100.0):
+    """Aggregate a channel series into a scalar for grouped bar plots."""
+    values = pd.to_numeric(series, errors="coerce").dropna()
+    if values.empty:
+        return np.nan
+
+    agg = str(aggregation).lower().strip()
+
+    if agg == "sum":
+        return float(values.sum())
+    if agg == "mean":
+        return float(values.mean())
+    if agg == "min":
+        return float(values.min())
+    if agg == "max":
+        return float(values.max())
+    if agg == "median":
+        return float(values.median())
+    if agg == "abs_sum":
+        return float(values.abs().sum())
+    if agg == "integral":
+        dt = 1.0 / float(sample_rate) if sample_rate else 1.0
+        return float(values.sum() * dt)
+    if agg == "abs_integral":
+        dt = 1.0 / float(sample_rate) if sample_rate else 1.0
+        return float(values.abs().sum() * dt)
+    if agg == "first":
+        return float(values.iloc[0])
+    if agg == "last":
+        return float(values.iloc[-1])
+
+    # fallback
+    return float(values.iloc[-1])
+
+
+# ================================================================
 # SCATTER PLOTTING HELPERS
 # ================================================================
 

@@ -249,7 +249,10 @@ def get_template_plot_aspect_ratios(template_path, export_map):
             if (
                 config.get("layout") == "double_plot"
                 and len(slide_aspects) == 2
-                and not all(name.startswith("scatter_") for name, _ in slide_aspects)
+                and not all(
+                    name.startswith(("scatter_", "psd_", "bar_"))
+                    for name, _ in slide_aspects
+                )
             ):
                 avg = sum(a for _, a in slide_aspects) / len(slide_aspects)
                 for img, _ in slide_aspects:
@@ -333,7 +336,8 @@ def export_report_to_powerpoint(template_path, output_path, plots_dir, export_ma
 
                 # Aggressive padding for scatter/PSD in double-layout
                 if (
-                    layout == "double_plot" and img.startswith(("scatter_", "psd_", "histogram_"))
+                    layout == "double_plot"
+                    and img.startswith(("scatter_", "psd_", "histogram_", "bar_"))
                 ):
                     fill_factor = 1.2
                 else:
