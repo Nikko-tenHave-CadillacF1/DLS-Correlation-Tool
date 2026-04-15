@@ -30,9 +30,11 @@ RUNS = [
     # {"name": "<run_id>", "file": "<relative_path_from_Data>", "color": "<#RRGGBB>"}
     # Example:
     # {"name": "run2", "file": "Run TXT Files\\my_run_2.txt", "color": "#00A6FF"},
-    {"name": "car", "file": "Run TXT Files\\26R03SUZ_260328_MAC26-02_BOT_Q_R03_1.txt", "color": "#FF8C00"},
-    {"name": "dls", "file": "Run TXT Files\\26R03SUZ  77  Quali  Run 2 Q1R2  Stint 1 Stint 2_-FINAL_DLS_2.txt", "color": "#002FFF"},
-    #{"name": "oc", "file": "Run TXT Files\\Lap001_20260406-OC-VPG - Correlation - DiL 2603256 FIT SUZ Support Run 7 - Multi - v1-SUZ.oc.txt", "color": "#37FF00"},
+    #{"name": "v35b", "file": r"Run TXT Files\\OC-Corr\\CF126v035b - Reference Dataset - v7-MZA - RACE.oc.txt", "color": "#0051FF"},
+    #{"name": "v38a", "file": r"Run TXT Files\\OC-Corr\\Ref Data Set - CF1-26v038a - v1-MZA - RACE.oc.txt", "color": "#FF0000"},
+    #{"name": "car", "file": "Run TXT Files\\26R03SUZ_260328_MAC26-02_BOT_Q_R03_1.txt", "color": "#FF8C00"},
+    {"name": "lts", "file": "Run TXT Files\\VPG Baselines  MIA  26R04MIA v0a_-CORR_LTS_Iteration_5.txt", "color": "#0011FF"},
+    {"name": "oc", "file": "Run TXT Files\\26R04MIA - Pre-Event OC-LTS COR - v4-MIA.oc.txt", "color": "#39D700"},
 ]
 
 # ---------------------------------------------------------------------
@@ -45,6 +47,14 @@ EXPORT_TO_POWERPOINT = True
 # =====================================================================
 # CHANNEL MAPPINGS
 CHANNEL_MAPPINGS = {
+    'v35b': {
+    # Example mappings - adjust based on your data:
+    'rSLMActive' : 'SM'
+    },
+    'v38a': {
+    # Example mappings - adjust based on your data:
+    'rSLMActive' : 'SM'
+    },
     'oc': {
     # Example mappings - adjust based on your data:
     'rSLMActive' : 'SM'
@@ -61,7 +71,33 @@ CHANNEL_MAPPINGS = {
     'pBrakeF1' : 'pBrakeF',
     'CAN_6_632_aSteerWheel_Can' : 'aSteerWheel',
     },
-    'dls': {
+    'lts': {
+    # Example mappings - adjust based on your data:
+    'aRollCarTrack': 'aRoll',
+    'FPushrodFL': 'FPRodFL',
+    'FPushrodFR': 'FPRodFR',
+    'FPushrodRL': 'FPRodRL',
+    'FPushrodRR': 'FPRodRR',
+    'aUndersteer_aSlip': 'aUndersteerFromSlip',
+    'BAeroModeXDriver': 'SM',
+    'rThrottlePedal': 'rThrottle',
+    'EPlankLTS_Lap' : 'EPlankF',
+    'PPlankWearF' : 'PPlankF'
+    },
+    'gm': {
+    # Example mappings - adjust based on your data:
+    'aRollCarTrack': 'aRoll',
+    'FPushrodFL': 'FPRodFL',
+    'FPushrodFR': 'FPRodFR',
+    'FPushrodRL': 'FPRodRL',
+    'FPushrodRR': 'FPRodRR',
+    'aUndersteer_aSlip': 'aUndersteerFromSlip',
+    'BAeroModeXDriver': 'SM',
+    'rThrottlePedal': 'rThrottle',
+    'EPlankLTS_Lap' : 'EPlankF',
+    'PPlankWearF' : 'PPlankF'
+    },
+    'nh': {
     # Example mappings - adjust based on your data:
     'aRollCarTrack': 'aRoll',
     'FPushrodFL': 'FPRodFL',
@@ -94,8 +130,28 @@ CHANNEL_MAPPINGS = {
 # =====================================================================
 CHANNEL_TRANSFORMS = {
     'oc' : None,
+    'v35b' : None,
+    'v38a' : None,
+    'gm' : {
+        # DLS load sign corrections
+        "FPRodFL": lambda x: -x,
+        "FPRodFR": lambda x: -x,
+        "FPRodRL": lambda x: -x,
+        "FPRodRR": lambda x: -x,
+        "aRoll": lambda x: -x,
+        "gVert": lambda x: x - 1,
+    },
+    'nh' : {
+        # DLS load sign corrections
+        "FPRodFL": lambda x: -x,
+        "FPRodFR": lambda x: -x,
+        "FPRodRL": lambda x: -x,
+        "FPRodRR": lambda x: -x,
+        "aRoll": lambda x: -x,
+        "gVert": lambda x: x - 1,
+    },
     'dil' : None,
-    "dls": {
+    "lts": {
         # DLS load sign corrections
         "FPRodFL": lambda x: -x,
         "FPRodFR": lambda x: -x,
@@ -214,26 +270,26 @@ WAVEFORM_PLOT_DEFINITIONS = [
    # Example:
    # ["Waveform Example", ("SM", ("vCar", "nEngine")), ((-0.2, 1.2), ((60, 360), (7000, 13000))), (None, (None, (10000,))), (0.4, 0.8)]
     [
-        "Driver Input", ('SM','PMGUK', 'NGear','vCar', 'aSteerWheel', 'pBrakeF', 'rThrottle'),
-        ((-0.2, 1.2), (-360, 360), (0, 10), None, (-160, 160), (-10, 80), (-5, 105)), # y-axis limits for each channel
-        (None, (-350, 0, 350), None, None, (0), None, None), # reference lines for each channel
-        (0.15, 0.4, 0.4, 0.8, 0.4, 0.4, 0.4) # subplot height ratios (optional)
+        "Driver Input", ('PMGUK', ('vCar', 'NGear'), 'aSteerWheel', 'pBrakeF', ('rThrottle','SM')),
+        (None, ((60,400),(-1,9)), (-160, 160), None, ((0, 105), (0,1.3))), # y-axis limits for each channel
+        ((-350, 0, 350), None, (0), None, None), # reference lines for each channel
+        (0.4, 0.8, 0.4, 0.4, 0.4) # subplot height ratios (optional)
     ],
     [
-        "Power Unit", ('PMGUK', 'PEngine','vCar', 'nEngine', 'NGear', 'dmInjector', 'rThrottle'),
-        ((-360, 360), (-100, 500), None, (7000, 13000), (0,10), None, (-5,105)), # y-axis limits for each channel
-        ((-350, 0, 350), (0), None, (10000), None, None, None), # reference lines for each channel
-        (0.4, 0.4, 0.6, 0.4, 0.4, 0.4, 0.4) # subplot height ratios (optional)
+        "Power Unit", ('PMGUK', 'PEngine',('vCar', 'NGear'), 'nEngine', 'dmInjector', ('rThrottle','SM')),
+        (None, None, ((60,400),(-1,9)), None, None, ((0, 105), (0,1.3))), # y-axis limits for each channel
+        ((-350, 0, 350), (0), None, (10000), None, None), # reference lines for each channel
+        (0.4, 0.4, 0.6, 0.4, 0.4, 0.4) # subplot height ratios (optional)
     ],
     [
-        "Plank Wear", ('SM', 'PMGUK','vCar','FzPlankF', 'EPlankF' , 'pBrakeF', 'rThrottle'),
-        ((-0.1, 1.1), (-360, 360), None, (0, 8000), None, (-10, 80), (-5,105)), # y-axis limits for each channel
-        (None, (-350, 0, 350), None, (0,7500), (0), None, None), # reference lines for each channel
-        (0.15, 0.4, 0.6, 0.4, 0.6, 0.4, 0.4) # subplot height ratios (optional)
+        "Plank Wear", ('PMGUK','vCar','FzPlankF', 'EPlankF' , 'pBrakeF', ('rThrottle','SM')),
+        (None, None, None, None, None, ((0, 105), (0,1.3))), # y-axis limits for each channel
+        ((-350, 0, 350), None, (0,7500), (0), None, None), # reference lines for each channel
+        (0.4, 0.6, 0.4, 0.6, 0.4, 0.4) # subplot height ratios (optional)
     ],
     [
         "DIL TELEM", ('SM', 'gVert', 'PMGUK', 'NGear','vCar', 'aSteerWheel', ('rThrottle', 'pBrakeF')),
-        ((-0.2, 1.2), (-3,3), (-360, 360), (0, 10), None, (-160, 160), ((-5, 105),(-10, 80))), # y-axis limits for each channel
+        ((-0.2, 1.2), (-3,3), (-360, 360), (0, 10), None, (-160, 160), ((0, 105),(None, None))), # y-axis limits for each channel
         (None, None, (-350, 0, 350), None, None, (0), None), # reference lines for each channel
         (0.15, 0.2, 0.3, 0.3, 0.5, 0.3, 0.3) # subplot height ratios (optional)
     ]
@@ -249,7 +305,11 @@ SCATTER_PLOT_DEFINITIONS = [
     #   0 -> no fit line
     #   1 -> single fit line
     #   2 -> treated as single fit (legacy compatibility)
-    #   [('<axis>', min, max), ...] -> segmented fit definitions
+    #   [('<axis_or_channel>', min, max), ...] -> segmented fit definitions
+    #     - Use 'x' or 'y' for axis-based segments
+    #     - Use any channel name (e.g. 'SM') for fit-only conditioning
+    #       Example: ('SM', 0, 0.5) fits points where 0 <= SM <= 0.5
+    #       while still plotting all scatter points.
     #
     # gate_spec (single or AND list):
     #   ('channel', '>', value)
@@ -258,34 +318,35 @@ SCATTER_PLOT_DEFINITIONS = [
     #
     # Example:
     # ["Gated Braking", ('pBrakeF', 'gLong'), [(None,None),(-5,0)], 1, ('vCar', '>', 120)]
+    # ["SM-Conditioned Fit", ('vCar', 'hRideF'), None, [('SM', 0, 0.5), ('SM', 0.5, 1.0)]]
     ["Gear Ratios", ('nWheelR_Avg', 'nEngine'), None, 0],
     ["Engine Power", ('nEngine', 'PEngine'), None, 0],
-    ["Long Acceleration", ('vCar', 'gLong'), [(60,360),(None,None)], None],
+    ["Long Acceleration", ('vCar', 'gLong'), None, None],
     #["Long Acceleration Gated", ('vCar', 'gLong'), [(60,360),(None,None)], [('x', 150, None)], [('gLong', '>', 0), ('rThrottle', '>', 98)]],
-    ["Lat Acceleration", ('vCar', 'gLat_Abs'), [(60,360),(None,None)], 0],
+    ["Lat Acceleration", ('vCar', 'gLat_Abs'), None, 0],
     ["GG Plot", ('gLat', 'gLong'), None , 0],
-    ["Understeer Plot", ('vCar', 'aUndersteerFromSlip'), [(None, None), (-4, 6)] , 0],
-    ["Yaw Rate Response", ('aSteerWheel', 'nYaw'), [(-160,160),(None, None)] , 0],
-    ["Lateral Acceleration Response", ('aSteerWheel', 'gLat'),[ (-160, 160),(None, None)] , 0],
-    ["Braking Efficiency", ('pBrakeF', 'gLong'), None , [('y', None, -0.3)], ('gLong', '<', 0)],
+    ["Understeer Plot", ('vCar', 'aUndersteerFromSlip'), None , None],
+    ["Yaw Rate Response", ('aSteerWheel', 'nYaw'), [(-160,160),(None, None)] , [('x', -20, 20)]],
+    ["Lateral Acceleration Response", ('aSteerWheel', 'gLat'), [(-160, 160),(None, None)] , [('x', -20, 20)]],
+    ["Braking Efficiency", ('pBrakeF', 'gLong'), None , [('y', None, -0.2)], ('gLong', '<', 0)],
     ["Damper gLat front", ('gLat', 'xDamperDeltaF'), None , [('x', None, None)]],
     ["Damper gLat rear", ('gLat', 'xDamperDeltaR'), None , [('x', None, None)]],
     ["Pushrod gLat front", ('gLat', 'FPRodDeltaF'), None , [('x', None, None)]],
     ["Pushrod gLat rear", ('gLat', 'FPRodDeltaR'), None , [('x', None, None)]],
     ["Front Heave", ('xDamperAvgF', 'FPRodAvgF'), None, [('y', None, 10000), ('y', 10000, None)]],
     ["Front Roll", ('xDamperDeltaF', 'FPRodDeltaF'), None, [('x', None, None)]],
-    ["Rear Heave", ('xDamperAvgR', 'FPRodAvgR'), None, [('x', None, None)]],
+    ["Rear Heave", ('xDamperAvgR', 'FPRodAvgR'), None,[('y', None, -20000), ('y', -20000, None)]],
     ["Rear Roll", ('xDamperDeltaR', 'FPRodDeltaR'), None, [('x', None, None)]],
     ["Front Pushrod vCar", ('vCar', 'FPRodAvgF'), None, [('x', None, None)], [('gLat_Abs', '<', 1), ('SM', '<', 1)]],
     ["Rear Pushrod vCar", ('vCar', 'FPRodAvgR'), None, [('x', None, None)], [('gLat_Abs', '<', 1), ('SM', '<', 1)]],
-    ["Front Ride vCar", ('vCar', 'hRideF'), [(None,None), (0,40)], [('x', None, None)]],
-    ["Rear Ride vCar", ('vCar', 'hRideR'), [(None,None),(20,80)], [('x', None, None)]],
-    ["Ride Height Compare", ('hRideF', 'hRideR'), [(0, 40),(20, 70)], 0],
+    ["Front Ride vCar", ('vCar', 'hRideF'), None, [('SM', 0, 0.5)]],
+    ["Rear Ride vCar", ('vCar', 'hRideR'), None, [('SM', 0, 0.5)]],
+    ["Ride Height Compare", ('hRideF', 'hRideR'), None, 0],
     ["Roll angle gLat", ('gLat', 'aRoll'), None, [('x', None, None)]],
     ["Steering Moment", ('aSteerWheel', 'MSteerWheel'), [(-160, 160), (None, None)], 0],
     ["Plank power acceleration", ('gLong (raw)', 'PPlankF'), None, 0],
     ["engine efficiency", ('dmInjector', 'PEngine'), None, [('x', None, None)]],
-    ["throttle application", ('rThrottle', 'PPUTotal'), None, 0],
+    ["throttle application", ('rThrottle', 'PEngine'), None, 0],
     ["gLat Understeer", ('gLat_Abs', 'aUndersteerFromSlip'), None, [('x', None, None)]],
 ] 
 
@@ -305,7 +366,7 @@ HISTOGRAM_PLOT_DEFINITIONS = [
    # ["Name of Plot", 'channel', [(xmin, xmax), (ymin, ymax)], log_scale]
    # Example:
    # ["Histogram Example", 'vCar', [(60, 360), (None, None)], False]
-    ["Plank Power Distribution", 'PPlankF', [(1,45), (None, None)], False],
+    ["Plank Power Distribution", 'PPlankF', [(1,51), (None, None)], False],
 ]
 
 POWERPOINT_EXPORT_MAP = {

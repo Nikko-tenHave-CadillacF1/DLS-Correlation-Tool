@@ -5,6 +5,7 @@ import numpy as np
 from scipy.stats import linregress
 from scipy.signal import butter, filtfilt, welch
 from matplotlib import colors as mcolors
+from matplotlib import patheffects as pe
 
 
 # ================================================================
@@ -580,16 +581,33 @@ def plot_scatter(
 
 
 def _plot_scatter_fit_line(ax, x_values, y_values, color, linestyle="-", linewidth=1.8):
-    """Draw a high-contrast fit line with a distinct linestyle."""
-    ax.plot(
+    """Draw a run-colored fit line with a light halo and endpoint markers."""
+    line = ax.plot(
         x_values,
         y_values,
-        color="#000000",
+        color=color,
         linestyle=linestyle,
-        linewidth=linewidth,
-        alpha=0.98,
-        zorder=4,
+        linewidth=linewidth + 0.4,
+        alpha=0.99,
+        zorder=7,
+    )[0]
+    line.set_path_effects(
+        [pe.Stroke(linewidth=linewidth + 2.4, foreground=(1.0, 1.0, 1.0, 0.96)), pe.Normal()]
     )
+
+    if len(x_values) >= 2:
+        ax.plot(
+            [x_values[0], x_values[-1]],
+            [y_values[0], y_values[-1]],
+            linestyle="None",
+            marker="o",
+            markersize=3.0,
+            markerfacecolor=color,
+            markeredgecolor=(1.0, 1.0, 1.0, 0.95),
+            markeredgewidth=0.8,
+            zorder=8,
+            alpha=0.99,
+        )
 
 
 def plot_scatter_with_1fit(
@@ -685,12 +703,17 @@ def plot_scatter_with_multi_fit(
     x_var="",
     y_var="",
     fit_defs=None,
+    fit_condition_data=None,
     render_mode="auto",
     density_threshold=25000,
     max_points=45000,
     hexbin_gridsize=70,
 ):
-    """Scatter + as many linear fit segments as provided."""
+    """Scatter + as many linear fit segments as provided.
+
+    `fit_condition_data` may provide additional aligned channels used as
+    fit-condition axes (for example, axis='SM').
+    """
     if len(x_data) == 0:
         print(f"[WARNING][datafunctions] No data for multi-fit: {label} ({x_var} vs {y_var}).")
         return False, None, None, None, None
@@ -719,12 +742,20 @@ def plot_scatter_with_multi_fit(
 
     def _format_bound(value):
         """Format range bounds compactly for multi-fit equation labels."""
+        if value is None or not np.isfinite(value):
+            return "n/a"
         return f"{float(value):.4g}"
 
     for idx, fit_def in enumerate(fit_defs):
-        try:
-            axis, min_val, max_val = fit_def
-        except (TypeError, ValueError):
+        fit_mask_info = build_multi_fit_mask(
+            fit_def,
+            x_data=x_data,
+            y_data=y_data,
+            fit_condition_data=fit_condition_data,
+            x_var=x_var,
+            y_var=y_var,
+        )
+        if fit_mask_info["status"] == "invalid_definition":
             return plot_scatter_with_1fit(
                 ax, x_data, y_data, label, color, alpha, size, x_var, y_var,
                 render_mode=render_mode,
@@ -732,29 +763,19 @@ def plot_scatter_with_multi_fit(
                 max_points=max_points,
                 hexbin_gridsize=hexbin_gridsize,
             )
+        if fit_mask_info["status"] == "missing_condition_channel":
+            print(
+                f"[WARNING][datafunctions] No fit condition channel '{fit_mask_info['axis_name']}' "
+                f"for run '{label}'. Segment skipped."
+            )
+            slopes_list.append(None)
+            intercepts_list.append(None)
+            continue
 
-        if axis == "x":
-            min_bound = np.min(x_data) if min_val is None else min_val
-            max_bound = np.max(x_data) if max_val is None else max_val
-            lower_mask = x_data >= min_bound if min_val is None else x_data > min_bound
-            upper_mask = x_data <= max_bound if max_val is None else x_data < max_bound
-            mask = lower_mask & upper_mask
-            axis_name = x_var or "x"
-        elif axis == "y":
-            min_bound = np.min(y_data) if min_val is None else min_val
-            max_bound = np.max(y_data) if max_val is None else max_val
-            lower_mask = y_data >= min_bound if min_val is None else y_data > min_bound
-            upper_mask = y_data <= max_bound if max_val is None else y_data < max_bound
-            mask = lower_mask & upper_mask
-            axis_name = y_var or "y"
-        else:
-            return plot_scatter_with_1fit(
-                ax, x_data, y_data, label, color, alpha, size, x_var, y_var,
-                render_mode=render_mode,
-                density_threshold=density_threshold,
-                max_points=max_points,
-                hexbin_gridsize=hexbin_gridsize,
-            )
+        axis_name = fit_mask_info["axis_name"]
+        min_bound = fit_mask_info["min_bound"]
+        max_bound = fit_mask_info["max_bound"]
+        mask = fit_mask_info["mask"]
 
         if mask.sum() <= 1:
             slopes_list.append(None)
@@ -785,7 +806,134 @@ def plot_scatter_with_multi_fit(
         slopes_list.append(slope)
         intercepts_list.append(interc)
 
+    if not eq_lines:
+        return False, tuple(slopes_list), tuple(intercepts_list), None, color
+
     return True, tuple(slopes_list), tuple(intercepts_list), "\n".join(eq_lines), color
+
+
+def collect_multi_fit_condition_channels(fit_defs):
+    """Collect channel names referenced as multi-fit condition axes.
+
+    Conditions using axis 'x' or 'y' are excluded.
+    """
+    channels = set()
+    if not isinstance(fit_defs, (list, tuple)):
+        return channels
+
+    for fit_def in fit_defs:
+        if not isinstance(fit_def, (list, tuple)) or len(fit_def) != 3:
+            continue
+        axis = fit_def[0]
+        if isinstance(axis, str) and axis.lower() not in {"x", "y"}:
+            channels.add(axis)
+    return channels
+
+
+def build_fit_condition_data(df, index, fit_defs, plot_name="", run_name=""):
+    """Build aligned numeric series for fit-condition channels.
+
+    Returns a dict keyed by channel name. Missing channels are warned and omitted.
+    """
+    condition_channels = collect_multi_fit_condition_channels(fit_defs)
+    data = {}
+
+    for channel in condition_channels:
+        if channel not in df.columns:
+            print(
+                f"[WARNING][datafunctions] Scatter plot '{plot_name}': "
+                f"fit condition channel '{channel}' missing in run '{run_name}'."
+            )
+            continue
+        series = pd.to_numeric(df[channel], errors="coerce").reindex(index)
+        data[channel] = series.to_numpy(dtype=float)
+
+    return data
+
+
+def build_multi_fit_mask(
+    fit_def,
+    x_data,
+    y_data,
+    fit_condition_data=None,
+    x_var="",
+    y_var="",
+):
+    """Build a boolean mask for one multi-fit definition.
+
+    Fit definition format:
+        (axis_key, min_val, max_val)
+
+    axis_key may be:
+        - 'x' or 'y'
+        - a channel name present in fit_condition_data
+    """
+    result = {
+        "status": "ok",
+        "axis_name": None,
+        "min_bound": None,
+        "max_bound": None,
+        "mask": None,
+    }
+
+    if not isinstance(fit_def, (list, tuple)) or len(fit_def) != 3:
+        result["status"] = "invalid_definition"
+        return result
+
+    axis_key, min_val, max_val = fit_def
+    if not isinstance(axis_key, str):
+        result["status"] = "invalid_definition"
+        return result
+
+    axis_lower = axis_key.lower()
+    use_inclusive_bounds = False
+    if axis_lower == "x":
+        condition_values = np.asarray(x_data, dtype=float)
+        axis_name = x_var or "x"
+    elif axis_lower == "y":
+        condition_values = np.asarray(y_data, dtype=float)
+        axis_name = y_var or "y"
+    else:
+        if not fit_condition_data or axis_key not in fit_condition_data:
+            result["status"] = "missing_condition_channel"
+            result["axis_name"] = axis_key
+            result["mask"] = np.zeros(len(x_data), dtype=bool)
+            return result
+        condition_values = np.asarray(fit_condition_data[axis_key], dtype=float)
+        axis_name = axis_key
+        use_inclusive_bounds = True
+
+    valid_axis = np.isfinite(condition_values)
+    if valid_axis.any():
+        min_bound = np.nanmin(condition_values) if min_val is None else min_val
+        max_bound = np.nanmax(condition_values) if max_val is None else max_val
+    else:
+        min_bound = min_val
+        max_bound = max_val
+
+    lower_mask = (
+        condition_values >= min_bound
+        if (min_val is None or use_inclusive_bounds)
+        else condition_values > min_bound
+    )
+    upper_mask = (
+        condition_values <= max_bound
+        if (max_val is None or use_inclusive_bounds)
+        else condition_values < max_bound
+    )
+
+    xy_finite = np.isfinite(x_data) & np.isfinite(y_data)
+    mask = valid_axis & xy_finite & lower_mask & upper_mask
+
+    result.update(
+        {
+            "axis_name": axis_name,
+            "min_bound": min_bound,
+            "max_bound": max_bound,
+            "mask": mask,
+        }
+    )
+    return result
 
 # ================================================================
 # LABEL HELPERS
@@ -825,6 +973,23 @@ def _normalize_gate_conditions(gate_spec):
     if isinstance(gate_spec, (list, tuple)) and len(gate_spec) == 3 and isinstance(gate_spec[0], str):
         return [gate_spec]
     return list(gate_spec)
+
+
+def collect_gate_channels(gate_spec):
+    """Collect channel names referenced by a scatter gate specification."""
+    channels = set()
+    if gate_spec is None:
+        return channels
+
+    conditions = _normalize_gate_conditions(gate_spec)
+    for condition in conditions:
+        if (
+            isinstance(condition, (list, tuple))
+            and len(condition) == 3
+            and isinstance(condition[0], str)
+        ):
+            channels.add(condition[0])
+    return channels
 
 
 def apply_scatter_gate(df, x, y, gate_spec, plot_name="", run_name=""):

@@ -177,6 +177,22 @@ class DataPlotter:
                     if len(plot_def) >= 2:
                         _extract_channels(plot_def[1])
 
+                    # Scatter-specific auxiliary channels used by fits/gates:
+                    # plot_def[3] => best_fit, plot_def[4]/[5] => gate spec.
+                    if len(plot_def) >= 4:
+                        best_fit = plot_def[3]
+                        fit_channels = datafunctions.collect_multi_fit_condition_channels(best_fit)
+                        required_channels.update(fit_channels)
+
+                    gate_spec = None
+                    if len(plot_def) == 5:
+                        gate_spec = plot_def[4]
+                    elif len(plot_def) >= 6:
+                        gate_spec = plot_def[5]
+                    if datafunctions.is_gate_spec(gate_spec):
+                        gate_channels = datafunctions.collect_gate_channels(gate_spec)
+                        required_channels.update(gate_channels)
+
         # Resolve calculated dependencies
         resolved_channels = set()
         to_process = list(required_channels)
@@ -824,12 +840,20 @@ class DataPlotter:
                 )
 
                 if isinstance(best_fit, (list, tuple)) and best_fit and isinstance(best_fit[0], (list, tuple)):
+                    fit_condition_data = datafunctions.build_fit_condition_data(
+                        df,
+                        x.index,
+                        best_fit,
+                        plot_name=plot_name,
+                        run_name=rn,
+                    )
                     ok, slopes, intercepts, eq_text, color = datafunctions.plot_scatter_with_multi_fit(
                         ax, x.values, y.values,
                         run["name"].upper(), run["color"],
                         self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
                         x_var, y_var,
                         fit_defs=best_fit,
+                        fit_condition_data=fit_condition_data,
                         render_mode=self.SCATTER_RENDER_MODE,
                         density_threshold=self.SCATTER_DENSITY_THRESHOLD,
                         max_points=self.SCATTER_MAX_POINTS,
@@ -1298,15 +1322,17 @@ class DataPlotter:
         return corners[best]
 
     def _format_trendline_text(self, label, equation):
-        """Normalize equation text before placing it on the plot."""
+        """Normalize trendline text and ensure each line carries the run label."""
         lines = []
         for line in str(equation).splitlines():
             cleaned = line.strip()
+            if not cleaned:
+                continue
             prefix = f"{label} "
-            if cleaned.startswith(prefix):
-                cleaned = cleaned[len(prefix):]
+            if not cleaned.startswith(prefix):
+                cleaned = f"{prefix}{cleaned}"
             lines.append(cleaned)
-        return "\n".join(lines)
+        return "\n".join(lines) if lines else f"{label} fit unavailable"
 
     def _colorize_legend_labels(self, legend):
         """Match legend text color to the corresponding series color."""

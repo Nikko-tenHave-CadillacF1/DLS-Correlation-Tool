@@ -131,13 +131,26 @@ Supported formats:
 - `0`: no fit
 - `1`: single linear fit
 - `2`: legacy-compatible single-fit fallback
-- `[("x" or "y", min, max), ...]`: segmented fits
+- `[("x" or "y" or "<channel>", min, max), ...]`: segmented fits
+
+Multi-fit condition notes:
+
+- `("x", min, max)` or `("y", min, max)` segments by scatter axes.
+- `("<channel>", min, max)` segments by another channel (for example `("SM", 0, 0.5)`).
+- Scatter points are still plotted in full; only trendline fitting uses the condition subset.
+- Channel-conditioned segments use data aligned to plotted samples (after any scatter gate).
 
 Gate spec:
 
 - Single condition: `("channel", ">", value)`
 - Range: `("channel", "between", (low, high))`
 - Multi-condition AND: `[("ch_a", ">", v1), ("ch_b", "<", v2)]`
+
+Example:
+
+```python
+["Ride Height vs Speed (SM condition)", ("vCar", "hRideF"), None, [("SM", 0, 0.5), ("SM", 0.5, 1.0)]]
+```
 
 ## Data Quality Report
 
