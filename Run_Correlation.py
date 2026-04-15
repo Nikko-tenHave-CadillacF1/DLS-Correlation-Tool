@@ -13,6 +13,7 @@ from powerpointexporter import (
     export_report_to_powerpoint,
     get_template_plot_aspect_ratios
 )
+from main_correlation_points import generate_main_correlation_points_report
 
 # =====================================================================
 # CONFIGURATION
@@ -43,6 +44,15 @@ RUNS = [
 POWERPOINT_TEMPLATE = ROOT_FOLDER / "template.pptx"
 POWERPOINT_OUTPUT = ROOT_FOLDER / "DLS_Correlation_Report.pptx"
 EXPORT_TO_POWERPOINT = True
+
+# ---------------------------------------------------------------------
+# OPTIONAL: MAIN CORRELATION SUMMARY REPORT
+# ---------------------------------------------------------------------
+ENABLE_MAIN_CORRELATION_SUMMARY = True
+MAIN_CORRELATION_INCLUDE_CSV = False
+MAIN_CORRELATION_LOW_SAMPLE_THRESHOLD = 200
+MAIN_CORRELATION_CORR_CHECK_THRESHOLD = 0.90
+MAIN_CORRELATION_SLOPE_DELTA_CHECK_PCT = 10.0
 
 # =====================================================================
 # CHANNEL MAPPINGS
@@ -337,8 +347,8 @@ SCATTER_PLOT_DEFINITIONS = [
     ["Front Roll", ('xDamperDeltaF', 'FPRodDeltaF'), None, [('x', None, None)]],
     ["Rear Heave", ('xDamperAvgR', 'FPRodAvgR'), None,[('y', None, -20000), ('y', -20000, None)]],
     ["Rear Roll", ('xDamperDeltaR', 'FPRodDeltaR'), None, [('x', None, None)]],
-    ["Front Pushrod vCar", ('vCar', 'FPRodAvgF'), None, [('x', None, None)], [('gLat_Abs', '<', 1), ('SM', '<', 1)]],
-    ["Rear Pushrod vCar", ('vCar', 'FPRodAvgR'), None, [('x', None, None)], [('gLat_Abs', '<', 1), ('SM', '<', 1)]],
+    ["Front Pushrod vCar", ('vCar', 'FPRodAvgF'), None, [('gLat_Abs', 0, 1)], [('SM', '<', 1)]],
+    ["Rear Pushrod vCar", ('vCar', 'FPRodAvgR'), None, [('gLat_Abs', 0, 1)], [('SM', '<', 1)]],
     ["Front Ride vCar", ('vCar', 'hRideF'), None, [('SM', 0, 0.5)]],
     ["Rear Ride vCar", ('vCar', 'hRideR'), None, [('SM', 0, 0.5)]],
     ["Ride Height Compare", ('hRideF', 'hRideR'), None, 0],
@@ -431,6 +441,22 @@ if __name__ == "__main__":
 
     # Generate all plots
     plotter.plot_all()
+
+    # Optional: write a simple main-correlation summary for report writing support
+    if ENABLE_MAIN_CORRELATION_SUMMARY:
+        summary_txt, summary_csv = generate_main_correlation_points_report(
+            runs=RUNS,
+            run_data=plotter.run_data,
+            plot_definitions=PLOT_DEFINITIONS,
+            output_dir=plotter.plots_dir,
+            include_csv=MAIN_CORRELATION_INCLUDE_CSV,
+            low_sample_threshold=MAIN_CORRELATION_LOW_SAMPLE_THRESHOLD,
+            corr_check_threshold=MAIN_CORRELATION_CORR_CHECK_THRESHOLD,
+            slope_delta_check_pct=MAIN_CORRELATION_SLOPE_DELTA_CHECK_PCT,
+        )
+        print(f"[INFO] Wrote main correlation summary: {summary_txt}")
+        if summary_csv:
+            print(f"[INFO] Wrote main correlation CSV: {summary_csv}")
 
     # Optional: export to PowerPoint
     if EXPORT_TO_POWERPOINT:

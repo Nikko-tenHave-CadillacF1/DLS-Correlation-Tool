@@ -64,6 +64,7 @@ python Run_Correlation.py
 - `WAVEFORM_PLOT_DEFINITIONS`, `SCATTER_PLOT_DEFINITIONS`, `PSD_PLOT_DEFINITIONS`, `HISTOGRAM_PLOT_DEFINITIONS`: plot requests.
 - `POWERPOINT_EXPORT_MAP`: slide/image mapping for report output.
 - `SCATTER_RENDER_MODE`, `SCATTER_DENSITY_THRESHOLD`, `SCATTER_MAX_POINTS`, `SCATTER_HEXBIN_GRIDSIZE`: readability controls for dense scatter clouds.
+- `ENABLE_MAIN_CORRELATION_SUMMARY` and related `MAIN_CORRELATION_*` settings: optional post-run summary report for main correlation differences.
 
 ## PowerPoint Export
 
@@ -161,6 +162,23 @@ Each run writes a preflight report to `Data/plots/data_quality_report.txt` with:
 - Flatlined channels
 - `sLap` reset counts
 - `sLap` alignment estimate (vCar-based scale/offset/end-drift) relative to the baseline run
+
+## Optional Main Correlation Summary
+
+When enabled in [Run_Correlation.py](/c:/GitHub_Local/DLS-Correlation-Tool/Run_Correlation.py):
+
+- `ENABLE_MAIN_CORRELATION_SUMMARY = True`
+
+the tool writes:
+
+- `Data/plots/main_correlation_points.txt`
+- `Data/plots/main_correlation_points.csv` (optional via `MAIN_CORRELATION_INCLUDE_CSV`)
+
+This summary is designed to help report writing with:
+
+- waveform difference metrics (mean abs, p95 abs, correlation)
+- scatter trendline deltas vs baseline (slope/intercept/sample counts)
+- simple coverage/confidence notes and copy-ready snippet suggestions
 
 ## Typical Workflow
 
