@@ -53,10 +53,12 @@ class DataPlotter:
         scatter_density_threshold=25000,
         scatter_max_points=45000,
         scatter_hexbin_gridsize=70,
+        bar_secondary_axis_ratio=20.0,
     ):
         """Build a plotter instance and run the preprocessing pipeline."""
         self.runs = runs
         self._configure_plot_style()
+        self.BAR_SECONDARY_AXIS_RATIO = float(bar_secondary_axis_ratio)
 
         # Store config
         self.PLOT_DEFINITIONS = plot_definitions
@@ -78,7 +80,7 @@ class DataPlotter:
                 continue
 
             use_python_engine = (run_name == "car")
-            self.run_required_cols[run_name] = self._get_required_source_columns(run_name)
+            self.run_required_cols[run_name] = self._get_required_source_columns(run.get("type", run_name))
 
             data, _, units = self._load_run_data(
                 file_path,
@@ -573,7 +575,7 @@ class DataPlotter:
             name = run["name"].lower()
             if name in self.run_data:
                 self.run_data[name] = datafunctions.apply_channel_mappings(
-                    self.run_data[name], self.CHANNEL_MAPPINGS, name
+                    self.run_data[name], self.CHANNEL_MAPPINGS, run.get("type", name)
                 )
 
     def apply_transformations(self):
@@ -582,7 +584,7 @@ class DataPlotter:
             name = run["name"].lower()
             if name in self.run_data:
                 self.run_data[name] = datafunctions.apply_transformations(
-                    self.run_data[name], name, self.CHANNEL_TRANSFORMS
+                    self.run_data[name], run.get("type", name), self.CHANNEL_TRANSFORMS
                 )
 
     def apply_calculated_channels(self):
@@ -1022,25 +1024,74 @@ class DataPlotter:
         plots = self._get_plot_group(1, "scatter")
 
         for plot_def in plots:
+            show_equations = True  # Default: display equations
+            show_error = True      # Default: display error box
+            gate_spec = None
+
             if len(plot_def) == 4:
                 plot_name, (x_var, y_var), axis_limits, best_fit = plot_def
-                gate_spec = None
             elif len(plot_def) == 5:
-                plot_name, (x_var, y_var), axis_limits, best_fit, gate_spec = plot_def
-                if not datafunctions.is_gate_spec(gate_spec):
+                plot_name, (x_var, y_var), axis_limits, best_fit, item5 = plot_def
+                # 5th item can be gate_spec or show_equations (boolean)
+                if isinstance(item5, bool):
+                    show_equations = item5
+                    gate_spec = None
+                elif datafunctions.is_gate_spec(item5):
+                    gate_spec = item5
+                    show_equations = True
+                else:
                     raise ValueError(
-                        f"Scatter plot '{plot_name}' has legacy 5th item. fit_split is removed; use gate spec or omit 5th item."
+                        f"Scatter plot '{plot_name}': 5th item must be gate_spec or boolean show_equations."
                     )
             elif len(plot_def) == 6:
-                plot_name, (x_var, y_var), axis_limits, best_fit, _legacy_fit_split, gate_spec = plot_def
+                plot_name, (x_var, y_var), axis_limits, best_fit, item5, item6 = plot_def
+                # Handle: gate_spec + show_equations, or two booleans
+                if isinstance(item6, bool):
+                    # Last item is boolean
+                    if isinstance(item5, bool):
+                        # Both are booleans: [name, (x,y), limits, best_fit, show_equations, show_error]
+                        show_equations = item5
+                        show_error = item6
+                        gate_spec = None
+                    else:
+                        # item5 is gate_spec, item6 is show_equations or show_error
+                        gate_spec = item5
+                        show_equations = item6
+                        show_error = True
+                        if not datafunctions.is_gate_spec(gate_spec):
+                            raise ValueError(
+                                f"Scatter plot '{plot_name}': 5th item must be gate_spec when 6th item is boolean."
+                            )
+                elif isinstance(item5, bool):
+                    # item5 is boolean, item6 is gate_spec
+                    show_equations = item5
+                    gate_spec = item6
+                    show_error = True
+                    if not datafunctions.is_gate_spec(gate_spec):
+                        raise ValueError(
+                            f"Scatter plot '{plot_name}': 6th item must be gate_spec when 5th item is boolean."
+                        )
+                else:
+                    raise ValueError(
+                        f"Scatter plot '{plot_name}': 6-item format requires gate_spec + show_equations, or two booleans."
+                    )
+            elif len(plot_def) == 7:
+                plot_name, (x_var, y_var), axis_limits, best_fit, item5, item6, item7 = plot_def
+                # Standard 7-item: [name, (x,y), limits, best_fit, gate_spec, show_equations, show_error]
+                gate_spec = item5
+                show_equations = item6
+                show_error = item7
                 if not datafunctions.is_gate_spec(gate_spec):
                     raise ValueError(
-                        f"Scatter plot '{plot_name}' has invalid 6th item. fit_split is removed; 6th item must be gate spec."
+                        f"Scatter plot '{plot_name}': 5th item (gate_spec) must be a valid gate specification."
                     )
-                print(f"[WARNING][DataPlotter] Scatter plot '{plot_name}': fit_split is deprecated and ignored.")
+                if not isinstance(show_equations, bool) or not isinstance(show_error, bool):
+                    raise ValueError(
+                        f"Scatter plot '{plot_name}': 6th (show_equations) and 7th (show_error) items must be booleans."
+                    )
             else:
                 raise ValueError(
-                    f"Scatter plot definition for '{plot_def[0] if plot_def else 'unknown'}' must have 4, 5, or 6 items"
+                    f"Scatter plot definition for '{plot_def[0] if plot_def else 'unknown'}' must have 4-7 items"
                 )
 
             # Backward-compatible fallback: treat None as no-fit scatter.
@@ -1192,25 +1243,35 @@ class DataPlotter:
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
 
-            # Trendline boxes
+            # Trendline boxes and error box positioning
             anchor = None
             if eq_list:
-                anchor = self._display_equations(ax, eq_list)
-
-                fit_labels = None
-                if (
-                    isinstance(best_fit, (list, tuple))
-                    and best_fit
-                    and isinstance(best_fit[0], (list, tuple))
-                ):
-                    fit_labels = self._build_gradient_segment_labels(
-                        best_fit, x_var=x_var, y_var=y_var
+                # Display equations if requested (this computes and returns anchor)
+                if show_equations:
+                    anchor = self._display_equations(ax, eq_list)
+                
+                # Display error box if requested
+                if show_error:
+                    fit_labels = None
+                    if (
+                        isinstance(best_fit, (list, tuple))
+                        and best_fit
+                        and isinstance(best_fit[0], (list, tuple))
+                    ):
+                        fit_labels = self._build_gradient_segment_labels(
+                            best_fit, x_var=x_var, y_var=y_var
+                        )
+                    txt = self._format_gradient_error_text(
+                        eq_list, x_var, y_var, fit_labels=fit_labels
                     )
-                txt = self._format_gradient_error_text(
-                    eq_list, x_var, y_var, fit_labels=fit_labels
-                )
-                if txt:
-                    self._display_gradient_error(ax, txt, anchor)
+                    if txt:
+                        # If equations are not shown, still need anchor for error box positioning
+                        if anchor is None:
+                            x_anchor, y_anchor, halign, valign = self._select_trendline_anchor(ax, eq_list)
+                            # Create a minimal anchor tuple for error box (without boxes list)
+                            # We'll use a simple positioning: place error box at the anchor position
+                            anchor = (x_anchor, halign, valign, [y_anchor])
+                        self._display_gradient_error(ax, txt, anchor)
 
             # Legend first, then gate callout to avoid overlaps.
             legend = self._add_standard_legend(ax, loc="best")
@@ -1567,6 +1628,9 @@ class DataPlotter:
             bar_width = group_width / max(len(loaded_runs), 1)
             left_edge = -group_width / 2.0
 
+            run_bar_data = []
+            all_values = []
+
             for run_index, run in enumerate(loaded_runs):
                 run_name = run["name"].lower()
                 df = self.run_data[run_name]
@@ -1585,32 +1649,115 @@ class DataPlotter:
                         df[channel],
                         aggregation=aggregation,
                         sample_rate=self.FILTER_SAMPLE_RATE,
+                        time_series=df['tLap'] if 'tLap' in df.columns else None,
                     )
                     values.append(metric_value)
 
                 offsets = x + left_edge + (run_index + 0.5) * bar_width
-                ax.bar(
-                    offsets,
-                    values,
-                    width=bar_width,
-                    color=run["color"],
-                    alpha=0.92,
-                    label=run["name"].upper(),
-                    edgecolor="white",
-                    linewidth=0.6,
+                run_bar_data.append(
+                    {
+                        "run": run,
+                        "offsets": offsets,
+                        "values": np.array(values, dtype=float),
+                    }
                 )
+                all_values.extend([abs(v) for v in values if not np.isnan(v)])
 
-            if len(set(agg for _, agg in metric_specs)) == 1:
-                ylabel = f"Aggregated Value ({metric_specs[0][1]})"
-            else:
-                ylabel = "Aggregated Value"
+            ax2 = None
+            secondary_threshold = None
+            if len(all_values) > 1:
+                max_abs = max(all_values)
+                candidate_secondary_threshold = max_abs / max(1.0, self.BAR_SECONDARY_AXIS_RATIO)
+                lower_group = [v for v in all_values if v < candidate_secondary_threshold]
+                if lower_group:
+                    max_lower = max(lower_group)
+                    if max_lower > 0 and max_abs / max_lower >= self.BAR_SECONDARY_AXIS_RATIO:
+                        ax2 = ax.twinx()
+                        ax2.spines["right"].set_visible(True)
+                        ax2.spines["right"].set_color("black")
+                        ax2.spines["right"].set_linewidth(2.0)
+                        ax2.tick_params(axis="y", labelsize=10, colors="black", width=1.5)
+                        secondary_threshold = candidate_secondary_threshold
+
+            plotted_labels = set()
+            bar_info = []
+            for item in run_bar_data:
+                run = item["run"]
+                offsets = item["offsets"]
+                values = item["values"]
+                run_label = run["name"].upper()
+
+                if ax2 is not None:
+                    primary_values = []
+                    secondary_values = []
+                    for value in values:
+                        if np.isnan(value):
+                            primary_values.append(0.0)
+                            secondary_values.append(0.0)
+                        elif abs(value) >= secondary_threshold:
+                            primary_values.append(0.0)
+                            secondary_values.append(value)
+                        else:
+                            primary_values.append(value)
+                            secondary_values.append(0.0)
+
+                    primary_label = run_label if run_label not in plotted_labels and any(v != 0.0 for v in primary_values) else "_nolegend_"
+                    if primary_label != "_nolegend_":
+                        plotted_labels.add(primary_label)
+                    ax.bar(
+                        offsets,
+                        primary_values,
+                        width=bar_width,
+                        color=run["color"],
+                        alpha=0.92,
+                        label=primary_label,
+                        edgecolor="white",
+                        linewidth=0.6,
+                    )
+
+                    secondary_label = run_label if run_label not in plotted_labels and any(v != 0.0 for v in secondary_values) else "_nolegend_"
+                    if secondary_label != "_nolegend_":
+                        plotted_labels.add(secondary_label)
+                    ax2.bar(
+                        offsets,
+                        secondary_values,
+                        width=bar_width,
+                        color=run["color"],
+                        alpha=0.92,
+                        label=secondary_label,
+                        edgecolor="white",
+                        linewidth=0.6,
+                    )
+
+                    for offset, value in zip(offsets, values):
+                        axis = ax2 if not np.isnan(value) and abs(value) >= secondary_threshold else ax
+                        bar_info.append((offset, value, axis))
+                else:
+                    ax.bar(
+                        offsets,
+                        values,
+                        width=bar_width,
+                        color=run["color"],
+                        alpha=0.92,
+                        label=run_label if run_label not in plotted_labels else "_nolegend_",
+                        edgecolor="white",
+                        linewidth=0.6,
+                    )
+                    plotted_labels.add(run_label)
+                    for offset, value in zip(offsets, values):
+                        bar_info.append((offset, value, ax))
 
             ax.set_xticks(x)
+            metric_labels = [f"{metric}\n({aggregation})" for metric, aggregation in metric_specs]
             ax.set_xticklabels(metric_labels, rotation=0, fontweight="bold")
-            ax.set_ylabel(ylabel, fontsize=12, fontweight="bold")
-            ax.set_title(plot_name, fontsize=14, fontweight="bold")
             ax.tick_params(axis="x", labelsize=10)
             ax.tick_params(axis="y", labelsize=10)
+
+            if ax2 is not None:
+                ax2.spines["right"].set_visible(True)
+                ax2.spines["right"].set_color("black")
+                ax2.spines["right"].set_linewidth(2.0)
+                ax2.tick_params(axis="y", labelsize=10, colors="black", width=1.5, grid_linestyle="--")
 
             if isinstance(axis_limits, (list, tuple)) and len(axis_limits) == 2:
                 ymin, ymax = axis_limits
@@ -1618,25 +1765,53 @@ class DataPlotter:
                     ax.set_ylim(bottom=ymin, top=ymax)
 
             self._add_axis_edge_padding(ax, x_pad_ratio=0.06, y_pad_ratio=0.04)
+            if ax2 is not None:
+                self._add_axis_edge_padding(ax2, x_pad_ratio=0.06, y_pad_ratio=0.04)
 
-            # Add a zero reference line when zero is visible, matching scatter style cues.
-            y0, y1 = ax.get_ylim()
-            if y0 <= 0 <= y1:
-                ax.axhline(
-                    0,
-                    color="#4F4F4F",
-                    linestyle="--",
-                    linewidth=1.0,
-                    alpha=0.9,
-                    zorder=0,
-                )
+            axis_ranges = {ax: ax.get_ylim()[1] - ax.get_ylim()[0]}
+            if ax2 is not None:
+                axis_ranges[ax2] = ax2.get_ylim()[1] - ax2.get_ylim()[0]
+
+            # Add numeric labels above/below bars
+            for offset, value, axis in bar_info:
+                if not np.isnan(value):
+                    y_range = axis_ranges.get(axis, ax.get_ylim()[1] - ax.get_ylim()[0])
+                    padding = 0.02 * y_range
+                    y_pos = value + (padding if value >= 0 else -padding)
+                    va = 'bottom' if value >= 0 else 'top'
+                    axis.text(offset, y_pos, f'{value:.2f}', ha='center', va=va, fontsize=10, fontweight='bold', color='black')
+
+            for axis in (ax2, ax) if ax2 is not None else (ax,):
+                y0, y1 = axis.get_ylim()
+                if y0 <= 0 <= y1:
+                    axis.axhline(
+                        0,
+                        color="#4F4F4F",
+                        linestyle="-",
+                        linewidth=1.0,
+                        alpha=0.9,
+                        zorder=1,
+                    )
 
             ax.grid(True, axis="y", alpha=0.3)
             ax.set_axisbelow(True)
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
 
-            self._add_standard_legend(ax, loc="upper right")
+            if ax2 is not None:
+                ax2.grid(True, axis="y", alpha=0.2)
+                ax2.set_axisbelow(True)
+
+            handles = []
+            labels = []
+            for axis in (ax, ax2) if ax2 is not None else (ax,):
+                h, l = axis.get_legend_handles_labels()
+                for handle, label in zip(h, l):
+                    if label and label != "_nolegend_" and label not in labels:
+                        handles.append(handle)
+                        labels.append(label)
+
+            self._add_standard_legend(ax, handles=handles, labels=labels, loc="upper right")
 
             plt.tight_layout(pad=0.25)
             fig.savefig(

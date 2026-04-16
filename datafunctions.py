@@ -470,7 +470,7 @@ def normalize_bar_metric_specs(metric_specs, default_aggregation="last"):
     return normalized
 
 
-def aggregate_channel_for_bar(series, aggregation="last", sample_rate=100.0):
+def aggregate_channel_for_bar(series, aggregation="last", sample_rate=100.0, time_series=None):
     """Aggregate a channel series into a scalar for grouped bar plots."""
     values = pd.to_numeric(series, errors="coerce").dropna()
     if values.empty:
@@ -491,9 +491,17 @@ def aggregate_channel_for_bar(series, aggregation="last", sample_rate=100.0):
     if agg == "abs_sum":
         return float(values.abs().sum())
     if agg == "integral":
+        if time_series is not None:
+            times = pd.to_numeric(time_series, errors="coerce").dropna()
+            if len(times) == len(values):
+                return float(np.trapz(values, times))
         dt = 1.0 / float(sample_rate) if sample_rate else 1.0
         return float(values.sum() * dt)
     if agg == "abs_integral":
+        if time_series is not None:
+            times = pd.to_numeric(time_series, errors="coerce").dropna()
+            if len(times) == len(values):
+                return float(np.trapz(values.abs(), times))
         dt = 1.0 / float(sample_rate) if sample_rate else 1.0
         return float(values.abs().sum() * dt)
     if agg == "first":

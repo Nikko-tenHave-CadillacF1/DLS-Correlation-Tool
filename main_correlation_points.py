@@ -332,13 +332,43 @@ def _compute_scatter_metrics(
         return items, coverage_notes
 
     for plot_def in scatter_defs or []:
+        gate_spec = None
+        
         if len(plot_def) == 4:
             plot_name, (x_var, y_var), _, best_fit = plot_def
-            gate_spec = None
         elif len(plot_def) == 5:
-            plot_name, (x_var, y_var), _, best_fit, gate_spec = plot_def
-        elif len(plot_def) >= 6:
-            plot_name, (x_var, y_var), _, best_fit, _, gate_spec = plot_def
+            plot_name, (x_var, y_var), _, best_fit, item5 = plot_def
+            # 5th item can be gate_spec or show_equations (boolean)
+            if isinstance(item5, bool):
+                # show_equations parameter, no gate spec
+                gate_spec = None
+            else:
+                # Assume it's a gate spec
+                gate_spec = item5
+        elif len(plot_def) == 6:
+            plot_name, (x_var, y_var), _, best_fit, item5, item6 = plot_def
+            # For 6 items, check which items are booleans
+            if isinstance(item5, bool) and isinstance(item6, bool):
+                # Format: [name, (x,y), limits, best_fit, show_equations, show_error]
+                gate_spec = None
+            elif isinstance(item6, bool):
+                # Format: [name, (x,y), limits, best_fit, gate_spec, show_equations]
+                gate_spec = item5
+            elif isinstance(item5, bool):
+                # Format: [name, (x,y), limits, best_fit, show_equations, gate_spec]
+                gate_spec = item6
+            else:
+                # Both are not booleans - try to use item5 as gate_spec
+                gate_spec = item5
+        elif len(plot_def) >= 7:
+            plot_name, (x_var, y_var), _, best_fit, item5, item6, item7 = plot_def[:7]
+            # Format: [name, (x,y), limits, best_fit, gate_spec, show_equations, show_error]
+            # Skip booleans at the end (show_equations, show_error)
+            # item5 should be gate_spec
+            if isinstance(item5, bool):
+                gate_spec = None
+            else:
+                gate_spec = item5
         else:
             continue
 

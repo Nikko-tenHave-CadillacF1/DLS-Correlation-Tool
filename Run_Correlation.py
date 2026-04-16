@@ -7,7 +7,8 @@ generates waveform / scatter / PSD plots, then exports to PowerPoint.
 
 import os
 from pathlib import Path
-
+import numpy as np
+from scipy.integrate import cumulative_trapezoid
 from dataplotter import DataPlotter
 from powerpointexporter import (
     export_report_to_powerpoint,
@@ -20,7 +21,7 @@ from main_correlation_points import generate_main_correlation_points_report
 # =====================================================================
 
 # Root folder for input data and output plots
-ROOT_FOLDER = Path(r"C:\GitHub_Local\DLS-Correlation-Tool\Data")
+ROOT_FOLDER = Path(r"C:\\GitHub_Local\\VPG.Reporting\\Correlation Reporting\\Data")
 
 # ---------------------------------------------------------------------
 # RUN DEFINITIONS (MULTI-RUN FRIENDLY)
@@ -36,19 +37,19 @@ RUNS = [
     # - "nlap" remains optional as fallback exact filter on "nLap".
     # - If both are provided, nrun takes priority.
     # Example:
-    # {"name": "run2", "file": "Run TXT Files\\my_run_2.txt", "color": "#00A6FF"},
-    {"name": "v37", "file": r"Run TXT Files\\OC Version Compare - BCN\\20260408-OC-VPG - Ref Data Set - CF1-26v037 - v1-BCN.parquet", "color": "#0051FF", "nrun" : 1},
-    {"name": "v38a", "file": r"Run TXT Files\\OC Version Compare - BCN\\20260408-OC-VPG - Ref Data Set - CF1-26v038a - v1-BCN.parquet", "color": "#FF0000", "nrun" : 1},
-    #{"name": "car", "file": "Run TXT Files\\26R03SUZ_260328_MAC26-02_BOT_Q_R03_1.txt", "color": "#FF8C00"},
-    #{"name": "lts", "file": "Run TXT Files\\26R03SUZ  77  Quali  Run 2 Q1R2  Stint 1 Stint 2_-FINAL_DLS_2.txt", "color": "#0011FF"},
-    #{"name": "oc", "file": "Run TXT Files\\26R04MIA - Pre-Event OC-LTS COR - v4-MIA.oc.txt", "color": "#39D700"},
+    #{"name": "v37", "file": r"20260408-OC-VPG - Ref Data Set - CF1-26v037 - v1-BCN.parquet", "color": "#0051FF", "nrun" : 1, "type": "OC"},
+    #{"name": "v38a", "file": r"20260408-OC-VPG - Ref Data Set - CF1-26v038a - v1-BCN.parquet", "color": "#FF0000", "nrun" : 1, "type": "OC"},
+    {"name": "car", "file": "26R03SUZ_260328_MAC26-01_PER_Q_R02.txt", "color": "#FF8C00", "type": "CAR"},
+    {"name": "dls", "file": "26R03SUZ  11  Quali  Run 2 2  Stint 1 1 Q1R2 nC3_DLS_1.parquet", "color": "#0015FF", "nlap" : 1, "type": "DLS"},
+    #{"name": "it3", "file": "VPG Baselines  MIA  26R04MIA v0a_-TEST_LTS_Iteration_3.parquet", "color": "#3300FF", "nlap" : 1, "type": "DLS"},
+    #{"name": "oc", "file": "Lap001_20260406-OC-VPG - Correlation - DiL 2603256 FIT SUZ Support Run 7 - Multi - v1-SUZ.oc.txt", "color": "#009B53", "type": "OC"},
 ]
 
 # ---------------------------------------------------------------------
 # POWERPOINT TEMPLATE
 # ---------------------------------------------------------------------
 POWERPOINT_TEMPLATE = ROOT_FOLDER / "template.pptx"
-POWERPOINT_OUTPUT = ROOT_FOLDER / "DLS_Correlation_Report.pptx"
+POWERPOINT_OUTPUT = ROOT_FOLDER / "Correlation_Report.pptx"
 EXPORT_TO_POWERPOINT = True
 
 # ---------------------------------------------------------------------
@@ -63,22 +64,12 @@ MAIN_CORRELATION_SLOPE_DELTA_CHECK_PCT = 5.0
 # =====================================================================
 # CHANNEL MAPPINGS
 CHANNEL_MAPPINGS = {
-    'v37': {
+    'OC': {
     # Example mappings - adjust based on your data:
     'rSLMActive' : 'SM',
     'aUndersteer_aSlip' : 'aUndersteerFromSlip'
     },
-    'v38a': {
-    # Example mappings - adjust based on your data:
-    'rSLMActive' : 'SM',
-    'aUndersteer_aSlip' : 'aUndersteerFromSlip'
-    },
-    'oc': {
-    # Example mappings - adjust based on your data:
-    'rSLMActive' : 'SM',
-    'aUndersteer_aSlip' : 'aUndersteerFromSlip'
-    },
-    'dil': {
+    'DIL': {
     # Example mappings - adjust based on your data:
     'BSLMActiveCan': 'SM',
     'FPushrodFL': 'FPRodFL',
@@ -90,7 +81,7 @@ CHANNEL_MAPPINGS = {
     'pBrakeF1' : 'pBrakeF',
     'CAN_6_632_aSteerWheel_Can' : 'aSteerWheel',
     },
-    'lts': {
+    'DLS': {
     # Example mappings - adjust based on your data:
     'aRollCarTrack': 'aRoll',
     'FPushrodFL': 'FPRodFL',
@@ -103,33 +94,7 @@ CHANNEL_MAPPINGS = {
     'EPlankLTS_Lap' : 'EPlankF',
     'PPlankWearF' : 'PPlankF'
     },
-    'gm': {
-    # Example mappings - adjust based on your data:
-    'aRollCarTrack': 'aRoll',
-    'FPushrodFL': 'FPRodFL',
-    'FPushrodFR': 'FPRodFR',
-    'FPushrodRL': 'FPRodRL',
-    'FPushrodRR': 'FPRodRR',
-    'aUndersteer_aSlip': 'aUndersteerFromSlip',
-    'BAeroModeXDriver': 'SM',
-    'rThrottlePedal': 'rThrottle',
-    'EPlankLTS_Lap' : 'EPlankF',
-    'PPlankWearF' : 'PPlankF'
-    },
-    'nh': {
-    # Example mappings - adjust based on your data:
-    'aRollCarTrack': 'aRoll',
-    'FPushrodFL': 'FPRodFL',
-    'FPushrodFR': 'FPRodFR',
-    'FPushrodRL': 'FPRodRL',
-    'FPushrodRR': 'FPRodRR',
-    'aUndersteer_aSlip': 'aUndersteerFromSlip',
-    'BAeroModeXDriver': 'SM',
-    'rThrottlePedal': 'rThrottle',
-    'EPlankLTS_Lap' : 'EPlankF',
-    'PPlankWearF' : 'PPlankF'
-    },
-    'car': {
+    'CAR': {
     'BNSLMEnablingStatusEnabled': 'SM',
     'PMGUKActual': 'PMGUK',
     'rThrottlePedal': 'rThrottle',
@@ -141,17 +106,14 @@ CHANNEL_MAPPINGS = {
     'EPlankWearLapF': 'EPlankF',
     'PPlankWearF': 'PPlankF',
     }
-    ## Add more runs and their channel mappings as needed
 }
 
 # =====================================================================
 # CHANNEL TRANSFORMS
 # =====================================================================
 CHANNEL_TRANSFORMS = {
-    'oc' : None,
-    'v37' : None,
-    'v38a' : None,
-    'gm' : {
+    'OC' : None,
+    'DLS' : {
         # DLS load sign corrections
         "FPRodFL": lambda x: -x,
         "FPRodFR": lambda x: -x,
@@ -160,26 +122,8 @@ CHANNEL_TRANSFORMS = {
         "aRoll": lambda x: -x,
         "gVert": lambda x: x - 1,
     },
-    'nh' : {
-        # DLS load sign corrections
-        "FPRodFL": lambda x: -x,
-        "FPRodFR": lambda x: -x,
-        "FPRodRL": lambda x: -x,
-        "FPRodRR": lambda x: -x,
-        "aRoll": lambda x: -x,
-        "gVert": lambda x: x - 1,
-    },
-    'dil' : None,
-    "lts": {
-        # DLS load sign corrections
-        "FPRodFL": lambda x: -x,
-        "FPRodFR": lambda x: -x,
-        "FPRodRL": lambda x: -x,
-        "FPRodRR": lambda x: -x,
-        "aRoll": lambda x: -x,
-        "gVert": lambda x: x - 1,
-    },
-    "car": {
+    'DIL' : None,
+    "CAR": {
         "PMGUK": lambda x: x / 1000,   # W -> kW
         "sLap": lambda x: x - 15,      # GPS alignment shift
     }
@@ -208,10 +152,13 @@ UNITS_MAP = {
     "nyaw": "deg/s",
     "pbrakef": "bar",
     "rthrottle": "%",
-    "EPlankF": "kJ",
-    "PPlankF": "kW",
+    "EPlank_F": "kJ",
+    "PPlank_F": "kW",
     "FzPlankF": "N",
     "dmInjector": "kg/h",
+    "PMGUK_Deploy": "kW",
+    "PMGUK_Charge": "kW",
+    "dmInjector (kg/s)": "kg/s",
 }
 
 # =====================================================================
@@ -231,7 +178,12 @@ CALCULATED_CHANNELS = {
     "hRideF (raw)": lambda df: df["hRideF"],
     "hRideR (raw)": lambda df: df["hRideR"],
     "PPUTotal": lambda df: df["PMGUK"] + df["PEngine"],
-    "nWheelR_Avg": lambda df: (df["nWheelRL"] + df["nWheelRR"])/2
+    "nWheelAvg_R": lambda df: (df["nWheelRL"] + df["nWheelRR"])/2,
+    "dmInjector (kg/s)": lambda df: df["dmInjector"] / 3600,  # Convert kg/h to kg/s
+    "PMGUK_Deploy": lambda df: (df["PMGUK"]/1000 * (df["PMGUK"] > 0).astype(float)).abs(),  # Example of a conditionally deployed channel
+    "PMGUK_Charge": lambda df: (df["PMGUK"]/1000 * (df["PMGUK"] < 0).astype(float)).abs(),  # Example of a conditionally deployed channel
+    "PPlank_F": lambda df: 0.001 * np.maximum(0.1 * df["FzPlankF"] * (df["vCar"] / 3.6), 0), 
+    "EPlank_F": lambda df: cumulative_trapezoid(df["PPlank_F"], dx=0.01, initial=0),
 }
 
 # =====================================================================
@@ -247,14 +199,15 @@ LOW_PASS_FILTERS = {
     "NGear": {"cutoff": 0, "order": 2},
     "nEngine": {"cutoff": 0, "order": 2},
     "nWheelR_Avg": {"cutoff": 0, "order": 2},
-    "EPlankF": {"cutoff": 0, "order": 2},
-    "PPlankF": {"cutoff": 0, "order": 2},
+    "EPlank_F": {"cutoff": 0, "order": 2},
+    "PPlank_F": {"cutoff": 0, "order": 2},
     "rThrottle": {"cutoff": 0, "order": 2},
     "gLong (raw)": {"cutoff": 0, "order": 2},
     "hRideF (raw)": {"cutoff": 0, "order": 2},
     "hRideR (raw)": {"cutoff": 0, "order": 2},
     "dmInjector": {"cutoff": 0, "order": 2},
     "PPUTotal": {"cutoff": 0, "order": 2},
+    "vCar": {"cutoff": 0, "order": 2},
     "all": {"cutoff": 5, "order": 2},
 }
 
@@ -266,6 +219,7 @@ SCATTER_RENDER_MODE = "auto"   # "auto", "scatter", "hexbin"
 SCATTER_DENSITY_THRESHOLD = 25000
 SCATTER_MAX_POINTS = 45000
 SCATTER_HEXBIN_GRIDSIZE = 70
+BAR_SECONDARY_AXIS_RATIO = 20.0
 
 # =====================================================================
 # PLOT DEFINITIONS
@@ -302,7 +256,7 @@ WAVEFORM_PLOT_DEFINITIONS = [
         (0.4, 0.4, 0.6, 0.4, 0.4, 0.4) # subplot height ratios (optional)
     ],
     [
-        "Plank Wear", ('PMGUK','vCar','FzPlankF', 'EPlankF' , 'pBrakeF', ('rThrottle','SM')),
+        "Plank Wear", ('PMGUK','vCar','FzPlankF', 'EPlank_F' , 'pBrakeF', ('rThrottle','SM')),
         (None, None, None, None, None, ((0, 105), (0,1.3))), # y-axis limits for each channel
         ((-350, 0, 350), None, (0,7500), (0), None, None), # reference lines for each channel
         (0.4, 0.6, 0.4, 0.6, 0.4, 0.4) # subplot height ratios (optional)
@@ -318,13 +272,14 @@ WAVEFORM_PLOT_DEFINITIONS = [
 SCATTER_PLOT_DEFINITIONS = [
     # Format:
     # ["Name", (x_channel, y_channel), [(xmin,xmax),(ymin,ymax)], best_fit]
+    # ["Name", (x_channel, y_channel), [(xmin,xmax),(ymin,ymax)], best_fit, show_equations]
     # ["Name", (x_channel, y_channel), [(xmin,xmax),(ymin,ymax)], best_fit, gate_spec]
-    # ["Name", (x_channel, y_channel), [(xmin,xmax),(ymin,ymax)], best_fit, legacy_item, gate_spec]
+    # ["Name", (x_channel, y_channel), [(xmin,xmax),(ymin,ymax)], best_fit, gate_spec, show_equations]
+    # ["Name", (x_channel, y_channel), [(xmin,xmax),(ymin,ymax)], best_fit, gate_spec, show_equations, show_error]
     #
     # best_fit:
     #   0 -> no fit line
     #   1 -> single fit line
-    #   2 -> treated as single fit (legacy compatibility)
     #   [('<axis_or_channel>', min, max), ...] -> segmented fit definitions
     #     - Use 'x' or 'y' for axis-based segments
     #     - Use any channel name (e.g. 'SM') for fit-only conditioning
@@ -336,37 +291,46 @@ SCATTER_PLOT_DEFINITIONS = [
     #   ('channel', 'between', (min, max))
     #   [('channel_a', '>', value_a), ('channel_b', '<', value_b)]
     #
+    # show_equations (optional, default True):
+    #   True -> display trendline equations on plot
+    #   False -> hide equations (useful for dense plots with many trendlines)
+    #
+    # show_error (optional, default True):
+    #   True -> display percentage error information box
+    #   False -> hide error box
+    #
     # Example:
     # ["Gated Braking", ('pBrakeF', 'gLong'), [(None,None),(-5,0)], 1, ('vCar', '>', 120)]
-    # ["SM-Conditioned Fit", ('vCar', 'hRideF'), None, [('SM', 0, 0.5), ('SM', 0.5, 1.0)]]
-    ["Gear Ratios", ('nWheelR_Avg', 'nEngine'), None, 0],
-    ["Engine Power", ('nEngine', 'PEngine'), None, 0],
-    ["Long Acceleration", ('vCar', 'gLong'), None, None],
-    #["Long Acceleration Gated", ('vCar', 'gLong'), [(60,360),(None,None)], [('x', 150, None)], [('gLong', '>', 0), ('rThrottle', '>', 98)]],
-    ["Lat Acceleration", ('vCar', 'gLat_Abs'), None, 0],
-    ["GG Plot", ('gLat', 'gLong'), None , 0],
-    ["Understeer Plot", ('vCar', 'aUndersteerFromSlip'), None , None],
-    ["Yaw Rate Response", ('aSteerWheel', 'nYaw'), [(-160,160),(None, None)] , [('x', -20, 20)]],
-    ["Lateral Acceleration Response", ('aSteerWheel', 'gLat'), [(-160, 160),(None, None)] , [('x', -20, 20)]],
-    ["Braking Efficiency", ('pBrakeF', 'gLong'), None , [('y', None, -0.2)], ('gLong', '<', 0)],
-    ["Damper gLat front", ('gLat', 'xDamperDeltaF'), None , [('x', None, None)]],
-    ["Damper gLat rear", ('gLat', 'xDamperDeltaR'), None , [('x', None, None)]],
-    ["Pushrod gLat front", ('gLat', 'FPRodDeltaF'), None , [('x', None, None)]],
-    ["Pushrod gLat rear", ('gLat', 'FPRodDeltaR'), None , [('x', None, None)]],
-    ["Front Heave", ('xDamperAvgF', 'FPRodAvgF'), None, [('y', None, 10000), ('y', 10000, None)]],
-    ["Front Roll", ('xDamperDeltaF', 'FPRodDeltaF'), None, [('x', None, None)]],
-    ["Rear Heave", ('xDamperAvgR', 'FPRodAvgR'), None,[('y', None, -20000), ('y', -20000, None)]],
-    ["Rear Roll", ('xDamperDeltaR', 'FPRodDeltaR'), None, [('x', None, None)]],
-    ["Front Pushrod vCar", ('vCar', 'FPRodAvgF'), None, [('gLat_Abs', 0, 1)], [('SM', '<', 1)]],
-    ["Rear Pushrod vCar", ('vCar', 'FPRodAvgR'), None, [('gLat_Abs', 0, 1)], [('SM', '<', 1)]],
-    ["Front Ride vCar", ('vCar', 'hRideF'), None, [('SM', 0, 0.5)]],
-    ["Rear Ride vCar", ('vCar', 'hRideR'), None, [('SM', 0, 0.5)]],
-    ["Ride Height Compare", ('hRideF', 'hRideR'), None, 0],
-    ["Roll angle gLat", ('gLat', 'aRoll'), None, [('x', None, None)]],
-    ["Steering Moment", ('aSteerWheel', 'MSteerWheel'), [(-160, 160), (None, None)], 0],
-    ["Plank power acceleration", ('gLong (raw)', 'PPlankF'), None, 0],
-    ["engine efficiency", ('dmInjector', 'PEngine'), None, [('x', None, None)]],
-    ["gLat Understeer", ('gLat_Abs', 'aUndersteerFromSlip'), None, [('x', None, None)]],
+    # ["SM-Conditioned Fit", ('vCar', 'hRideF'), None, [('SM', 0, 0.5), ('SM', 0.5, 1.0)], True, True]
+    ["Gear Ratios", ('nWheelAvg_R', 'nEngine'), None, [('NGear', 1.5, 2.5), ('NGear', 2.5, 3.5), ('NGear', 3.5, 4.5), ('NGear', 4.5, 5.5), ('NGear', 5.5, 6.5), ('NGear', 6.5, 7.5), ('NGear', 7.5, 8.5)], False, True],
+    ["Engine Power", ('nEngine', 'PEngine'), None, 0, True, True],
+    ["Engine Power Gated", ('nEngine', 'PEngine'), None, 0, ('rThrottle', '>', 98), True, True],
+    ["Long Acceleration", ('vCar', 'gLong'), None, None, True, True],
+    ["Lat Acceleration", ('vCar', 'gLat_Abs'), None, 0, True, True],
+    ["GG Plot", ('gLat', 'gLong'), None , 0, True, True],
+    ["Understeer Plot", ('vCar', 'aUndersteerFromSlip'), None , None, True, True],
+    ["Yaw Rate Response", ('aSteerWheel', 'nYaw'), [(-160,160),(None, None)] , [('x', -20, 20)], True, True],
+    ["Lateral Acceleration Response", ('aSteerWheel', 'gLat'), [(-160, 160),(None, None)] , [('x', -20, 20)], True, True],
+    ["Braking Efficiency", ('pBrakeF', 'gLong'), None , [('y', None, -0.2)], ('gLong', '<', 0), True, True],
+    ["Damper gLat front", ('gLat', 'xDamperDeltaF'), None , [('x', None, None)], True, True],
+    ["Damper gLat rear", ('gLat', 'xDamperDeltaR'), None , [('x', None, None)], True, True],
+    ["Pushrod gLat front", ('gLat', 'FPRodDeltaF'), None , [('x', None, None)], True, True],
+    ["Pushrod gLat rear", ('gLat', 'FPRodDeltaR'), None , [('x', None, None)], True, True],
+    ["Front Heave", ('xDamperAvgF', 'FPRodAvgF'), None, [('y', None, 10000), ('y', 10000, None)], True, True],
+    ["Front Roll", ('xDamperDeltaF', 'FPRodDeltaF'), None, [('x', None, None)], True, True],
+    ["Rear Heave", ('xDamperAvgR', 'FPRodAvgR'), None,[('y', None, -20000), ('y', -20000, None)], True, True],
+    ["Rear Roll", ('xDamperDeltaR', 'FPRodDeltaR'), None, [('x', None, None)], True, True],
+    ["Front Pushrod vCar", ('vCar', 'FPRodAvgF'), None, [('gLat_Abs', 0, 1)], [('SM', '<', 1)], True, True],
+    ["Rear Pushrod vCar", ('vCar', 'FPRodAvgR'), None, [('gLat_Abs', 0, 1)], [('SM', '<', 1)], True, True],
+    ["Front Ride vCar", ('vCar', 'hRideF'), None, [('SM', 0, 0.5)], True, True],
+    ["Rear Ride vCar", ('vCar', 'hRideR'), None, [('SM', 0, 0.5)], True, True],
+    ["Ride Height Compare", ('hRideF', 'hRideR'), None, 0, True, True],
+    ["Ride Height Compare Gated", ('hRideF', 'hRideR'), None, 0, ('SM', '<', 1) ,True, True],
+    ["Roll angle gLat", ('gLat', 'aRoll'), None, [('x', None, None)], True, True],
+    ["Steering Moment", ('aSteerWheel', 'MSteerWheel'), [(-160, 160), (None, None)], 0, True, True],
+    ["Plank power acceleration", ('gLong (raw)', 'PPlank_F'), None, 0, True, True],
+    ["engine efficiency", ('dmInjector', 'PEngine'), None, [('x', None, None)], True, True],
+    ["gLat Understeer", ('gLat_Abs', 'aUndersteerFromSlip'), None, [('x', None, None)], True, True],
 ] 
 
 PSD_PLOT_DEFINITIONS = [
@@ -385,7 +349,7 @@ HISTOGRAM_PLOT_DEFINITIONS = [
    # ["Name of Plot", 'channel', [(xmin, xmax), (ymin, ymax)], log_scale]
    # Example:
    # ["Histogram Example", 'vCar', [(60, 360), (None, None)], False]
-    ["Plank Power Distribution", 'PPlankF', [(1,51), (None, None)], False],
+    ["Plank Power Distribution", 'PPlank_F', [(1,51), (None, None)], False],
 ]
 
 BAR_PLOT_DEFINITIONS = [
@@ -395,7 +359,8 @@ BAR_PLOT_DEFINITIONS = [
    # Default aggregation is "last" when not specified.
    # Example:
    # ["Cumulative Metrics", (("dmInjector", "integral"), ("EPlankF", "sum"))]
-   ["Cumulative Metrics", ("ELapCharge", "ELapDischarge")]
+   # ["Cumulative Metrics", (("PMGUK_Deploy","integral"), ("PMGUK_Charge","integral"), ("Fuel_Used", "integral"))],
+   ["Cumulative Metrics", (("dmInjector (kg/s)", "integral"),)],
 ]
 
 POWERPOINT_EXPORT_MAP = {
@@ -457,6 +422,7 @@ if __name__ == "__main__":
         scatter_density_threshold=SCATTER_DENSITY_THRESHOLD,
         scatter_max_points=SCATTER_MAX_POINTS,
         scatter_hexbin_gridsize=SCATTER_HEXBIN_GRIDSIZE,
+        bar_secondary_axis_ratio=BAR_SECONDARY_AXIS_RATIO,
     )
 
     # Generate all plots
