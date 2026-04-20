@@ -1,6 +1,6 @@
 """
 PowerPoint Export Utilities
----------------------------
+===========================
 Handles:
  - reading plot-target aspect ratios from a PPTX template
  - replacing template images with generated plots
@@ -15,9 +15,10 @@ from datetime import datetime
 from zipfile import ZipFile
 import xml.etree.ElementTree as ET
 
-# ----------------------------------------------------------------------
+
+# ================================================================
 # CONSTANT LAYOUT DEFINITIONS
-# ----------------------------------------------------------------------
+# ================================================================
 
 MAIN_PLOT_BOX = {
     "left_ratio": 0.079,
@@ -43,9 +44,9 @@ PPTX_NS = {
 }
 
 
-# ----------------------------------------------------------------------
+# ================================================================
 # GEOMETRY HELPERS
-# ----------------------------------------------------------------------
+# ================================================================
 
 def _resolve_box(layout_name, slide_width, slide_height, slot_index=0, slot_count=1):
     """Compute a plot box for main/double layouts."""
@@ -77,9 +78,9 @@ def _resolve_box(layout_name, slide_width, slide_height, slot_index=0, slot_coun
     raise ValueError(f"Unsupported PowerPoint layout: {layout_name}")
 
 
-# ----------------------------------------------------------------------
+# ================================================================
 # SLIDE TEMPLATE PARSING
-# ----------------------------------------------------------------------
+# ================================================================
 
 def _replace_slide_pictures(slide):
     """Delete all picture shapes from a slide."""
@@ -147,9 +148,9 @@ def _get_main_plot_box(picture_boxes, slide_width, slide_height):
     )
 
 
-# ----------------------------------------------------------------------
+# ================================================================
 # IMAGE INSERTION
-# ----------------------------------------------------------------------
+# ================================================================
 
 def _add_picture_fit(slide, image_path, left, top, width, height, fill_factor=1.0):
     """
@@ -178,95 +179,101 @@ def _add_picture_fit(slide, image_path, left, top, width, height, fill_factor=1.
     return shape
 
 
-# ----------------------------------------------------------------------
+# ================================================================
 # TEMPLATE ASPECT RATIO EXTRACTION
-# ----------------------------------------------------------------------
+# ================================================================
 
 def get_template_plot_aspect_ratios(template_path, export_map):
     """
     Reads the PPTX template and extracts the native aspect ratios of picture
     placeholders so exported plots match layout proportions precisely.
+    Returns empty dict if template cannot be read (graceful degradation).
     """
     template_path = Path(template_path).resolve()
     if not template_path.exists():
-        raise FileNotFoundError(f"PowerPoint template not found: {template_path}")
+        print(f"[WARNING][powerpointexporter] PowerPoint template not found: {template_path}. Using default aspect ratios.")
+        return {}
 
     aspect_ratios = {}
 
-    with ZipFile(template_path) as pptx:
-        pres_root = ET.fromstring(pptx.read("ppt/presentation.xml"))
-        slide_size = pres_root.find("p:sldSz", PPTX_NS)
-        slide_width = int(slide_size.attrib.get("cx", 0)) if slide_size is not None else None
+    try:
+        with ZipFile(template_path) as pptx:
+            pres_root = ET.fromstring(pptx.read("ppt/presentation.xml"))
+            slide_size = pres_root.find("p:sldSz", PPTX_NS)
+            slide_width = int(slide_size.attrib.get("cx", 0)) if slide_size is not None else None
 
-        for slide_num, config in export_map.items():
-            slide_xml = f"ppt/slides/slide{slide_num}.xml"
-            if slide_xml not in pptx.namelist():
-                continue
-
-            root = ET.fromstring(pptx.read(slide_xml))
-
-            # Collect all <p:pic> shapes
-            picture_boxes = []
-            for pic in root.findall(".//p:pic", PPTX_NS):
-                xfrm = pic.find("p:spPr/a:xfrm", PPTX_NS)
-                if xfrm is None:
+            for slide_num, config in export_map.items():
+                slide_xml = f"ppt/slides/slide{slide_num}.xml"
+                if slide_xml not in pptx.namelist():
                     continue
 
-                ext = xfrm.find("a:ext", PPTX_NS)
-                off = xfrm.find("a:off", PPTX_NS)
-                if ext is None:
-                    continue
+                root = ET.fromstring(pptx.read(slide_xml))
 
-                width = int(ext.attrib.get("cx", 0))
-                height = int(ext.attrib.get("cy", 0))
-                left = int(off.attrib.get("x", 0)) if off is not None else 0
-                top = int(off.attrib.get("y", 0)) if off is not None else 0
+                # Collect all <p:pic> shapes
+                picture_boxes = []
+                for pic in root.findall(".//p:pic", PPTX_NS):
+                    xfrm = pic.find("p:spPr/a:xfrm", PPTX_NS)
+                    if xfrm is None:
+                        continue
 
-                if width > 0 and height > 0:
-                    picture_boxes.append((left, top, width, height))
+                    ext = xfrm.find("a:ext", PPTX_NS)
+                    off = xfrm.find("a:off", PPTX_NS)
+                    if ext is None:
+                        continue
 
-            picture_boxes.sort(key=lambda b: (b[0], b[1]))
+                    width = int(ext.attrib.get("cx", 0))
+                    height = int(ext.attrib.get("cy", 0))
+                    left = int(off.attrib.get("x", 0)) if off is not None else 0
+                    top = int(off.attrib.get("y", 0)) if off is not None else 0
 
-            image_files = config.get("images", [])
-            slide_aspects = []
+                    if width > 0 and height > 0:
+                        picture_boxes.append((left, top, width, height))
 
-            for i, img_file in enumerate(image_files):
-                if i >= len(picture_boxes):
-                    break
+                picture_boxes.sort(key=lambda b: (b[0], b[1]))
 
-                _, _, w, h = picture_boxes[i]
-                # For main plot with only one picture, stretch horizontally
+                image_files = config.get("images", [])
+                slide_aspects = []
+
+                for i, img_file in enumerate(image_files):
+                    if i >= len(picture_boxes):
+                        break
+
+                    _, _, w, h = picture_boxes[i]
+                    # For main plot with only one picture, stretch horizontally
+                    if (
+                        config.get("layout") == "main_plot"
+                        and slide_width is not None
+                        and len(image_files) == 1
+                    ):
+                        w = slide_width  # stretch to full width
+
+                    slide_aspects.append((img_file, w / h))
+
+                # For two-up scatter plots → average aspect ratio
                 if (
-                    config.get("layout") == "main_plot"
-                    and slide_width is not None
-                    and len(image_files) == 1
+                    config.get("layout") == "double_plot"
+                    and len(slide_aspects) == 2
+                    and not all(
+                        name.startswith(("scatter_", "psd_", "bar_"))
+                        for name, _ in slide_aspects
+                    )
                 ):
-                    w = slide_width  # stretch to full width
-
-                slide_aspects.append((img_file, w / h))
-
-            # For two-up scatter plots → average aspect ratio
-            if (
-                config.get("layout") == "double_plot"
-                and len(slide_aspects) == 2
-                and not all(
-                    name.startswith(("scatter_", "psd_", "bar_"))
-                    for name, _ in slide_aspects
-                )
-            ):
-                avg = sum(a for _, a in slide_aspects) / len(slide_aspects)
-                for img, _ in slide_aspects:
-                    aspect_ratios[img] = (avg,)
-            else:
-                for img, ar in slide_aspects:
-                    aspect_ratios[img] = ar
+                    avg = sum(a for _, a in slide_aspects) / len(slide_aspects)
+                    for img, _ in slide_aspects:
+                        aspect_ratios[img] = (avg,)
+                else:
+                    for img, ar in slide_aspects:
+                        aspect_ratios[img] = ar
+    except Exception as e:
+        print(f"[WARNING][powerpointexporter] Error reading template aspect ratios: {e}. Using default aspect ratios.")
+        return {}
 
     return aspect_ratios
 
 
-# ----------------------------------------------------------------------
+# ================================================================
 # MAIN EXPORT FUNCTION
-# ----------------------------------------------------------------------
+# ================================================================
 
 def export_report_to_powerpoint(template_path, output_path, plots_dir, export_map, visible=False):
     """
@@ -365,5 +372,11 @@ def export_report_to_powerpoint(template_path, output_path, plots_dir, export_ma
         print(f"[ERROR][powerpointexporter] PowerPoint export failed: {exc}")
 
     finally:
-        if pres:
-            pres.Close()
+        try:
+            ppt.Quit()
+        except Exception as quit_err:
+            print(f"[WARNING][powerpointexporter] Error quitting PowerPoint: {quit_err}")
+        
+        # Release COM objects
+        pres = None
+        ppt = None

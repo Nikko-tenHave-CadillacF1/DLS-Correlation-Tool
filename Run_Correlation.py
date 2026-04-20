@@ -1,14 +1,31 @@
 """
-Correlation Report Generator
---------------------------------
-Loads multiple runs (any number), applies mapping/transform rules,
-generates waveform / scatter / PSD plots, then exports to PowerPoint.
+================================================================================
+CORRELATION REPORT GENERATOR
+================================================================================
+Workflow:
+    1. Define run data files, channel mappings, and plot specifications
+    2. DataPlotter loads and processes telemetry data from each run
+    3. Applies channel transforms (unit conversions, sign corrections, etc)
+    4. Generates all configured plot types
+    5. Creates main correlation summary report
+    6. Exports plots to PowerPoint template
+
+Key Configuration Sections:
+    - RUNS: Define which data files to load and their visual properties
+    - CHANNEL_MAPPINGS: Map source channels to standardized names
+    - CHANNEL_TRANSFORMS: Apply unit conversions and corrections
+    - CALCULATED_CHANNELS: Define derived channels from raw data
+    - PLOT_DEFINITIONS: Specify waveforms, scatter, PSD, and other plots
+    - POWERPOINT_EXPORT_MAP: Map plots to PowerPoint slide layouts
+================================================================================
 """
 
 import os
 from pathlib import Path
+
 import numpy as np
 from scipy.integrate import cumulative_trapezoid
+
 from dataplotter import DataPlotter
 from powerpointexporter import (
     export_report_to_powerpoint,
@@ -16,105 +33,170 @@ from powerpointexporter import (
 )
 from main_correlation_points import generate_main_correlation_points_report
 
-# =====================================================================
-# CONFIGURATION
-# =====================================================================
-
+# ================================================================================
+# CONFIGURATION: DATA FILES & LOCATIONS
+# ================================================================================
 # Root folder for input data and output plots
+
 ROOT_FOLDER = Path(r"C:\\GitHub_Local\\VPG.Reporting\\Correlation Reporting\\Data")
 
-# ---------------------------------------------------------------------
-# RUN DEFINITIONS (MULTI-RUN FRIENDLY)
-# ---------------------------------------------------------------------
+
+# ================================================================================
+# CONFIGURATION: RUN DEFINITIONS
+# ================================================================================
+# Load any number of telemetry runs. Each run specifies a data file, display name,
+# color, and optional filtering criteria.
+#
+# Format:
+#   {"name": "<run_id>", "file": "<relative_path_from_Data>", "color": "<#RRGGBB>", 
+#    "nrun": <optional_ranked_run_index>, "nlap": <optional_lap_number>, "type": "<DATA_TYPE>"}
+#
+# Parameters:
+#   - name:    Display name for this run in plots and reports
+#   - file:    Filename relative to ROOT_FOLDER
+#   - color:   Hex color code (#RRGGBB) for plotting this run
+#   - nrun:    (Optional, parquet only) Rank-based run selection
+#              nrun=1 -> lowest nRun value in file, nrun=2 -> next lowest, etc.
+#   - nlap:    (Optional) Exact lap filter. Use nrun if both specified.
+#   - type:    Data source type (OC, CAR, DLS, DIL) - determines mapping rules
+#
+# Notes:
+#   - Set type correctly; it determines which CHANNEL_MAPPINGS and
+#     CHANNEL_TRANSFORMS are applied
+#   - Use nrun for ranked selection when multiple runs exist in one file
+#   - nlap filters on exact nLap value when available
 
 RUNS = [
-    # Format:
-    # {"name": "<run_id>", "file": "<relative_path_from_Data>", "color": "<#RRGGBB>", "nrun": <optional_ranked_run_index>, "nlap": <optional_lap_number>}
-    # Notes:
-    # - "nrun" is optional and only used for parquet inputs.
-    #   nrun is rank-based on nRun values:
-    #   nrun=1 -> lowest nRun value in file, nrun=2 -> next lowest, etc.
-    # - "nlap" remains optional as fallback exact filter on "nLap".
-    # - If both are provided, nrun takes priority.
-    # Example:
-    #{"name": "v37", "file": r"20260408-OC-VPG - Ref Data Set - CF1-26v037 - v1-BCN.parquet", "color": "#0051FF", "nrun" : 1, "type": "OC"},
-    #{"name": "v38a", "file": r"20260408-OC-VPG - Ref Data Set - CF1-26v038a - v1-BCN.parquet", "color": "#FF0000", "nrun" : 1, "type": "OC"},
-    {"name": "car", "file": "26R03SUZ_260328_MAC26-01_PER_Q_R02.txt", "color": "#FF8C00", "type": "CAR"},
-    {"name": "dls", "file": "26R03SUZ  11  Quali  Run 2 2  Stint 1 1 Q1R2 nC3_DLS_1.parquet", "color": "#0015FF", "nlap" : 1, "type": "DLS"},
-    #{"name": "it3", "file": "VPG Baselines  MIA  26R04MIA v0a_-TEST_LTS_Iteration_3.parquet", "color": "#3300FF", "nlap" : 1, "type": "DLS"},
-    #{"name": "oc", "file": "Lap001_20260406-OC-VPG - Correlation - DiL 2603256 FIT SUZ Support Run 7 - Multi - v1-SUZ.oc.txt", "color": "#009B53", "type": "OC"},
+    # Example configurations (uncomment to activate):
+    # {"name": "v37", "file": r"20260408-OC-VPG - Ref Data Set - CF1-26v037 - v1-BCN.parquet", 
+    #  "color": "#0051FF", "nrun": 1, "type": "OC"},
+    # {"name": "v38a", "file": r"20260408-OC-VPG - Ref Data Set - CF1-26v038a - v1-BCN.parquet", 
+    #  "color": "#FF0000", "nrun": 1, "type": "OC"},
+    
+    # Active runs - modify these as needed:
+    #{
+    #    "name": "car",
+    #    "file": "26R03SUZ_260328_MAC26-01_PER_Q_R02.txt",
+    #    "color": "#FF8C00",
+    #    "type": "CAR"
+    #},
+    {
+        "name": "dls",
+        "file": "26R03SUZ  11  Quali  Run 2 2  Stint 1 1 Q1R2 nC3_DLS_2.parquet",
+        "color": "#1100FF",
+        "nlap": 1,
+        "type": "DLS"
+    },
+    {
+        "name": "car",
+        "file": "26R03SUZ_260328_MAC26-02_BOT_Q_R03_1.txt",
+        "color": "#FF8800",
+        "type": "CAR"
+    }
 ]
 
-# ---------------------------------------------------------------------
-# POWERPOINT TEMPLATE
-# ---------------------------------------------------------------------
+# ================================================================================
+# CONFIGURATION: POWERPOINT OUTPUT
+# ================================================================================
+# Template and output paths for PowerPoint report generation.
+# Template must be a valid .pptx file with placeholders for images.
+
 POWERPOINT_TEMPLATE = ROOT_FOLDER / "template.pptx"
 POWERPOINT_OUTPUT = ROOT_FOLDER / "Correlation_Report.pptx"
 EXPORT_TO_POWERPOINT = True
 
-# ---------------------------------------------------------------------
-# OPTIONAL: MAIN CORRELATION SUMMARY REPORT
-# ---------------------------------------------------------------------
-ENABLE_MAIN_CORRELATION_SUMMARY = True
-MAIN_CORRELATION_INCLUDE_CSV = False
-MAIN_CORRELATION_LOW_SAMPLE_THRESHOLD = 200
-MAIN_CORRELATION_CORR_CHECK_THRESHOLD = 0.85
-MAIN_CORRELATION_SLOPE_DELTA_CHECK_PCT = 5.0
 
-# =====================================================================
-# CHANNEL MAPPINGS
+# ================================================================================
+# CONFIGURATION: OPTIONAL FEATURES
+# ================================================================================
+# Main correlation summary report generation settings.
+# Generates statistical summary and optionally CSV export of correlations.
+
+ENABLE_MAIN_CORRELATION_SUMMARY = False
+MAIN_CORRELATION_INCLUDE_CSV = False
+MAIN_CORRELATION_LOW_SAMPLE_THRESHOLD = 200            # Min points for correlation
+MAIN_CORRELATION_CORR_CHECK_THRESHOLD = 0.85           # Flag correlations above this
+MAIN_CORRELATION_SLOPE_DELTA_CHECK_PCT = 5.0           # Slope variance % threshold
+
+
+# ================================================================================
+# CONFIGURATION: CHANNEL MAPPINGS
+# ================================================================================
+# Map source channel names to standardized names for consistency across data types.
+# Enables comparing equivalent signals from different data sources/formats.
+#
+# Usage:
+#   If a raw channel name is in the mapping, it will be renamed to the mapped
+#   name. Example: 'rSLMActive' (OC format) → 'SM' (standardized name)
+#
+# Add new mappings as needed when working with different data sources.
 CHANNEL_MAPPINGS = {
     'OC': {
-    # Example mappings - adjust based on your data:
-    'rSLMActive' : 'SM',
-    'aUndersteer_aSlip' : 'aUndersteerFromSlip'
+        # Optimal Control format mappings
+        'rSLMActive': 'SM',
+        'aUndersteer_aSlip': 'aUndersteerFromSlip'
     },
+    
     'DIL': {
-    # Example mappings - adjust based on your data:
-    'BSLMActiveCan': 'SM',
-    'FPushrodFL': 'FPRodFL',
-    'FPushrodFR': 'FPRodFR',
-    'FPushrodRL': 'FPRodRL',
-    'FPushrodRR': 'FPRodRR',
-    'EPlankWearLapF' : 'EPlankF',
-    'PPlankWearF' : 'PPlankF',
-    'pBrakeF1' : 'pBrakeF',
-    'CAN_6_632_aSteerWheel_Can' : 'aSteerWheel',
+        # Driver-in-Loop format mappings
+        'BSLMActiveCan': 'SM',
+        'FPushrodFL': 'FPRodFL',
+        'FPushrodFR': 'FPRodFR',
+        'FPushrodRL': 'FPRodRL',
+        'FPushrodRR': 'FPRodRR',
+        'EPlankWearLapF': 'EPlankF',
+        'PPlankWearF': 'PPlankF',
+        'pBrakeF1': 'pBrakeF',
+        'CAN_6_632_aSteerWheel_Can': 'aSteerWheel',
     },
+    
     'DLS': {
-    # Example mappings - adjust based on your data:
-    'aRollCarTrack': 'aRoll',
-    'FPushrodFL': 'FPRodFL',
-    'FPushrodFR': 'FPRodFR',
-    'FPushrodRL': 'FPRodRL',
-    'FPushrodRR': 'FPRodRR',
-    'aUndersteer_aSlip': 'aUndersteerFromSlip',
-    'BAeroModeXDriver': 'SM',
-    'rThrottlePedal': 'rThrottle',
-    'EPlankLTS_Lap' : 'EPlankF',
-    'PPlankWearF' : 'PPlankF'
+        # DLS/LTS simulator format mappings - NB LTS type is same as DLS
+        'aRollCarTrack': 'aRoll',
+        'FPushrodFL': 'FPRodFL',
+        'FPushrodFR': 'FPRodFR',
+        'FPushrodRL': 'FPRodRL',
+        'FPushrodRR': 'FPRodRR',
+        'aUndersteer_aSlip': 'aUndersteerFromSlip',
+        'BAeroModeXDriver': 'SM',
+        'rThrottlePedal': 'rThrottle',
+        'EPlankLTS_Lap': 'EPlankF',
+        'PPlankWearF': 'PPlankF'
     },
+    
     'CAR': {
-    'BNSLMEnablingStatusEnabled': 'SM',
-    'PMGUKActual': 'PMGUK',
-    'rThrottlePedal': 'rThrottle',
-    'xDamperPotFL': 'xDamperFL',
-    'xDamperPotFR': 'xDamperFR',
-    'xDamperPotRL': 'xDamperRL',
-    'xDamperPotRR': 'xDamperRR',
-    'nYawSlipSensor': 'nYaw',
-    'EPlankWearLapF': 'EPlankF',
-    'PPlankWearF': 'PPlankF',
+        # Trackside format mappings
+        'BNSLMEnablingStatusEnabled': 'SM',
+        'PMGUKActual': 'PMGUK',
+        'rThrottlePedal': 'rThrottle',
+        'xDamperPotFL': 'xDamperFL',
+        'xDamperPotFR': 'xDamperFR',
+        'xDamperPotRL': 'xDamperRL',
+        'xDamperPotRR': 'xDamperRR',
+        'nYawSlipSensor': 'nYaw',
+        'EPlankWearLapF': 'EPlankF',
+        'PPlankWearF': 'PPlankF',
     }
 }
 
-# =====================================================================
-# CHANNEL TRANSFORMS
-# =====================================================================
+
+# ================================================================================
+# CONFIGURATION: CHANNEL TRANSFORMS
+# ================================================================================
+# Apply mathematical transformations to channels (unit conversions, sign corrections).
+# Each function receives raw channel values and returns transformed values.
+#
+# Common transformations:
+#   - Unit conversion (W → kW): lambda x: x / 1000
+#   - Sign correction: lambda x: -x
+#   - Offset adjustment: lambda x: x - offset_value
+#   - Conditional: lambda x: x * condition_array
+
 CHANNEL_TRANSFORMS = {
-    'OC' : None,
-    'DLS' : {
-        # DLS load sign corrections
+    'OC': None,
+    
+    'DLS': {
+        # DLS simulator load sign corrections and acceleration offsets
         "FPRodFL": lambda x: -x,
         "FPRodFR": lambda x: -x,
         "FPRodRL": lambda x: -x,
@@ -122,85 +204,157 @@ CHANNEL_TRANSFORMS = {
         "aRoll": lambda x: -x,
         "gVert": lambda x: x - 1,
     },
-    'DIL' : None,
+    
+    'DIL': None,
+    
     "CAR": {
-        "PMGUK": lambda x: x / 1000,   # W -> kW
-        "sLap": lambda x: x - 15,      # GPS alignment shift
+        # Vehicle ECU unit conversions and adjustments
+        "PMGUK": lambda x: x / 1000,              # W → kW
+        "sLap": lambda x: x - 15,                 # GPS alignment shift
     }
 }
 
-# =====================================================================
-# UNITS MAPPING
-# =====================================================================
+
+# ================================================================================
+# CONFIGURATION: UNITS MAPPING
+# ================================================================================
+# Map channel names to their physical units. Used for axis labels and legends.
+# Add new channels as they're incorporated into plots. Beware of channel transforms that may change units (e.g. W → kW).
+
 UNITS_MAP = {
+    # Acceleration channels
     "glat": "g", "glong": "g", "gvertf": "g", "gvertr": "g", "glat_abs": "g",
-    "gLong (raw)": "g", "gVert" : "g",
+    "gLong (raw)": "g", "gVert": "g",
+    
+    # Velocity/speed
     "vcar": "kph",
+    
+    # Angles
     "aroll": "deg", "asteer": "deg", "asteerwheel": "deg", "aundersteerfromslip": "deg",
+    
+    # Displacement
     "xrh": "mm", "laser": "mm", "hrider": "mm", "hridef": "mm",
     "damper": "mm", "xdamper": "mm",
+    
+    # Forces
     "fprod": "N", "fpushrod": "N", "pushrod": "N",
     "fprodfl": "N", "fprodfr": "N", "fprodrl": "N", "fprodrr": "N",
     "fprodavgf": "N", "fprodavgr": "N",
     "fproddeltaf": "N", "fproddeltar": "N",
     "trackrod": "N",
+    
+    # Suspension
     "xdamperavgf": "mm", "xdamperavgr": "mm",
     "xdamperdeltaf": "mm", "xdamperdeltar": "mm",
+    
+    # Engine
     "nengine": "rpm", "mengine": "Nm", "msteerwheel": "Nm",
+    
+    # Pressure/Power
     "brake": "bar", "throttle": "%", "pmguk": "kW", "pengine": "kW",
     "nwheelr_avg": "rpm",
+    
+    # Sensors
     "nyaw": "deg/s",
     "pbrakef": "bar",
     "rthrottle": "%",
+    
+    # Grounding and plank wear
     "EPlank_F": "kJ",
     "PPlank_F": "kW",
     "FzPlankF": "N",
+
+    # Energy/Power consumption
     "dmInjector": "kg/h",
     "PMGUK_Deploy": "kW",
     "PMGUK_Charge": "kW",
     "dmInjector (kg/s)": "kg/s",
 }
 
-# =====================================================================
-# CALCULATED CHANNELS
-# =====================================================================
+
+# ================================================================================
+# CONFIGURATION: CALCULATED CHANNELS
+# ================================================================================
+# Define derived channels computed from raw channel data.
+# Each entry is a lambda function receiving the dataframe and returning computed values.
+# These derived channels can be used in plots just like raw channels. 
+# Can duplicated channels if different levels of filtering or processing are needed (e.g. raw vs filtered ride height).
+
 CALCULATED_CHANNELS = {
+    # Pushrod load differentials and averages
     "FPRodDeltaF": lambda df: df["FPRodFL"] - df["FPRodFR"],
     "FPRodDeltaR": lambda df: df["FPRodRL"] - df["FPRodRR"],
     "FPRodAvgF": lambda df: (df["FPRodFL"] + df["FPRodFR"]) / 2,
     "FPRodAvgR": lambda df: (df["FPRodRL"] + df["FPRodRR"]) / 2,
+    
+    # Damper travel differentials and averages
     "xDamperDeltaF": lambda df: df["xDamperFL"] - df["xDamperFR"],
     "xDamperDeltaR": lambda df: df["xDamperRL"] - df["xDamperRR"],
     "xDamperAvgF": lambda df: (df["xDamperFL"] + df["xDamperFR"]) / 2,
     "xDamperAvgR": lambda df: (df["xDamperRL"] + df["xDamperRR"]) / 2,
+    
+    # Lateral acceleration derived channels
     "gLat_Abs": lambda df: df["gLat"].abs(),
     "gLong (raw)": lambda df: df["gLong"],
+    
+    # Ride height channels
     "hRideF (raw)": lambda df: df["hRideF"],
     "hRideR (raw)": lambda df: df["hRideR"],
+    
+    # Combined power channels
     "PPUTotal": lambda df: df["PMGUK"] + df["PEngine"],
-    "nWheelAvg_R": lambda df: (df["nWheelRL"] + df["nWheelRR"])/2,
+    
+    # Wheel speed (rear average)
+    "nWheelAvg_R": lambda df: (df["nWheelRL"] + df["nWheelRR"]) / 2,
+    
+    # Fuel/injector consumption (unit conversion)
     "dmInjector (kg/s)": lambda df: df["dmInjector"] / 3600,  # Convert kg/h to kg/s
-    "PMGUK_Deploy": lambda df: (df["PMGUK"]/1000 * (df["PMGUK"] > 0).astype(float)).abs(),  # Example of a conditionally deployed channel
-    "PMGUK_Charge": lambda df: (df["PMGUK"]/1000 * (df["PMGUK"] < 0).astype(float)).abs(),  # Example of a conditionally deployed channel
-    "PPlank_F": lambda df: 0.001 * np.maximum(0.1 * df["FzPlankF"] * (df["vCar"] / 3.6), 0), 
+    
+    # MGUK deployment modes
+    "PMGUK_Deploy": lambda df: (df["PMGUK"] / 1000 * (df["PMGUK"] > 0).astype(float)).abs(),
+    "PMGUK_Charge": lambda df: (df["PMGUK"] / 1000 * (df["PMGUK"] < 0).astype(float)).abs(),
+    
+    # Plank energy (integrated power)
+    "PPlank_F": lambda df: 0.001 * np.maximum(0.1 * df["FzPlankF"] * (df["vCar"] / 3.6), 0),
     "EPlank_F": lambda df: cumulative_trapezoid(df["PPlank_F"], dx=0.01, initial=0),
 }
 
-# =====================================================================
-# LOW-PASS FILTER SETTINGS
-# =====================================================================
+
+# ================================================================================
+# CONFIGURATION: LOW-PASS FILTER SETTINGS
+# ================================================================================
+# Apply low-pass filtering to smooth noisy channels.
+# cutoff=0 disables filtering for that channel.
+#
+# Parameters:
+#   - cutoff: Cutoff frequency in Hz (0 = no filter)
+#   - order:  Filter order (higher = steeper rolloff, more lag)
+#   - "all":  Fallback filter applied to any channel not explicitly listed. 
+#             Be careful with this as it may unintentionally filter channels that should be left raw.
+
 LOW_PASS_FILTERS = {
+    # Acceleration channels
     "gVertF": {"cutoff": 0, "order": 2},
     "gVertR": {"cutoff": 0, "order": 2},
     "gVert": {"cutoff": 0, "order": 2},
+    
+    # Plank and power channels
     "FzPlankF": {"cutoff": 0, "order": 2},
     "PMGUK": {"cutoff": 0, "order": 2},
+    
+    # Discrete channels (no filtering needed)
     "SM": {"cutoff": 0, "order": 2},
     "NGear": {"cutoff": 0, "order": 2},
+    
+    # Engine and drivetrain
     "nEngine": {"cutoff": 0, "order": 2},
     "nWheelR_Avg": {"cutoff": 0, "order": 2},
+    
+    # Plank wear
     "EPlank_F": {"cutoff": 0, "order": 2},
     "PPlank_F": {"cutoff": 0, "order": 2},
+    
+    # Driver inputs and vehicle state
     "rThrottle": {"cutoff": 0, "order": 2},
     "gLong (raw)": {"cutoff": 0, "order": 2},
     "hRideF (raw)": {"cutoff": 0, "order": 2},
@@ -208,182 +362,282 @@ LOW_PASS_FILTERS = {
     "dmInjector": {"cutoff": 0, "order": 2},
     "PPUTotal": {"cutoff": 0, "order": 2},
     "vCar": {"cutoff": 0, "order": 2},
+    
+    # Default filter for any unlisted channels
     "all": {"cutoff": 5, "order": 2},
 }
 
-# =====================================================================
-# SCATTER RENDERING
-# =====================================================================
-# "auto" switches to density hexbin for very large clouds.
-SCATTER_RENDER_MODE = "auto"   # "auto", "scatter", "hexbin"
-SCATTER_DENSITY_THRESHOLD = 25000
-SCATTER_MAX_POINTS = 45000
-SCATTER_HEXBIN_GRIDSIZE = 70
-BAR_SECONDARY_AXIS_RATIO = 20.0
 
-# =====================================================================
-# PLOT DEFINITIONS
-# =====================================================================
+# ================================================================================
+# CONFIGURATION: SCATTER PLOT RENDERING
+# ================================================================================
+# Control how scatter plots are rendered. For large datasets, switches to
+# hexagonal binning to avoid overplotting and improve performance.
+#
+# Rendering modes:
+#   - "auto":     Automatically switches to hexbin if point count exceeds threshold
+#   - "scatter":  Always use scatter plot (slower for large datasets)
+#   - "hexbin":   Always use hexagonal binning (faster, shows density)
+
+SCATTER_RENDER_MODE = "auto"                    # "auto", "scatter", "hexbin"
+SCATTER_DENSITY_THRESHOLD = 25000                # Switch to hexbin above this point count
+SCATTER_MAX_POINTS = 45000                       # Maximum points to render (down-samples if exceeded)
+SCATTER_HEXBIN_GRIDSIZE = 70                     # Hexbin resolution (higher = more bins)
+BAR_SECONDARY_AXIS_RATIO = 20.0                  # Secondary axis scale factor for bar plots
+
+# ================================================================================
+# CONFIGURATION: PLOT DEFINITIONS
+# ================================================================================
+# Define all plots to generate. Supported plot types:
+#   - Waveform:  Time-series multi-channel plots with overlays
+#   - Scatter:   XY correlation plots with optional trend lines
+#   - PSD:       Power spectral density (frequency domain analysis)
+#   - Histogram: Distribution plots
+#   - Bar:       Bar charts with aggregations
+
+
+# ================================================================================
+# WAVEFORM PLOT DEFINITIONS
+# ================================================================================
+# Multi-panel time-series plots with no limit on amount of lots, but recommended maximum of 7 rows per plot.
+#
+# Format:
+#   ["Plot Name", (row_specs...), (axis_limits...), (reference_lines...), (height_ratios...)]
+#
+# row_specs (one per row):
+#   "channel"                       → single Y-axis
+#   ("left_channel", "right_channel") → dual Y-axis overlay
+#
+# axis_limits (tuple matching rows):
+#   Single row   → (ymin, ymax) or None
+#   Dual row     → ((left_min, left_max), (right_min, right_max)) or None
+#
+# reference_lines (tuple matching rows):
+#   Scalar or tuple of values to plot as horizontal lines, or None
+#
+# height_ratios (optional):
+#   Tuple of relative heights for each row. Default: equal heights.
+#
+# Example:
+#   ["Example", ("Ch1", ("Ch2", "Ch3")), (None, ((0, 10), (100, 200))), (None, (5, 10)), (0.4, 0.8)]
 
 WAVEFORM_PLOT_DEFINITIONS = [
-   # Format:
-   # ["Name", (row_specs...), (axis_limits...), (reference_lines...), (subplot height ratios...)]
-   #
-   # row_specs:
-   #   "channel"                      -> single y-axis row (backward compatible)
-   #   ("channel_left", "channel_right") -> dual y-axis row (left/right overlay)
-   #
-   # axis_limits for each row:
-   #   single row -> (ymin, ymax)
-   #   dual row   -> ((left_ymin, left_ymax), (right_ymin, right_ymax))
-   #
-   # reference_lines for each row:
-   #   single row -> None, scalar, or tuple/list of values
-   #   dual row   -> (left_refs, right_refs)
-   # `subplot height ratios` is optional; omit it to give equal heights.
-   # Example:
-   # ["Waveform Example", ("SM", ("vCar", "nEngine")), ((-0.2, 1.2), ((60, 360), (7000, 13000))), (None, (None, (10000,))), (0.4, 0.8)]
     [
-        "Driver Input", ('PMGUK', ('vCar', 'NGear'), 'aSteerWheel', 'pBrakeF', ('rThrottle','SM')),
-        (None, ((60,400),(-1,9)), (-160, 160), None, ((0, 105), (0,1.3))), # y-axis limits for each channel
-        ((-350, 0, 350), None, (0), None, None), # reference lines for each channel
-        (0.4, 0.8, 0.4, 0.4, 0.4) # subplot height ratios (optional)
+        "Driver Input",
+        ('PMGUK', ('vCar', 'NGear'), 'aSteerWheel', 'pBrakeF', ('rThrottle', 'SM')),
+        (None, ((60, 400), (-1, 9)), (-160, 160), None, ((0, 105), (0, 1.3))),
+        ((-350, 0, 350), None, (0), None, None),
+        (0.4, 0.8, 0.4, 0.4, 0.4)
     ],
+    
     [
-        "Power Unit", ('PMGUK', 'PEngine', ('vCar', 'NGear'), 'nEngine', 'dmInjector', ('rThrottle','SM')),
-        (None, None, ((60,400),(-1,9)), None, None, ((0, 105), (0,1.3))), # y-axis limits for each channel
-        ((-350, 0, 350), (0), None, (10000), None, None), # reference lines for each channel
-        (0.4, 0.4, 0.6, 0.4, 0.4, 0.4) # subplot height ratios (optional)
+        "Power Unit",
+        ('PMGUK', 'PEngine', ('vCar', 'NGear'), 'nEngine', 'dmInjector', ('rThrottle', 'SM')),
+        (None, None, ((60, 400), (-1, 9)), None, None, ((0, 105), (0, 1.3))),
+        ((-350, 0, 350), (0), None, (10000), None, None),
+        (0.4, 0.4, 0.6, 0.4, 0.4, 0.4)
     ],
+    
     [
-        "Plank Wear", ('PMGUK','vCar','FzPlankF', 'EPlank_F' , 'pBrakeF', ('rThrottle','SM')),
-        (None, None, None, None, None, ((0, 105), (0,1.3))), # y-axis limits for each channel
-        ((-350, 0, 350), None, (0,7500), (0), None, None), # reference lines for each channel
-        (0.4, 0.6, 0.4, 0.6, 0.4, 0.4) # subplot height ratios (optional)
+        "Plank Wear",
+        ('PMGUK', 'vCar', 'FzPlankF', 'EPlank_F', 'pBrakeF', ('rThrottle', 'SM')),
+        (None, None, None, None, None, ((0, 105), (0, 1.3))),
+        ((-350, 0, 350), None, (0, 7500), (0), None, None),
+        (0.4, 0.6, 0.4, 0.6, 0.4, 0.4)
     ],
+    
     [
-        "DIL TELEM", ('SM', 'gVert', 'PMGUK',  ('vCar', 'NGear'), 'aSteerWheel', ('rThrottle', 'pBrakeF')),
-        ((-0.2, 1.2), (-3,3), (-360, 360), ((60,400),(-1,9)), (-160, 160), ((0, 105),(None, None))), # y-axis limits for each channel
-        (None, None, (-350, 0, 350), None, None, (0), None), # reference lines for each channel
-        (0.15, 0.2, 0.3, 0.5, 0.3, 0.3) # subplot height ratios (optional)
+        "DIL TELEM",
+        ('SM', 'gVert', 'PMGUK', ('vCar', 'NGear'), 'aSteerWheel', ('rThrottle', 'pBrakeF')),
+        ((-0.2, 1.2), (-3, 3), (-360, 360), ((60, 400), (-1, 9)), (-160, 160), ((None, None), (None, None))),
+        (None, None, (-350, 0, 350), None, (0), (0), None),
+        (0.15, 0.2, 0.3, 0.5, 0.3, 0.3)
     ]
-] 
+]
+
+
+# ================================================================================
+# SCATTER PLOT DEFINITIONS
+# ================================================================================
+# XY correlation plots with optional trend lines, gates, and annotations.
+#
+# Format:
+#   ["Name", (x_channel, y_channel), [(xmin, xmax), (ymin, ymax)], best_fit, gate_spec, show_equations, show_error]
+#
+# best_fit (trend line mode):
+#   0 or None        → no trend line
+#   1                → single fit line across all points
+#   List             → segmented fits by condition
+#     Example: [('x', 0, 10), ('x', 10, 20)]  → separate lines for x: 0-10, 10-20
+#     Example: [('SM', 0, 0.5), ('SM', 0.5, 1.0)]  → fits by SM channel (plotted but not shown separately)
+#
+# gate_spec (optional data filter):
+#   Single gate:   ('channel', 'operator', value)
+#   Multiple:      [('ch1', '>', val1), ('ch2', '<', val2)]  # ALL conditions must match
+#   Operators:     '>', '<', '>=', '<=', '==', 'between'
+#   Example: ('vCar', '>', 120)  or  ('gLong', 'between', (-0.5, 0))
+#
+# show_equations (optional, default True):
+#   Display trend line equation on plot
+#
+# show_error (optional, default True):
+#   Display percentage error information box
 
 SCATTER_PLOT_DEFINITIONS = [
-    # Format:
-    # ["Name", (x_channel, y_channel), [(xmin,xmax),(ymin,ymax)], best_fit]
-    # ["Name", (x_channel, y_channel), [(xmin,xmax),(ymin,ymax)], best_fit, show_equations]
-    # ["Name", (x_channel, y_channel), [(xmin,xmax),(ymin,ymax)], best_fit, gate_spec]
-    # ["Name", (x_channel, y_channel), [(xmin,xmax),(ymin,ymax)], best_fit, gate_spec, show_equations]
-    # ["Name", (x_channel, y_channel), [(xmin,xmax),(ymin,ymax)], best_fit, gate_spec, show_equations, show_error]
-    #
-    # best_fit:
-    #   0 -> no fit line
-    #   1 -> single fit line
-    #   [('<axis_or_channel>', min, max), ...] -> segmented fit definitions
-    #     - Use 'x' or 'y' for axis-based segments
-    #     - Use any channel name (e.g. 'SM') for fit-only conditioning
-    #       Example: ('SM', 0, 0.5) fits points where 0 <= SM <= 0.5
-    #       while still plotting all scatter points.
-    #
-    # gate_spec (single or AND list):
-    #   ('channel', '>', value)
-    #   ('channel', 'between', (min, max))
-    #   [('channel_a', '>', value_a), ('channel_b', '<', value_b)]
-    #
-    # show_equations (optional, default True):
-    #   True -> display trendline equations on plot
-    #   False -> hide equations (useful for dense plots with many trendlines)
-    #
-    # show_error (optional, default True):
-    #   True -> display percentage error information box
-    #   False -> hide error box
-    #
-    # Example:
-    # ["Gated Braking", ('pBrakeF', 'gLong'), [(None,None),(-5,0)], 1, ('vCar', '>', 120)]
-    # ["SM-Conditioned Fit", ('vCar', 'hRideF'), None, [('SM', 0, 0.5), ('SM', 0.5, 1.0)], True, True]
+    # Drivetrain
     ["Gear Ratios", ('nWheelAvg_R', 'nEngine'), None, [('NGear', 1.5, 2.5), ('NGear', 2.5, 3.5), ('NGear', 3.5, 4.5), ('NGear', 4.5, 5.5), ('NGear', 5.5, 6.5), ('NGear', 6.5, 7.5), ('NGear', 7.5, 8.5)], False, True],
     ["Engine Power", ('nEngine', 'PEngine'), None, 0, True, True],
-    ["Engine Power Gated", ('nEngine', 'PEngine'), None, 0, ('rThrottle', '>', 98), True, True],
+    ["Engine Power Gated", ('nEngine', 'PEngine'), None, 0, ('rThrottle', '>', 95), True, True],
+    
+    # Longitudinal/Lateral dynamics
     ["Long Acceleration", ('vCar', 'gLong'), None, None, True, True],
     ["Lat Acceleration", ('vCar', 'gLat_Abs'), None, 0, True, True],
-    ["GG Plot", ('gLat', 'gLong'), None , 0, True, True],
-    ["Understeer Plot", ('vCar', 'aUndersteerFromSlip'), None , None, True, True],
-    ["Yaw Rate Response", ('aSteerWheel', 'nYaw'), [(-160,160),(None, None)] , [('x', -20, 20)], True, True],
-    ["Lateral Acceleration Response", ('aSteerWheel', 'gLat'), [(-160, 160),(None, None)] , [('x', -20, 20)], True, True],
-    ["Braking Efficiency", ('pBrakeF', 'gLong'), None , [('y', None, -0.2)], ('gLong', '<', 0), True, True],
-    ["Damper gLat front", ('gLat', 'xDamperDeltaF'), None , [('x', None, None)], True, True],
-    ["Damper gLat rear", ('gLat', 'xDamperDeltaR'), None , [('x', None, None)], True, True],
-    ["Pushrod gLat front", ('gLat', 'FPRodDeltaF'), None , [('x', None, None)], True, True],
-    ["Pushrod gLat rear", ('gLat', 'FPRodDeltaR'), None , [('x', None, None)], True, True],
+    ["GG Plot", ('gLat', 'gLong'), None, 0, True, True],
+    ["Braking Efficiency", ('pBrakeF', 'gLong'), None, [('y', None, -0.2)], ('gLong', '<', 0), True, True],
+    
+    # Steering and control
+    ["Understeer Plot", ('vCar', 'aUndersteerFromSlip'), None, None, ("rThrottle", '<', 95), True, True],
+    ["Yaw Rate Response", ('aSteerWheel', 'nYaw'), [(-160, 160), (None, None)], [('x', -20, 20)], True, True],
+    ["Lateral Acceleration Response", ('aSteerWheel', 'gLat'), [(-160, 160), (None, None)], [('x', -20, 20)], True, True],
+    ["Steering Moment", ('aSteerWheel', 'MSteerWheel'), [(-160, 160), (None, None)], 0, True, True],
+    
+    # Suspension
+    ["Damper gLat front", ('gLat', 'xDamperDeltaF'), None, [('x', None, None)], True, True],
+    ["Damper gLat rear", ('gLat', 'xDamperDeltaR'), None, [('x', None, None)], True, True],
+    ["Pushrod gLat front", ('gLat', 'FPRodDeltaF'), None, [('x', None, None)], True, True],
+    ["Pushrod gLat rear", ('gLat', 'FPRodDeltaR'), None, [('x', None, None)], True, True],
+    
+    # Heave and roll
     ["Front Heave", ('xDamperAvgF', 'FPRodAvgF'), None, [('y', None, 10000), ('y', 10000, None)], True, True],
     ["Front Roll", ('xDamperDeltaF', 'FPRodDeltaF'), None, [('x', None, None)], True, True],
-    ["Rear Heave", ('xDamperAvgR', 'FPRodAvgR'), None,[('y', None, -20000), ('y', -20000, None)], True, True],
+    ["Rear Heave", ('xDamperAvgR', 'FPRodAvgR'), None, [('y', None, -20000), ('y', -20000, None)], True, True],
     ["Rear Roll", ('xDamperDeltaR', 'FPRodDeltaR'), None, [('x', None, None)], True, True],
+    ["Roll angle gLat", ('gLat', 'aRoll'), None, [('x', None, None)], True, True],
+    
+    # Ride height
     ["Front Pushrod vCar", ('vCar', 'FPRodAvgF'), None, [('gLat_Abs', 0, 1)], [('SM', '<', 1)], True, True],
     ["Rear Pushrod vCar", ('vCar', 'FPRodAvgR'), None, [('gLat_Abs', 0, 1)], [('SM', '<', 1)], True, True],
     ["Front Ride vCar", ('vCar', 'hRideF'), None, [('SM', 0, 0.5)], True, True],
     ["Rear Ride vCar", ('vCar', 'hRideR'), None, [('SM', 0, 0.5)], True, True],
     ["Ride Height Compare", ('hRideF', 'hRideR'), None, 0, True, True],
-    ["Ride Height Compare Gated", ('hRideF', 'hRideR'), None, 0, ('SM', '<', 1) ,True, True],
-    ["Roll angle gLat", ('gLat', 'aRoll'), None, [('x', None, None)], True, True],
-    ["Steering Moment", ('aSteerWheel', 'MSteerWheel'), [(-160, 160), (None, None)], 0, True, True],
+    ["Ride Height Compare Gated", ('hRideF', 'hRideR'), None, 0, ('SM', '<', 1), True, True],
+    
+    # Misc
     ["Plank power acceleration", ('gLong (raw)', 'PPlank_F'), None, 0, True, True],
     ["engine efficiency", ('dmInjector', 'PEngine'), None, [('x', None, None)], True, True],
-    ["gLat Understeer", ('gLat_Abs', 'aUndersteerFromSlip'), None, [('x', None, None)], True, True],
-] 
+]
+
+
+# ================================================================================
+# POWER SPECTRAL DENSITY (PSD) PLOT DEFINITIONS
+# ================================================================================
+# Frequency-domain analysis plots showing noise/vibration characteristics.
+#
+# Format:
+#   ["Plot Name", 'channel', [(xmin, xmax), (ymin, ymax)], log_scale, nperseg(optional)]
+#
+# Parameters:
+#   - channel:  Channel to analyze
+#   - xmin/xmax: Frequency range in Hz (Hz on X-axis)
+#   - ymin/ymax: Power range (usually log scale)
+#   - log_scale: Use logarithmic Y-axis
+#   - nperseg:  (optional) FFT window size; larger = higher frequency resolution
 
 PSD_PLOT_DEFINITIONS = [
-   # Format:
-   # ["Name of Plot", 'channel', [(xmin, xmax), (ymin, ymax)], log_scale, nperseg(optional)]
-   # Example:
-   # ["PSD Example", 'gVertF', [(0, 60), (1e-4, None)], True, 1024]
     ["Front Vertical Acceleration PSD", 'gVertF', [(0, 50), (1e-4, None)], True],
     ["Rear Vertical Acceleration PSD", 'gVertR', [(0, 50), (1e-4, None)], True],
     ["Front Ride PSD", 'hRideF (raw)', [(0, 50), (1e-4, None)], True],
     ["Rear Ride PSD", 'hRideR (raw)', [(0, 50), (1e-4, None)], True],
 ]
 
+
+# ================================================================================
+# HISTOGRAM PLOT DEFINITIONS
+# ================================================================================
+# Distribution plots showing value frequency across the dataset.
+#
+# Format:
+#   ["Plot Name", 'channel', [(xmin, xmax), (ymin, ymax)], log_scale]
+
 HISTOGRAM_PLOT_DEFINITIONS = [
-   # Format:
-   # ["Name of Plot", 'channel', [(xmin, xmax), (ymin, ymax)], log_scale]
-   # Example:
-   # ["Histogram Example", 'vCar', [(60, 360), (None, None)], False]
-    ["Plank Power Distribution", 'PPlank_F', [(1,51), (None, None)], False],
+    ["Plank Power Distribution", 'PPlank_F', [(1, 51), (None, None)], False],
 ]
 
+
+# ================================================================================
+# BAR PLOT DEFINITIONS
+# ================================================================================
+# Aggregate bar charts (max, min, mean, integral, etc. per run).
+#
+# Format:
+#   ["Name", ("channel1", "channel2", ...)]
+#   ["Name", (("channel1", "integral"), ("channel2", "sum")), default_agg, (ymin, ymax)]
+#
+# Aggregation modes:
+#   - "integral": Integrate over time (area under curve)
+#   - "sum": Sum all values
+#   - "last": Use final value
+#   - "mean": Average value
+#   - "max": Maximum value
+#   - "min": Minimum value
+
 BAR_PLOT_DEFINITIONS = [
-   # Format:
-   # ["Name", ("channel1", "channel2", ...)]
-   # ["Name", (("channel1", "integral"), ("channel2", "sum")), default_aggregation(optional), (ymin, ymax)(optional)]
-   # Default aggregation is "last" when not specified.
-   # Example:
-   # ["Cumulative Metrics", (("dmInjector", "integral"), ("EPlankF", "sum"))]
-   # ["Cumulative Metrics", (("PMGUK_Deploy","integral"), ("PMGUK_Charge","integral"), ("Fuel_Used", "integral"))],
    ["Cumulative Metrics", (("dmInjector (kg/s)", "integral"),)],
 ]
+
+
+# ================================================================================
+# CONFIGURATION: POWERPOINT EXPORT MAP
+# ================================================================================
+# Map plot images to PowerPoint slide layouts and positions.
+# Each entry specifies which slide gets which plots.
+#
+# Format:
+#   slide_number: {
+#       'layout': 'layout_name',      # 'main_plot' (full-width) or 'double_plot' (two side-by-side)
+#       'images': ['image1.png', 'image2.png']  # Files generated by plot_all()
+#   }
+#
+# The 'images' list order matters for 'double_plot' layout:
+#   - First image goes to left panel
+#   - Second image goes to right panel
 
 POWERPOINT_EXPORT_MAP = {
     4: {'layout': 'main_plot', 'images': ['waveform_Driver_Input.png']},
     5: {'layout': 'main_plot', 'images': ['waveform_Power_Unit.png']},
+    
     6: {'layout': 'double_plot', 'images': ['scatter_Gear_Ratios.png', 'scatter_Engine_Power.png']},
     7: {'layout': 'double_plot', 'images': ['bar_Cumulative_Metrics.png', 'scatter_engine_efficiency.png']},
+    
     8: {'layout': 'double_plot', 'images': ['scatter_Long_Acceleration.png', 'scatter_Lat_Acceleration.png']},
     9: {'layout': 'double_plot', 'images': ['scatter_GG_Plot.png', 'scatter_Understeer_Plot.png']},
+    
     10: {'layout': 'double_plot', 'images': ['scatter_Yaw_Rate_Response.png', 'scatter_Lateral_Acceleration_Response.png']},
     11: {'layout': 'double_plot', 'images': ['scatter_Braking_Efficiency.png', 'scatter_Steering_Moment.png']},
+    
     12: {'layout': 'double_plot', 'images': ['scatter_Damper_gLat_front.png', 'scatter_Damper_gLat_rear.png']},
     13: {'layout': 'double_plot', 'images': ['scatter_Pushrod_gLat_front.png', 'scatter_Pushrod_gLat_rear.png']},
+    
     14: {'layout': 'double_plot', 'images': ['scatter_Front_Heave.png', 'scatter_Rear_Heave.png']},
     15: {'layout': 'double_plot', 'images': ['scatter_Front_Roll.png', 'scatter_Rear_Roll.png']},
+    
     16: {'layout': 'double_plot', 'images': ['scatter_Front_Pushrod_vCar.png', 'scatter_Rear_Pushrod_vCar.png']},
     17: {'layout': 'double_plot', 'images': ['scatter_Front_Ride_vCar.png', 'scatter_Rear_Ride_vCar.png']},
+    
     18: {'layout': 'double_plot', 'images': ['scatter_Ride_Height_Compare.png', 'scatter_Roll_angle_gLat.png']},
+    
     19: {'layout': 'double_plot', 'images': ['psd_Front_Vertical_Acceleration_PSD.png', 'psd_Rear_Vertical_Acceleration_PSD.png']},
     20: {'layout': 'double_plot', 'images': ['psd_Front_Ride_PSD.png', 'psd_Rear_Ride_PSD.png']},
+    
     21: {'layout': 'main_plot', 'images': ['waveform_Plank_Wear.png']},
     22: {'layout': 'double_plot', 'images': ['scatter_Plank_Power_Acceleration.png', 'histogram_Plank_Power_Distribution.png']},
 }
+
+
+# ================================================================================
+# PLOT DEFINITIONS AGGREGATOR
+# ================================================================================
+# Combine all plot type definitions into a single tuple for processing.
 
 PLOT_DEFINITIONS = (
     WAVEFORM_PLOT_DEFINITIONS if WAVEFORM_PLOT_DEFINITIONS else [],
@@ -393,21 +647,23 @@ PLOT_DEFINITIONS = (
     BAR_PLOT_DEFINITIONS if BAR_PLOT_DEFINITIONS else [],
 )
 
-# =====================================================================
-# MAIN EXECUTION
-# =====================================================================
-if __name__ == "__main__":
-    print("=" * 60)
-    print("              CORRELATION PLOT GENERATION")
-    print("=" * 60)
 
-    # Extract PPT-defined target aspect ratios
+# ================================================================================
+# MAIN EXECUTION
+# ================================================================================
+# This section runs when the script is executed directly.
+if __name__ == "__main__":
+    print("\n" + "=" * 80)
+    print(" " * 20 + "CORRELATION PLOT GENERATION - STARTING")
+    print("=" * 80 + "\n")
+
+    # Extract PPT-defined target aspect ratios from template
     plot_aspect_ratios = get_template_plot_aspect_ratios(
         POWERPOINT_TEMPLATE,
         POWERPOINT_EXPORT_MAP
     )
 
-    # Initialise main plotter
+    # Initialize main data plotter with all configurations
     plotter = DataPlotter(
         root_folder=ROOT_FOLDER,
         runs=RUNS,
@@ -425,10 +681,11 @@ if __name__ == "__main__":
         bar_secondary_axis_ratio=BAR_SECONDARY_AXIS_RATIO,
     )
 
-    # Generate all plots
+    # Generate all plots (waveforms, scatter, PSD, histograms, bar charts)
+    print("\nGenerating plots...")
     plotter.plot_all()
 
-    # Optional: write a simple main-correlation summary for report writing support
+    # (Optional) Generate main correlation summary report - note this is experimental
     if ENABLE_MAIN_CORRELATION_SUMMARY:
         summary_txt, summary_csv = generate_main_correlation_points_report(
             runs=RUNS,
@@ -440,19 +697,33 @@ if __name__ == "__main__":
             corr_check_threshold=MAIN_CORRELATION_CORR_CHECK_THRESHOLD,
             slope_delta_check_pct=MAIN_CORRELATION_SLOPE_DELTA_CHECK_PCT,
         )
-        print(f"[INFO] Wrote main correlation summary: {summary_txt}")
+        print(f"Correlation summary: {summary_txt}")
         if summary_csv:
-            print(f"[INFO] Wrote main correlation CSV: {summary_csv}")
+            print(f"CSV export: {summary_csv}")
 
-    # Optional: export to PowerPoint
+    # (Optional) Export all plots to PowerPoint presentation
     if EXPORT_TO_POWERPOINT:
-        export_report_to_powerpoint(
-            template_path=POWERPOINT_TEMPLATE,
-            output_path=POWERPOINT_OUTPUT,
-            plots_dir=plotter.plots_dir,
-            export_map=POWERPOINT_EXPORT_MAP,
-            visible=False,
-        )
+        print("\nExporting to PowerPoint...")
+        try:
+            export_report_to_powerpoint(
+                template_path=POWERPOINT_TEMPLATE,
+                output_path=POWERPOINT_OUTPUT,
+                plots_dir=plotter.plots_dir,
+                export_map=POWERPOINT_EXPORT_MAP,
+                visible=False,
+            )
+            # Attempt to open the generated PowerPoint file
+            try:
+                os.startfile(POWERPOINT_OUTPUT)
+            except Exception as open_err:
+                print(f"[WARNING] Could not auto-open PowerPoint file: {open_err}")
+                print(f"File saved to: {POWERPOINT_OUTPUT}")
+        except Exception as export_err:
+            print(f"[ERROR] PowerPoint export failed: {export_err}")
+            import traceback
+            traceback.print_exc()
 
-        os.startfile(POWERPOINT_OUTPUT)
+    print("\n" + "=" * 80)
+    print(" " * 25 + "PROCESSING COMPLETE")
+    print("=" * 80 + "\n")
 

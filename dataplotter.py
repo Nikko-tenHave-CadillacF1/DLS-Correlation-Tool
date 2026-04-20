@@ -31,6 +31,33 @@ def make_unique(names):
     return unique_names
 
 
+def _get_run_label(run_name: str, file_path=None) -> str:
+    """Generate consistent run label for logging messages."""
+    if run_name:
+        return run_name.upper()
+    if file_path:
+        return file_path.name if hasattr(file_path, 'name') else str(file_path)
+    return "unknown"
+
+
+def _log_info(run_name: str, msg: str, file_path=None):
+    """Log an info-level message with consistent formatting."""
+    label = _get_run_label(run_name, file_path)
+    print(f"[INFO][DataPlotter] Run '{label}' {msg}")
+
+
+def _log_warning(run_name: str, msg: str, file_path=None):
+    """Log a warning-level message with consistent formatting."""
+    label = _get_run_label(run_name, file_path)
+    print(f"[WARNING][DataPlotter] Run '{label}' {msg}")
+
+
+def _log_error(run_name: str, msg: str, file_path=None):
+    """Log an error-level message with consistent formatting."""
+    label = _get_run_label(run_name, file_path)
+    print(f"[ERROR][DataPlotter] Run '{label}' {msg}")
+
+
 class DataPlotter:
     """Main class for loading, processing, and plotting multi-run data."""
 
@@ -48,7 +75,7 @@ class DataPlotter:
         plot_aspect_ratios=None,
         sample_rate=100,
         scatter_dot_size=5,
-        scatter_transparency=0.8,
+        scatter_transparency=0.7,
         scatter_render_mode="auto",
         scatter_density_threshold=25000,
         scatter_max_points=45000,
@@ -281,6 +308,7 @@ class DataPlotter:
     def _find_parquet_column(self, df, logical_name):
         """Find a parquet column by canonical logical name (supports underscore aliases)."""
         columns = [str(c).strip() for c in df.columns]
+        column_set = set(columns)  # For O(1) lookup instead of O(n)
         lower_target = logical_name.lower()
 
         # Exact/canonical-first candidates
@@ -293,7 +321,7 @@ class DataPlotter:
             logical_name[0].upper() + logical_name[1:],  # e.g. NRun / NLap
         ]
         for candidate in candidates:
-            if candidate in columns:
+            if candidate in column_set:
                 return candidate
 
         insensitive = [c for c in columns if c.lower() == lower_target]
@@ -310,106 +338,140 @@ class DataPlotter:
         """
         Filter parquet rows by nRun rank:
         nrun=1 -> lowest nRun value, nrun=2 -> next lowest, etc.
+        
+        Unified with _apply_parquet_lap_filter via _apply_parquet_rank_value_filter.
         """
-        if nrun is None:
+        return self._apply_parquet_rank_value_filter(
+            df=df,
+            filter_spec=nrun,
+            column_logical_name="nRun",
+            file_path=file_path,
+            run_name=run_name,
+            is_rank=True,
+            raise_on_missing_column=True,
+            raise_on_empty_result=True,
+        )
+
+    def _apply_parquet_lap_filter(self, df, nlap, file_path, run_name=""):
+        """
+        Filter parquet rows to a specific lap index using nLap.
+        
+        Unified with _apply_parquet_nrun_filter via _apply_parquet_rank_value_filter.
+        """
+        return self._apply_parquet_rank_value_filter(
+            df=df,
+            filter_spec=nlap,
+            column_logical_name="nLap",
+            file_path=file_path,
+            run_name=run_name,
+            is_rank=False,
+            raise_on_missing_column=False,
+            raise_on_empty_result=False,
+        )
+
+    def _apply_parquet_rank_value_filter(
+        self,
+        df,
+        filter_spec,
+        column_logical_name: str,
+        file_path,
+        run_name: str,
+        is_rank: bool = False,
+        raise_on_missing_column: bool = True,
+        raise_on_empty_result: bool = True,
+    ):
+        """
+        Unified parquet filtering for rank-based (nRun) or value-based (nLap) selection.
+        
+        Args:
+            df: DataFrame to filter
+            filter_spec: rank (int 1,2,3...) or value to match
+            column_logical_name: "nRun" or "nLap"
+            file_path: Path object for error messages
+            run_name: Run name string for error messages
+            is_rank: True for rank-based selection, False for direct value matching
+            raise_on_missing_column: Raise KeyError or print warning if column missing
+            raise_on_empty_result: Raise ValueError or print warning if result is empty
+        """
+        if filter_spec is None:
             return df
 
-        run_col = self._find_parquet_column(df, "nRun")
         run_label = run_name.upper() if run_name else file_path.name
+        run_col = self._find_parquet_column(df, column_logical_name)
 
+        # Handle missing column
         if run_col is None:
-            raise KeyError(
-                f"Run '{run_label}' requested nrun={nrun}, but parquet has no nRun column "
-                f"(accepted aliases: nRun, nrun, _nRun, _nrun)."
-            )
-
-        rank_numeric = pd.to_numeric(pd.Series([nrun]), errors="coerce").iloc[0]
-        if pd.isna(rank_numeric):
-            raise ValueError(
-                f"Run '{run_label}' nrun must be an integer rank (1-based). Got: {nrun!r}"
-            )
-
-        rank = int(rank_numeric)
-        if rank < 1:
-            raise ValueError(
-                f"Run '{run_label}' nrun must be >= 1. Got: {nrun!r}"
-            )
+            msg = f"Run '{run_label}' requested {column_logical_name.lower()}={filter_spec}, but parquet has no '{column_logical_name}' column"
+            if raise_on_missing_column:
+                raise KeyError(
+                    msg + f" (accepted aliases: {column_logical_name}, {column_logical_name.lower()}, _{column_logical_name}, _{column_logical_name.lower()})."
+                )
+            else:
+                print(f"[WARNING][DataPlotter] {msg}. Skipping filter.")
+                return df
 
         series = df[run_col]
         numeric = pd.to_numeric(series, errors="coerce")
+        
+        # Determine target value(s) and create mask
+        if is_rank:
+            # Rank-based selection (nRun)
+            rank_numeric = pd.to_numeric(pd.Series([filter_spec]), errors="coerce").iloc[0]
+            if pd.isna(rank_numeric):
+                raise ValueError(f"Run '{run_label}' {column_logical_name.lower()} must be an integer rank (1-based). Got: {filter_spec!r}")
+            
+            rank = int(rank_numeric)
+            if rank < 1:
+                raise ValueError(f"Run '{run_label}' {column_logical_name.lower()} must be >= 1. Got: {filter_spec!r}")
 
-        if numeric.notna().any():
-            unique_vals = sorted(numeric.dropna().unique().tolist())
-            if rank > len(unique_vals):
-                raise ValueError(
-                    f"Run '{run_label}' requested nrun={rank}, but only {len(unique_vals)} unique nRun values "
-                    f"exist in '{run_col}'. Available: {unique_vals[:12]}"
-                    + (" ..." if len(unique_vals) > 12 else "")
-                )
-            target_value = unique_vals[rank - 1]
-            mask = numeric == target_value
+            if numeric.notna().any():
+                unique_vals = sorted(numeric.dropna().unique().tolist())
+                if rank > len(unique_vals):
+                    raise ValueError(
+                        f"Run '{run_label}' requested {column_logical_name.lower()}={rank}, but only {len(unique_vals)} unique {column_logical_name} values "
+                        f"exist in '{run_col}'. Available: {unique_vals[:12]}"
+                        + (" ..." if len(unique_vals) > 12 else "")
+                    )
+                target_value = unique_vals[rank - 1]
+                mask = numeric == target_value
+            else:
+                str_vals = series.astype(str).str.strip()
+                unique_vals = sorted([v for v in str_vals.unique().tolist() if v and v.lower() != "nan"])
+                if rank > len(unique_vals):
+                    raise ValueError(
+                        f"Run '{run_label}' requested {column_logical_name.lower()}={rank}, but only {len(unique_vals)} unique {column_logical_name} values "
+                        f"exist in '{run_col}'. Available: {unique_vals[:12]}"
+                        + (" ..." if len(unique_vals) > 12 else "")
+                    )
+                target_value = unique_vals[rank - 1]
+                mask = str_vals == target_value
         else:
-            str_vals = series.astype(str).str.strip()
-            unique_vals = sorted([v for v in str_vals.unique().tolist() if v and v.lower() != "nan"])
-            if rank > len(unique_vals):
-                raise ValueError(
-                    f"Run '{run_label}' requested nrun={rank}, but only {len(unique_vals)} unique nRun values "
-                    f"exist in '{run_col}'. Available: {unique_vals[:12]}"
-                    + (" ..." if len(unique_vals) > 12 else "")
-                )
-            target_value = unique_vals[rank - 1]
-            mask = str_vals == target_value
+            # Direct value matching (nLap)
+            target_series = pd.to_numeric(pd.Series([filter_spec]), errors="coerce")
+            target_numeric = target_series.iloc[0]
+
+            if pd.notna(target_numeric):
+                mask = numeric == float(target_numeric)
+            else:
+                mask = series.astype(str).str.strip() == str(filter_spec).strip()
+            
+            target_value = filter_spec
 
         filtered = df.loc[mask].copy()
+
+        # Handle empty result
         if filtered.empty:
-            raise ValueError(
-                f"Run '{run_label}' nrun={rank} resolved to nRun value '{target_value}' "
-                f"but produced 0 rows in '{run_col}'."
-            )
+            msg = f"Run '{run_label}' {column_logical_name.lower()}={filter_spec} produced 0 rows from parquet column '{run_col}'."
+            if raise_on_empty_result:
+                raise ValueError(msg)
+            else:
+                print(f"[WARNING][DataPlotter] {msg}")
+                return df
 
         print(
-            f"[INFO][DataPlotter] Run '{run_label}' filtered parquet by ranked nRun: "
-            f"nrun={rank} -> {run_col}={target_value} ({len(filtered)}/{len(df)} rows kept)."
+            f"[INFO][DataPlotter] Run '{run_label}' filtered parquet by {column_logical_name}: "
+            f"{column_logical_name.lower()}={filter_spec} -> {run_col}={target_value} ({len(filtered)}/{len(df)} rows kept)."
         )
-        return filtered
-
-    def _apply_parquet_lap_filter(self, df, nlap, file_path, run_name=""):
-        """Filter parquet rows to a specific lap index using nLap."""
-        if nlap is None:
-            return df
-
-        run_col = self._find_parquet_column(df, "nLap")
-        run_label = run_name.upper() if run_name else file_path.name
-
-        if run_col is None:
-            print(
-                f"[WARNING][DataPlotter] Run '{run_label}' requested nlap={nlap}, "
-                f"but parquet has no 'nLap' column. Skipping lap filter."
-            )
-            return df
-
-        target_series = pd.to_numeric(pd.Series([nlap]), errors="coerce")
-        target_numeric = target_series.iloc[0]
-
-        if pd.notna(target_numeric):
-            run_numeric = pd.to_numeric(df[run_col], errors="coerce")
-            mask = run_numeric == float(target_numeric)
-        else:
-            mask = df[run_col].astype(str).str.strip() == str(nlap).strip()
-
-        filtered = df.loc[mask].copy()
-
-        if filtered.empty:
-            print(
-                f"[WARNING][DataPlotter] Run '{run_label}' nlap={nlap} produced 0 rows "
-                f"from parquet column '{run_col}'."
-            )
-        else:
-            print(
-                f"[INFO][DataPlotter] Run '{run_label}' filtered parquet by {run_col}={nlap}: "
-                f"{len(filtered)}/{len(df)} rows kept."
-            )
-
         return filtered
 
     def _load_parquet_with_fallback(
@@ -739,10 +801,10 @@ class DataPlotter:
         ):
             return raw_limits[0], raw_limits[1]
 
-        print(
-            f"[WARNING][DataPlotter] Waveform row '{row_name}': dual-channel row expects axis limits as "
-            f"((y1_min,y1_max),(y2_min,y2_max)). Applying provided limits to primary channel only."
-        )
+        # print(  # Reduce verbosity
+        #     f"[WARNING][DataPlotter] Waveform row '{row_name}': dual-channel row expects axis limits as "
+        #     f"((y1_min,y1_max),(y2_min,y2_max)). Applying provided limits to primary channel only."
+        # )
         return raw_limits, None
 
     def _normalize_waveform_reference_lines(self, raw_refs, has_secondary):
@@ -776,34 +838,34 @@ class DataPlotter:
                 missing_name = (
                     f"'{primary}' and '{secondary}'" if secondary is not None else f"'{primary}'"
                 )
-                print(f"[WARNING][DataPlotter] Waveform row {missing_name} missing from all runs. Skipping row.")
+                # print(f"[WARNING][DataPlotter] Waveform row {missing_name} missing from all runs. Skipping row.")  # Reduce verbosity
                 continue
 
             if p_count == 0 and secondary is not None and s_count > 0:
-                print(
-                    f"[WARNING][DataPlotter] Waveform row primary channel '{primary}' missing in all runs; "
-                    f"using '{secondary}' as single-channel row."
-                )
+                # print(  # Reduce verbosity
+                #     f"[WARNING][DataPlotter] Waveform row primary channel '{primary}' missing in all runs; "
+                #     f"using '{secondary}' as single-channel row."
+                # )
                 primary, secondary = secondary, None
                 p_count = s_count
                 s_count = 0
 
             if p_count < len(self.runs):
-                print(
-                    f"[WARNING][DataPlotter] Waveform channel '{primary}' present in {p_count}/{len(self.runs)} runs. Plotting available runs only."
-                )
+                pass  # print(  # Reduce verbosity
+                #     f"[WARNING][DataPlotter] Waveform channel '{primary}' present in {p_count}/{len(self.runs)} runs. Plotting available runs only."
+                # )
 
             if secondary is not None:
                 if s_count == 0:
-                    print(
-                        f"[WARNING][DataPlotter] Waveform secondary channel '{secondary}' missing from all runs; "
-                        "rendering row as single-channel."
-                    )
+                    # print(  # Reduce verbosity
+                    #     f"[WARNING][DataPlotter] Waveform secondary channel '{secondary}' missing from all runs; "
+                    #     "rendering row as single-channel."
+                    # )
                     secondary = None
                 elif s_count < len(self.runs):
-                    print(
-                        f"[WARNING][DataPlotter] Waveform secondary channel '{secondary}' present in {s_count}/{len(self.runs)} runs. Plotting available runs only."
-                    )
+                    pass  # print(  # Reduce verbosity
+                    #     f"[WARNING][DataPlotter] Waveform secondary channel '{secondary}' present in {s_count}/{len(self.runs)} runs. Plotting available runs only."
+                    # )
 
             raw_lim = axis_limits[i] if axis_limits and i < len(axis_limits) else None
             raw_ref = reference_lines[i] if reference_lines and i < len(reference_lines) else None
@@ -844,13 +906,13 @@ class DataPlotter:
             else:
                 raise ValueError("Waveform plot definition malformed")
 
-            print(f"Creating waveform plot: {plot_name}")
+            # print(f"Creating waveform plot: {plot_name}")  # Reduce verbosity
 
             (prepared_rows, avail_heights) = \
                 self._prepare_waveform_channels(channels, axis_limits, ref_lines, subplot_heights)
 
             if not prepared_rows:
-                print(f"  No valid channels for {plot_name}")
+                # print(f"  No valid channels for {plot_name}")  # Reduce verbosity
                 continue
 
             filename = self._sanitize_plot_filename("waveform", plot_name)
@@ -934,7 +996,10 @@ class DataPlotter:
                 if row["y1_lim"] is not None:
                     yl, yh = row["y1_lim"]
                     if yl is not None or yh is not None:
-                        ax.set_ylim(bottom=yl, top=yh)
+                        yl = yl if (yl is None or np.isscalar(yl)) else None
+                        yh = yh if (yh is None or np.isscalar(yh)) else None
+                        if yl is not None or yh is not None:
+                            ax.set_ylim(bottom=yl, top=yh)
 
                 if row["y1_refs"] is not None:
                     vals = row["y1_refs"]
@@ -964,7 +1029,10 @@ class DataPlotter:
                     if row["y2_lim"] is not None:
                         yl2, yh2 = row["y2_lim"]
                         if yl2 is not None or yh2 is not None:
-                            ax_right.set_ylim(bottom=yl2, top=yh2)
+                            yl2 = yl2 if (yl2 is None or np.isscalar(yl2)) else None
+                            yh2 = yh2 if (yh2 is None or np.isscalar(yh2)) else None
+                            if yl2 is not None or yh2 is not None:
+                                ax_right.set_ylim(bottom=yl2, top=yh2)
 
                     if row["y2_refs"] is not None:
                         vals2 = row["y2_refs"]
@@ -1524,7 +1592,7 @@ class DataPlotter:
                     histogram_data,
                     bins=bins,
                     weights=histogram_weights,
-                    alpha=0.7,
+                    alpha=0.9,
                     color=histogram_colors,
                     label=histogram_labels,
                     edgecolor='black',
@@ -1570,6 +1638,11 @@ class DataPlotter:
             ax.set_axisbelow(True)
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
+
+            # Zero-line (if within axis limits)
+            yl, yr = ax.get_ylim()
+            if yl <= 0 <= yr:
+                ax.axhline(0, color="#5E5E5E", linewidth=1, alpha=0.8)
 
             # Legend
             self._add_standard_legend(ax, loc="best")
@@ -1709,7 +1782,7 @@ class DataPlotter:
                         primary_values,
                         width=bar_width,
                         color=run["color"],
-                        alpha=0.92,
+                        alpha=0.9,
                         label=primary_label,
                         edgecolor="white",
                         linewidth=0.6,
@@ -1723,7 +1796,7 @@ class DataPlotter:
                         secondary_values,
                         width=bar_width,
                         color=run["color"],
-                        alpha=0.92,
+                        alpha=0.9,
                         label=secondary_label,
                         edgecolor="white",
                         linewidth=0.6,
@@ -1738,7 +1811,7 @@ class DataPlotter:
                         values,
                         width=bar_width,
                         color=run["color"],
-                        alpha=0.92,
+                        alpha=0.9,
                         label=run_label if run_label not in plotted_labels else "_nolegend_",
                         edgecolor="white",
                         linewidth=0.6,
@@ -2040,7 +2113,7 @@ class DataPlotter:
             """Format percent values while preserving undefined states."""
             return "undefined" if value is None else f"{value:+.1f}%"
 
-        lines = [f"% Error vs {baseline_label.upper()}:"]
+        lines = [f"Gradient Error (%) vs {baseline_label.upper()}:"]
         label_width = max(len(entry[0].upper()) for entry in ordered_entries)
 
         if isinstance(baseline_slopes, tuple):
@@ -2051,7 +2124,7 @@ class DataPlotter:
                 else:
                     segment_name = f"Segment {idx + 1}"
 
-                lines.append(f"{segment_name}:")
+                lines.append(f"For {segment_name}:")
                 base_val = baseline_slopes[idx] if idx < len(baseline_slopes) else None
 
                 for label, _, _, _, _, run_slopes in ordered_entries:

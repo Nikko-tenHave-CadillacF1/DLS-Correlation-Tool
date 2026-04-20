@@ -6,6 +6,10 @@ import numpy as np
 import pandas as pd
 
 
+# ================================================================
+# CHANNEL REFERENCE COLLECTION
+# ================================================================
+
 def collect_referenced_channels(plot_definitions):
     """Collect channels referenced by configured plot definitions."""
     referenced = set()
@@ -26,6 +30,12 @@ def collect_referenced_channels(plot_definitions):
             _extract(plot_def[1])
     return sorted(referenced)
 
+
+# ================================================================
+# SLAP ALIGNMENT ESTIMATION
+# ================================================================
+# Helper functions for estimating linear sLap mappings between runs
+# using vCar similarity as a correlation proxy.
 
 def _prepare_slap_vcar_series(df):
     """Return cleaned (sLap, vCar) arrays for alignment diagnostics."""
@@ -170,6 +180,11 @@ def estimate_slap_alignment(runs, run_data):
 
     return lines
 
+
+# ================================================================
+# DATA QUALITY ASSESSMENT
+# ================================================================
+# Main functions for building comprehensive quality check sections.
 
 def build_quality_sections(runs, run_data, plot_definitions):
     """Build preflight data-quality sections from loaded run data."""

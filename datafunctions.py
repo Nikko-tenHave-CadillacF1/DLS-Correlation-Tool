@@ -12,6 +12,25 @@ from matplotlib import patheffects as pe
 # BASIC CLEANING UTILITIES
 # ================================================================
 
+def _safe_get_config(config_dict, source_type: str, config_name: str) -> dict:
+    """
+    Safely retrieve configuration for a source type.
+    Returns config dict if found, otherwise prints warning and returns empty dict.
+    """
+    if config_dict is None:
+        return {}
+    try:
+        return config_dict.get(source_type, {})
+    except Exception:
+        print(f" No {config_name} found for {source_type.upper()} - skipping.")
+        return {}
+
+
+def _to_numeric_safe(series: pd.Series) -> pd.Series:
+    """Convert series to numeric, coercing non-numeric values to NaN."""
+    return pd.to_numeric(series, errors="coerce")
+
+
 def convert_yes_no_to_binary(df: pd.DataFrame) -> pd.DataFrame:
     """
     Convert YES/NO strings to 1/0 in all DataFrame columns.
@@ -33,7 +52,7 @@ def convert_yes_no_to_binary(df: pd.DataFrame) -> pd.DataFrame:
             str_values = [str(x).upper() for x in non_nan if isinstance(x, str)]
 
             if any(v in ["YES", "NO"] for v in str_values):
-                df[col] = df[col].astype(str).str.upper().replace({"YES": 1, "NO": 0})
+                df[col] = df[col].astype(str).str.upper().replace({"YES": 1, "NO": 0}).infer_objects(copy=False)
                 df[col] = pd.to_numeric(df[col], errors="coerce")
                 columns_converted.append(col)
 
@@ -47,7 +66,7 @@ def sanitize_numeric_series(series: pd.Series) -> pd.Series:
     """
     Convert non-numeric values to NaN and replace sentinel int64 min/max and infinities with NaN.
     """
-    numeric = pd.to_numeric(series, errors="coerce")
+    numeric = _to_numeric_safe(series)
 
     int64_min = np.iinfo(np.int64).min
     int64_max = np.iinfo(np.int64).max
@@ -75,11 +94,7 @@ def apply_channel_mappings(df: pd.DataFrame, channel_mappings, source_type: str)
         - src exists in df
         - target does NOT already exist (avoid overwrites)
     """
-    try:
-        mapping = channel_mappings.get(source_type, {})
-    except Exception:
-        print(f" No channel mappings found for {source_type.upper()} - skipping.")
-        return df
+    mapping = _safe_get_config(channel_mappings, source_type, "channel mappings")
 
     if not mapping:
         return df
@@ -111,11 +126,7 @@ def apply_transformations(df: pd.DataFrame, source_type: str, channel_transforms
     - 'all': applies to ALL channels of this source.
     - other channel keys apply only to those channels.
     """
-    try:
-        transforms = channel_transforms.get(source_type, {})
-    except Exception:
-        print(f" No channel transformations found for {source_type.upper()} - skipping.")
-        return df
+    transforms = _safe_get_config(channel_transforms, source_type, "channel transformations")
 
     if not transforms:
         return df
@@ -127,14 +138,14 @@ def apply_transformations(df: pd.DataFrame, source_type: str, channel_transforms
         # apply to all columns
         if channel.lower() == "all":
             for col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce")
+                df[col] = _to_numeric_safe(df[col])
                 df[col] = func(df[col])
             print(f" Applied 'all' transformations to {source_type.upper()} data")
             continue
 
         # normal single-column transformation
         if channel in df.columns:
-            df[channel] = pd.to_numeric(df[channel], errors="coerce")
+            df[channel] = _to_numeric_safe(df[channel])
             df[channel] = func(df[channel])
             transformed_channels.append(channel)
         else:
@@ -172,7 +183,7 @@ def apply_calculated_channels(df: pd.DataFrame, source_type: str, calculated_cha
 
     for channel_name, func in calc_set.items():
         try:
-            df[channel_name] = pd.to_numeric(func(df), errors="coerce")
+            df[channel_name] = _to_numeric_safe(func(df))
             calculated_channels.append(channel_name)
         except KeyError as e:
             print(f"[WARNING][datafunctions] Missing dependency {e} for calculated channel '{channel_name}'.")
@@ -186,6 +197,42 @@ def apply_calculated_channels(df: pd.DataFrame, source_type: str, calculated_cha
 # ================================================================
 # LOW-PASS FILTERING
 # ================================================================
+
+def _apply_butterworth_filter_to_data(data, cutoff: float, order: int, sample_rate: float) -> tuple:
+    """
+    Apply Butterworth low-pass filter to data array.
+    
+    Args:
+        data: numpy array of signal values
+        cutoff: cutoff frequency in Hz
+        order: filter order
+        sample_rate: sampling rate in Hz
+    
+    Returns:
+        (filtered_data, success_flag) where success_flag is True if filtering succeeded
+    """
+    if len(data) <= order * 3 or np.all(np.isnan(data)):
+        return None, False
+
+    nyquist = 0.5 * sample_rate
+    normal_cutoff = cutoff / nyquist
+
+    if normal_cutoff >= 1.0:
+        return None, False
+
+    b, a = butter(order, normal_cutoff, btype="low", analog=False)
+
+    # Interpolate missing data
+    mask_nan = np.isnan(data)
+    if mask_nan.any():
+        interp = pd.Series(data).interpolate("linear", limit_direction="both").values
+        filtered_data = filtfilt(b, a, interp)
+        filtered_data[mask_nan] = np.nan
+    else:
+        filtered_data = filtfilt(b, a, data)
+
+    return filtered_data, True
+
 
 def apply_lowpass_filters(df: pd.DataFrame, low_pass_filters, sample_rate: float, source_type: str):
     """
@@ -224,7 +271,7 @@ def apply_lowpass_filters(df: pd.DataFrame, low_pass_filters, sample_rate: float
             continue
 
         channels_to_skip.append(channel)
-        df[channel] = pd.to_numeric(df[channel], errors="coerce")
+        df[channel] = _to_numeric_safe(df[channel])
 
         # choose correct config
         if isinstance(cfg, dict) and source_type in cfg:
@@ -242,29 +289,16 @@ def apply_lowpass_filters(df: pd.DataFrame, low_pass_filters, sample_rate: float
         if cutoff <= 0:
             continue
 
-        # Prepare the signal
-        data = df[channel].values
-        if len(data) <= order * 3 or np.all(np.isnan(data)):
-            print(f"[WARNING][datafunctions] Not enough data to filter channel '{channel}'.")
+        filtered_data, success = _apply_butterworth_filter_to_data(
+            df[channel].values, cutoff, order, sample_rate
+        )
+
+        if not success:
+            if cutoff / (0.5 * sample_rate) >= 1.0:
+                print(f"[WARNING][datafunctions] Cutoff is too high for channel '{channel}'. Skipping filter.")
+            else:
+                print(f"[WARNING][datafunctions] Not enough data to filter channel '{channel}'.")
             continue
-
-        nyquist = 0.5 * sample_rate
-        normal_cutoff = cutoff / nyquist
-
-        if normal_cutoff >= 1.0:
-            print(f"[WARNING][datafunctions] Cutoff is too high for channel '{channel}'. Skipping filter.")
-            continue
-
-        b, a = butter(order, normal_cutoff, btype="low", analog=False)
-
-        # interpolate missing data
-        mask_nan = np.isnan(data)
-        if mask_nan.any():
-            interp = pd.Series(data).interpolate("linear", limit_direction="both").values
-            filtered_data = filtfilt(b, a, interp)
-            filtered_data[mask_nan] = np.nan
-        else:
-            filtered_data = filtfilt(b, a, data)
 
         df[channel] = filtered_data
         filtered.append(f"{channel}@{cutoff}Hz")
@@ -281,30 +315,15 @@ def apply_lowpass_filters(df: pd.DataFrame, low_pass_filters, sample_rate: float
                 if col in channels_to_skip:
                     continue
 
-                df[col] = pd.to_numeric(df[col], errors="coerce")
-                data = df[col].values
+                df[col] = _to_numeric_safe(df[col])
+                
+                filtered_data, success = _apply_butterworth_filter_to_data(
+                    df[col].values, cutoff, order, sample_rate
+                )
 
-                if len(data) <= order * 3 or np.all(np.isnan(data)):
-                    continue
-
-                nyquist = 0.5 * sample_rate
-                normal_cutoff = cutoff / nyquist
-
-                if normal_cutoff >= 1.0:
-                    continue
-
-                b, a = butter(order, normal_cutoff, btype="low", analog=False)
-
-                mask_nan = np.isnan(data)
-                if mask_nan.any():
-                    interp = pd.Series(data).interpolate("linear", limit_direction="both").values
-                    filtered_data = filtfilt(b, a, interp)
-                    filtered_data[mask_nan] = np.nan
-                else:
-                    filtered_data = filtfilt(b, a, data)
-
-                df[col] = filtered_data
-                filtered.append(f"{col}@{cutoff}Hz")
+                if success:
+                    df[col] = filtered_data
+                    filtered.append(f"{col}@{cutoff}Hz")
 
     if filtered:
         print(f" Applied {len(filtered)} low-pass filters for {source_type.upper()}")
@@ -324,7 +343,7 @@ def calculate_psd(signal, sample_rate, nperseg=512):
 
     Returns (None, None) when signal is too short.
     """
-    series = pd.to_numeric(pd.Series(signal), errors="coerce").dropna()
+    series = _to_numeric_safe(pd.Series(signal)).dropna()
     series = np.asarray(series, dtype=float)
 
     if len(series) < 8:
@@ -472,7 +491,7 @@ def normalize_bar_metric_specs(metric_specs, default_aggregation="last"):
 
 def aggregate_channel_for_bar(series, aggregation="last", sample_rate=100.0, time_series=None):
     """Aggregate a channel series into a scalar for grouped bar plots."""
-    values = pd.to_numeric(series, errors="coerce").dropna()
+    values = _to_numeric_safe(series).dropna()
     if values.empty:
         return np.nan
 
@@ -492,14 +511,14 @@ def aggregate_channel_for_bar(series, aggregation="last", sample_rate=100.0, tim
         return float(values.abs().sum())
     if agg == "integral":
         if time_series is not None:
-            times = pd.to_numeric(time_series, errors="coerce").dropna()
+            times = _to_numeric_safe(pd.Series(time_series)).dropna()
             if len(times) == len(values):
                 return float(np.trapz(values, times))
         dt = 1.0 / float(sample_rate) if sample_rate else 1.0
         return float(values.sum() * dt)
     if agg == "abs_integral":
         if time_series is not None:
-            times = pd.to_numeric(time_series, errors="coerce").dropna()
+            times = _to_numeric_safe(pd.Series(time_series)).dropna()
             if len(times) == len(values):
                 return float(np.trapz(values.abs(), times))
         dt = 1.0 / float(sample_rate) if sample_rate else 1.0
@@ -733,7 +752,7 @@ def plot_scatter_with_1fit(
 
     xr = np.linspace(xmin, xmax, 100)
     yr = slope * xr + interc
-    _plot_scatter_fit_line(ax, xr, yr, color=color, linestyle="--", linewidth=1.9)
+    _plot_scatter_fit_line(ax, xr, yr, color=color, linestyle="-", linewidth=1.6)
 
     equation = f"y = {slope:.3f}x + {interc:.3f}"
     return True, slope, interc, equation, color
@@ -819,7 +838,7 @@ def plot_scatter_with_multi_fit(
     slopes_list = []
     intercepts_list = []
     eq_lines = []
-    line_styles = ["--", "-.", ":"]
+    line_styles = ["-", "-", "-"]
 
     def _format_bound(value):
         """Format range bounds compactly for multi-fit equation labels."""
@@ -879,7 +898,7 @@ def plot_scatter_with_multi_fit(
             yr,
             color=color,
             linestyle=line_styles[idx % len(line_styles)],
-            linewidth=1.9,
+            linewidth=1.6,
         )
         eq_lines.append(
             f"{label} ({_format_bound(min_bound)} < {axis_name} < {_format_bound(max_bound)}): y = {slope:.3f}x + {interc:.3f}"

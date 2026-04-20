@@ -14,6 +14,11 @@ from scipy.stats import linregress
 import datafunctions
 
 
+# ================================================================
+# DATA CONTAINERS (DATACLASSES)
+# ================================================================
+# Structured containers for waveform and scatter metric rows.
+
 @dataclass
 class WaveformMetric:
     """Container for one waveform comparison metric row."""
@@ -50,6 +55,11 @@ class ScatterMetric:
     confidence_note: str
     notes: str
 
+
+# ================================================================
+# UTILITY FUNCTIONS
+# ================================================================
+# Helper functions for correlations, formatting, and data extraction.
 
 def _safe_corr(a: np.ndarray, b: np.ndarray) -> Optional[float]:
     """Return correlation when valid, otherwise None."""
@@ -93,6 +103,11 @@ def _segment_label(fit_def, x_var: str, y_var: str) -> str:
     axis_name = x_var if str(axis).lower() == "x" else y_var if str(axis).lower() == "y" else str(axis)
     return f"{axis_name}: {_format_bound(vmin)} to {_format_bound(vmax)}"
 
+
+# ================================================================
+# WAVEFORM METRICS COMPUTATION
+# ================================================================
+# Functions for computing and comparing waveform channel statistics.
 
 def _align_channel_series(
     baseline_df: pd.DataFrame,
@@ -219,6 +234,11 @@ def _compute_waveform_metrics(
                 )
     return items, coverage_notes
 
+
+# ================================================================
+# SCATTER METRICS COMPUTATION
+# ================================================================
+# Functions for computing and comparing scatter fit slope/intercepts.
 
 def _prepare_scatter_xy(df: pd.DataFrame, x_var: str, y_var: str):
     """Prepare aligned scatter x/y series from one run dataframe."""
@@ -459,6 +479,11 @@ def _fmt(v, fmt: str = ".3f") -> str:
     except Exception:
         return str(v)
 
+
+# ================================================================
+# REPORT GENERATION & FORMATTING
+# ================================================================
+# Functions for building suggested snippets and writing reports.
 
 def _build_suggested_snippets(w_items: List[WaveformMetric], s_items: List[ScatterMetric]) -> List[str]:
     """Build plain-language snippets users can paste into reports."""
