@@ -754,7 +754,7 @@ def plot_scatter_with_1fit(
     yr = slope * xr + interc
     _plot_scatter_fit_line(ax, xr, yr, color=color, linestyle="-", linewidth=1.6)
 
-    equation = f"y = {slope:.3f}x + {interc:.3f}"
+    equation = f"y = {slope:.3g}x + {interc:.3g}"
     return True, slope, interc, equation, color
 
 
@@ -901,7 +901,7 @@ def plot_scatter_with_multi_fit(
             linewidth=1.6,
         )
         eq_lines.append(
-            f"{label} ({_format_bound(min_bound)} < {axis_name} < {_format_bound(max_bound)}): y = {slope:.3f}x + {interc:.3f}"
+            f"{label} ({_format_bound(min_bound)} < {axis_name} < {_format_bound(max_bound)}): y = {slope:.3g}x + {interc:.3g}"
         )
         slopes_list.append(slope)
         intercepts_list.append(interc)
@@ -947,6 +947,192 @@ def build_fit_condition_data(df, index, fit_defs, plot_name="", run_name=""):
             continue
         series = pd.to_numeric(df[channel], errors="coerce").reindex(index)
         data[channel] = series.to_numpy(dtype=float)
+
+
+# ================================================================
+# BOX PLOT UTILITIES
+# ================================================================
+
+def apply_gate_to_dataframe(df, gate_spec):
+    """
+    Apply gate conditions to a dataframe, returning a filtered copy.
+    
+    Args:
+        df: Input dataframe
+        gate_spec: Gate specification (single condition, list of conditions, or None)
+    
+    Returns:
+        Filtered dataframe (original if gate_spec is None)
+    """
+    if gate_spec is None:
+        return df.copy()
+    
+    conditions = _normalize_gate_conditions(gate_spec)
+    mask = pd.Series(True, index=df.index)
+    
+    for condition in conditions:
+        if not isinstance(condition, (list, tuple)) or len(condition) != 3:
+            continue
+        
+        channel, operator, value = condition
+        
+        if channel not in df.columns:
+            continue
+        
+        col = pd.to_numeric(df[channel], errors="coerce")
+        
+        if operator == '>':
+            gate_mask = col > value
+        elif operator == '<':
+            gate_mask = col < value
+        elif operator == '>=':
+            gate_mask = col >= value
+        elif operator == '<=':
+            gate_mask = col <= value
+        elif operator == '==':
+            gate_mask = col == value
+        elif operator == 'between' and isinstance(value, (list, tuple)) and len(value) == 2:
+            low, high = value
+            gate_mask = (col >= low) & (col <= high)
+        else:
+            continue
+        
+        mask &= gate_mask.fillna(False)
+    
+    return df[mask].copy()
+
+
+def aggregate_channel_for_boxplot(run_data_dict, channels, aggregation_mode='per_run', gate_spec=None):
+    """
+    Aggregate channel data from multiple runs for box plotting.
+    
+    Args:
+        run_data_dict: Dict of {run_name: dataframe}
+        channels: Single channel (str) or tuple of channels to extract
+        aggregation_mode: 'per_run' (dict of dicts) or 'aggregated' (dict of arrays)
+        gate_spec: Optional filter condition
+    
+    Returns:
+        For 'per_run':
+            {run_name: {channel: array, ...}, ...}
+        
+        For 'aggregated':
+            {channel: aggregated_array, ...}
+    """
+    # Normalize channels to list
+    if isinstance(channels, str):
+        channels = [channels]
+    else:
+        channels = list(channels)
+    
+    result = {}
+    
+    if aggregation_mode == 'per_run':
+        # Structure: {run_name: {channel: values_array}}
+        for run_name, df in run_data_dict.items():
+            # Apply gate if specified
+            if gate_spec is not None:
+                df = apply_gate_to_dataframe(df, gate_spec)
+            
+            run_dict = {}
+            for channel in channels:
+                if channel in df.columns:
+                    values = df[channel].dropna().values
+                    run_dict[channel] = values
+                else:
+                    run_dict[channel] = np.array([])
+            
+            result[run_name] = run_dict
+    
+    elif aggregation_mode == 'aggregated':
+        # Structure: {channel: aggregated_values_array}
+        for channel in channels:
+            all_values = []
+            
+            for run_name, df in run_data_dict.items():
+                # Apply gate if specified
+                if gate_spec is not None:
+                    df = apply_gate_to_dataframe(df, gate_spec)
+                
+                if channel in df.columns:
+                    values = df[channel].dropna().values
+                    all_values.extend(values)
+            
+            result[channel] = np.array(all_values)
+    
+    return result
+
+
+def get_boxplot_data_for_matplotlib(agg_data, aggregation_mode, channels, run_names):
+    """
+    Convert aggregated data to format suitable for matplotlib boxplot().
+    
+    Args:
+        agg_data: Output from aggregate_channel_for_boxplot()
+        aggregation_mode: 'per_run' or 'aggregated'
+        channels: List of channels
+        run_names: List of run display names (for per_run mode)
+    
+    Returns:
+        Tuple of (data_list, labels_list)
+        where data_list contains arrays to pass to ax.boxplot()
+    """
+    if aggregation_mode == 'per_run':
+        # Create list of arrays: [run1_ch1, run1_ch2, ..., run2_ch1, run2_ch2, ...]
+        data_list = []
+        labels_list = []
+        
+        for channel in channels:
+            for run_name in run_names:
+                if run_name in agg_data and channel in agg_data[run_name]:
+                    data_list.append(agg_data[run_name][channel])
+                    labels_list.append(f"{run_name}\n{channel}")
+                else:
+                    data_list.append(np.array([]))
+                    labels_list.append(f"{run_name}\n{channel}")
+    
+    else:  # aggregated
+        # Create list of arrays: [ch1_agg, ch2_agg, ...]
+        data_list = []
+        labels_list = []
+        
+        for channel in channels:
+            if channel in agg_data:
+                data_list.append(agg_data[channel])
+            else:
+                data_list.append(np.array([]))
+            labels_list.append(channel)
+    
+    return data_list, labels_list
+
+
+def format_boxplot_colors(data_list, aggregation_mode, run_colors, channels, run_names, box_color):
+    """
+    Generate color list for box plots based on aggregation mode.
+    
+    Args:
+        data_list: List of arrays for each box
+        aggregation_mode: 'per_run' or 'aggregated'
+        run_colors: Dict of {run_name: hex_color}
+        channels: List of channels
+        run_names: List of run names
+        box_color: Default box color for aggregated mode
+    
+    Returns:
+        List of colors (one per box)
+    """
+    colors = []
+    
+    if aggregation_mode == 'per_run':
+        # Color by run
+        for channel in channels:
+            for run_name in run_names:
+                colors.append(run_colors.get(run_name, '#3498DB'))
+    else:
+        # Single color for all boxes
+        colors = [box_color] * len(data_list)
+    
+    return colors
 
     return data
 

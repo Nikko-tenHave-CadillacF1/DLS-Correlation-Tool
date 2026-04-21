@@ -70,7 +70,7 @@ class DataPlotter:
         channel_transforms=None,
         calculated_channels=None,
         low_pass_filters=None,
-        fig_size=[(15.5, 6.4), (10, 8), (10, 8), (10, 8)],
+        fig_size=[(15.5, 6.4), (10, 8), (10, 8), (10, 8), (10, 6)],
         units_map=None,
         plot_aspect_ratios=None,
         sample_rate=100,
@@ -81,6 +81,7 @@ class DataPlotter:
         scatter_max_points=45000,
         scatter_hexbin_gridsize=70,
         bar_secondary_axis_ratio=20.0,
+        box_plot_settings=None,
     ):
         """Build a plotter instance and run the preprocessing pipeline."""
         self.runs = runs
@@ -137,7 +138,9 @@ class DataPlotter:
         self.scatter_FIGSIZE = fig_size[1]
         self.psd_FIGSIZE = fig_size[2]
         self.histogram_FIGSIZE = fig_size[3]
+        self.boxplot_FIGSIZE = fig_size[4] if len(fig_size) > 4 else (10, 6)
         self.plot_aspect_ratios = plot_aspect_ratios or {}
+        self.BOX_PLOT_SETTINGS = box_plot_settings or {}
 
         # Create plots directory
         self.plots_dir = Path(root_folder) / "plots"
@@ -2247,6 +2250,246 @@ class DataPlotter:
         )
 
     # ------------------------------------------------------------
+    # BOX PLOTS
+    # ------------------------------------------------------------
+
+    def generate_box_plots(self):
+        """Generate box plots for distribution analysis across runs."""
+        plots = self._get_plot_group(5, "box")
+
+        if not plots:
+            return
+
+        # Get box plot settings from parent scope (if available) or use defaults
+        box_settings = getattr(self, 'BOX_PLOT_SETTINGS', {})
+
+        for plot_def in plots:
+            # Parse definition
+            plot_name = plot_def[0] if len(plot_def) > 0 else "Unknown"
+            channels = plot_def[1] if len(plot_def) > 1 else None
+            aggregation_mode = plot_def[2] if len(plot_def) > 2 else "per_run"
+            axis_limits = plot_def[3] if len(plot_def) > 3 else None
+            gate_spec = plot_def[4] if len(plot_def) > 4 else None
+            options = plot_def[5] if len(plot_def) > 5 else {}
+
+            if channels is None:
+                print(f"[WARNING][DataPlotter] Box plot '{plot_name}': no channels specified. Skipping.")
+                continue
+
+            # Normalize channels to list
+            if isinstance(channels, str):
+                channels = [channels]
+            else:
+                channels = list(channels)
+
+            print(f"Creating box plot: {plot_name}")
+
+            # Determine figure size
+            num_channels = len(channels)
+            if num_channels == 1 and aggregation_mode == "aggregated":
+                figsize = box_settings.get("figsize_single_channel", (10, 6))
+            else:
+                if aggregation_mode == "aggregated" and num_channels > 1:
+                    figsize = box_settings.get("figsize_multi_channel", (14, 10))
+                else:
+                    figsize = self.boxplot_FIGSIZE
+
+            # Generate plot based on mode
+            if aggregation_mode == "per_run":
+                self._generate_boxplot_per_run(
+                    plot_name, channels, axis_limits, gate_spec, options, figsize, box_settings
+                )
+            elif aggregation_mode == "aggregated":
+                self._generate_boxplot_aggregated(
+                    plot_name, channels, axis_limits, gate_spec, options, figsize, box_settings
+                )
+            else:
+                print(f"[WARNING][DataPlotter] Box plot '{plot_name}': unknown aggregation_mode '{aggregation_mode}'. Skipping.")
+
+    def _generate_boxplot_per_run(self, plot_name, channels, axis_limits, gate_spec, options, figsize, box_settings):
+        """Generate per-run box plots (one box per run per channel)."""
+        # Aggregate data
+        agg_data = datafunctions.aggregate_channel_for_boxplot(
+            self.run_data, channels, aggregation_mode='per_run', gate_spec=gate_spec
+        )
+
+        if not agg_data:
+            print(f"[WARNING][DataPlotter] Box plot '{plot_name}': no data after aggregation. Skipping.")
+            return
+
+        # Get run names in order
+        run_names = [run['name'].lower() for run in self.runs if run['name'].lower() in agg_data]
+        if not run_names:
+            print(f"[WARNING][DataPlotter] Box plot '{plot_name}': no valid runs. Skipping.")
+            return
+
+        # Build run color map
+        run_colors = {run['name'].lower(): run['color'] for run in self.runs}
+
+        # Create figure with subplots (one per channel if multiple)
+        num_channels = len(channels)
+        if num_channels == 1:
+            fig, axes = plt.subplots(1, 1, figsize=figsize)
+            axes = [axes]
+        else:
+            fig, axes = plt.subplots(num_channels, 1, figsize=(figsize[0], figsize[1] * num_channels * 0.5), sharex=False)
+            if num_channels == 1:
+                axes = [axes]
+
+        for ax, channel in zip(axes, channels):
+            # Prepare data for boxplot
+            data_list = []
+            labels_list = []
+            colors_list = []
+
+            for run_name in run_names:
+                if channel in agg_data[run_name]:
+                    values = agg_data[run_name][channel]
+                    if len(values) > 0:
+                        data_list.append(values)
+                        labels_list.append(run_name.upper())
+                        colors_list.append(run_colors.get(run_name, '#3498DB'))
+
+            if not data_list:
+                print(f"[WARNING][DataPlotter] Box plot '{plot_name}' channel '{channel}': no data for any runs. Skipping subplot.")
+                continue
+
+            # Create box plot
+            bp = ax.boxplot(
+                data_list,
+                labels=labels_list,
+                patch_artist=True,
+                widths=box_settings.get('box_width', 0.6),
+                showfliers=box_settings.get('show_fliers', True),
+            )
+
+            # Color boxes by run
+            for patch, color in zip(bp['boxes'], colors_list):
+                patch.set_facecolor(color)
+                patch.set_alpha(box_settings.get('per_run_box_alpha', 0.7))
+
+            # Style median lines
+            for median in bp['medians']:
+                median.set(color=box_settings.get('medianline_color', '#000000'),
+                          linewidth=box_settings.get('medianline_width', 2.0))
+
+            # Axis labels
+            ax.set_ylabel(
+                datafunctions.add_units_to_label(channel, self.units_map),
+                fontweight='bold', fontsize=12
+            )
+
+            # Apply axis limits if specified
+            if axis_limits:
+                ax.set_ylim(axis_limits)
+
+            # Styling
+            ax.grid(True, axis='y', alpha=0.3)
+            ax.set_axisbelow(True)
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+
+            # Zero line if within limits
+            yl, yr = ax.get_ylim()
+            if yl <= 0 <= yr:
+                ax.axhline(0, color="#5E5E5E", linewidth=1, alpha=0.8)
+
+        # Add gate info if applicable
+        # if gate_spec is not None:
+        #     gate_text = datafunctions.format_gate_text(gate_spec)
+        #     if gate_text:
+        #         self._display_gate_info(ax, gate_text)
+
+        plt.tight_layout(rect=[0, 0.03, 1, 0.96])
+        filename = self._sanitize_plot_filename("box", plot_name)
+        fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.05, facecolor='white')
+        plt.close(fig)
+        print(f"  Saved: {filename}")
+
+    def _generate_boxplot_aggregated(self, plot_name, channels, axis_limits, gate_spec, options, figsize, box_settings):
+        """Generate aggregated box plots (all runs combined into single/multiple boxes)."""
+        # Aggregate data
+        agg_data = datafunctions.aggregate_channel_for_boxplot(
+            self.run_data, channels, aggregation_mode='aggregated', gate_spec=gate_spec
+        )
+
+        if not agg_data:
+            print(f"[WARNING][DataPlotter] Box plot '{plot_name}': no data after aggregation. Skipping.")
+            return
+
+        # Create figure with subplots (one per channel if multiple)
+        num_channels = len(channels)
+        if num_channels == 1:
+            fig, axes = plt.subplots(1, 1, figsize=figsize)
+            axes = [axes]
+        else:
+            fig, axes = plt.subplots(num_channels, 1, figsize=(figsize[0], figsize[1] * num_channels * 0.5), sharex=False)
+            if num_channels == 1:
+                axes = [axes]
+
+        for ax, channel in zip(axes, channels):
+            if channel not in agg_data:
+                print(f"[WARNING][DataPlotter] Box plot '{plot_name}' channel '{channel}': no aggregated data. Skipping subplot.")
+                continue
+
+            data = agg_data[channel]
+            if len(data) == 0:
+                print(f"[WARNING][DataPlotter] Box plot '{plot_name}' channel '{channel}': no valid values. Skipping subplot.")
+                continue
+
+            # Create box plot
+            bp = ax.boxplot(
+                [data],
+                labels=[channel],
+                patch_artist=True,
+                widths=box_settings.get('box_width', 0.6),
+                showfliers=box_settings.get('show_fliers', True),
+            )
+
+            # Color box
+            for patch in bp['boxes']:
+                patch.set_facecolor(box_settings.get('aggregated_box_color', '#3498DB'))
+                patch.set_alpha(box_settings.get('aggregated_box_alpha', 0.7))
+
+            # Style median line
+            for median in bp['medians']:
+                median.set(color=box_settings.get('medianline_color', '#000000'),
+                          linewidth=box_settings.get('medianline_width', 2.0))
+
+            # Axis labels
+            ax.set_ylabel(
+                datafunctions.add_units_to_label(channel, self.units_map),
+                fontweight='bold', fontsize=12
+            )
+
+            # Apply axis limits if specified
+            if axis_limits:
+                ax.set_ylim(axis_limits)
+
+            # Styling
+            ax.grid(True, axis='y', alpha=0.3)
+            ax.set_axisbelow(True)
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+
+            # Zero line if within limits
+            yl, yr = ax.get_ylim()
+            if yl <= 0 <= yr:
+                ax.axhline(0, color="#5E5E5E", linewidth=1, alpha=0.8)
+
+        # Add gate info if applicable
+        if gate_spec is not None:
+            gate_text = datafunctions.format_gate_text(gate_spec)
+            if gate_text:
+                self._display_gate_info(ax, gate_text)
+
+        plt.tight_layout(rect=[0, 0.03, 1, 0.96])
+        filename = self._sanitize_plot_filename("box", plot_name)
+        fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.05, facecolor='white')
+        plt.close(fig)
+        print(f"  Saved: {filename}")
+
+    # ------------------------------------------------------------
     # RUN ALL
     # ------------------------------------------------------------
 
@@ -2257,5 +2500,6 @@ class DataPlotter:
         self.generate_psd_plots()
         self.generate_histogram_plots()
         self.generate_bar_plots()
+        self.generate_box_plots()
         print(f"\nAll plots saved to: {self.plots_dir}")
 
