@@ -96,7 +96,6 @@ Data/
   inputs/
     correlation/
     boxplots/
-      fuel_investigation/
   templates/
   outputs/
     correlation/
@@ -111,7 +110,7 @@ See [Data/README.md](./Data/README.md) for a short explanation of each folder.
 ## What To Edit
 
 - Put correlation input files in `Data/inputs/correlation/`
-- Put box-plot input files in `Data/inputs/boxplots/fuel_investigation/`
+- Put box-plot input files in `Data/inputs/boxplots/`
 - Put PowerPoint templates in `Data/templates/`
 - Review generated correlation outputs in `Data/outputs/correlation/plots/`
 - Review generated box-plot outputs in `Data/outputs/boxplots/plots/`
