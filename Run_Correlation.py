@@ -64,29 +64,36 @@ RUNS = [
     #},
     {
         "name": "BSL",
-        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3  Stint 1 stint 3_-BSL_DLS.parquet",
+        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3 _V1_+2FRH STD SMv2_DLS.parquet",
         "color": "#FF3300",
         "nlap": 1,
         "type": "DLS"
     },
     {
         "name": "25m Less SM",
-        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3  Stint 1 stint 3_-25m_DLS.parquet",
+        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3 _V1_+2FRH -25 SMv2_DLS.parquet",
         "color": "#00CCFF",
         "nlap": 1,
         "type": "DLS"
     },
         {
         "name": "50m Less SM",
-        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3  Stint 1 stint 3_-50m_DLS.parquet",
+        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3 _V1_+2FRH -50 SMv2_DLS.parquet",
         "color": "#009FCB",
         "nlap": 1,
         "type": "DLS"
     },
     {
         "name": "100m Less SM",
-        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3  Stint 1 stint 3_-100m_DLS.parquet",
+        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3 _V1_+2FRH -100m SMv2_DLS.parquet",
         "color": "#7300FF",
+        "nlap": 1,
+        "type": "DLS"
+    },
+    {
+        "name": "100m Less SM - Corrected",
+        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3 _V1_+2p5FRH -100 SMv2_DLS.parquet",
+        "color": "#3ADA00",
         "nlap": 1,
         "type": "DLS"
     }

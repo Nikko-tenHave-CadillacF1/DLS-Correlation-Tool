@@ -844,30 +844,45 @@ class DataPlotter:
         self.run_units = {}
         self.run_required_cols = {}
         self._gated_data_cache = {}
+        loaded_runs = []
 
         for run in self.runs:
             run_name = run["name"].lower()
             file_path = root_folder / run["file"]
-            self.run_filepaths[run_name] = file_path
 
             if not file_path.exists():
                 print(f"[WARNING][DataPlotter] Missing data file for run '{run_name}': {file_path}. Skipping run.")
                 continue
 
-            use_python_engine = (run_name == "car")
-            self.run_required_cols[run_name] = self._get_required_source_columns(run.get("type", run_name))
+            try:
+                use_python_engine = (run_name == "car")
+                self.run_required_cols[run_name] = self._get_required_source_columns(run.get("type", run_name))
 
-            data, _, units = self._load_run_data(
-                file_path,
-                use_python_engine=use_python_engine,
-                columns_to_load=self.run_required_cols[run_name],
-                parquet_nrun=run.get("nrun"),
-                parquet_nlap=run.get("nlap"),
-                run_name=run_name,
-            )
+                data, _, units = self._load_run_data(
+                    file_path,
+                    use_python_engine=use_python_engine,
+                    columns_to_load=self.run_required_cols[run_name],
+                    parquet_nrun=run.get("nrun"),
+                    parquet_nlap=run.get("nlap"),
+                    run_name=run_name,
+                )
+            except Exception as exc:
+                print(
+                    f"[WARNING][DataPlotter] Failed to load run '{run_name}' from {file_path}: {exc}. "
+                    "Skipping run."
+                )
+                self.run_required_cols.pop(run_name, None)
+                continue
 
+            self.run_filepaths[run_name] = file_path
             self.run_data[run_name] = data
             self.run_units[run_name] = units
+            loaded_runs.append(run)
+
+        if loaded_runs:
+            self.runs = loaded_runs
+        else:
+            self.runs = []
 
         self._loaded = True
         return self.run_data
