@@ -12,7 +12,7 @@ OUTPUTS_DIR = DATA_ROOT / "outputs"
 ARCHIVE_DIR = DATA_ROOT / "archive"
 
 CORRELATION_INPUT_DIR = INPUTS_DIR / "correlation"
-BOXPLOT_INPUT_DIR = INPUTS_DIR / "boxplots" / "fuel_investigation"
+BOXPLOT_INPUT_DIR = INPUTS_DIR / "boxplots"
 
 CORRELATION_OUTPUT_DIR = OUTPUTS_DIR / "correlation"
 BOXPLOT_OUTPUT_DIR = OUTPUTS_DIR / "boxplots"
