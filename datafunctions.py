@@ -994,6 +994,9 @@ def apply_gate_to_dataframe(df, gate_spec):
         elif operator == 'between' and isinstance(value, (list, tuple)) and len(value) == 2:
             low, high = value
             gate_mask = (col >= low) & (col <= high)
+        elif operator == 'outside' and isinstance(value, (list, tuple)) and len(value) == 2:
+            low, high = value
+            gate_mask = (col < low) | (col > high)
         else:
             continue
         
@@ -1180,7 +1183,7 @@ def build_multi_fit_mask(
         condition_values = np.asarray(y_data, dtype=float)
         axis_name = y_var or "y"
     else:
-        if not fit_condition_data or axis_key not in fit_condition_data:
+        if not fit_condition_data: #or axis_key not in fit_condition_data
             result["status"] = "missing_condition_channel"
             result["axis_name"] = axis_key
             result["mask"] = np.zeros(len(x_data), dtype=bool)

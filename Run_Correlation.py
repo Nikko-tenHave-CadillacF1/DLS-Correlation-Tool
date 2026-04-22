@@ -38,7 +38,7 @@ from main_correlation_points import generate_main_correlation_points_report
 # ================================================================================
 # Root folder for input data and output plots
 
-ROOT_FOLDER = Path(r"C:\\GitHub_Local\\VPG.Reporting\\Correlation Reporting\\Data")
+ROOT_FOLDER = Path(r"C:\\GitHub_Local\\DLS-Correlation-Tool\\Data\\")
 
 
 # ================================================================================
@@ -81,17 +81,32 @@ RUNS = [
     #    "type": "CAR"
     #},
     {
-        "name": "dls",
-        "file": "26R03SUZ  11  Quali  Run 2 2  Stint 1 1 Q1R2 nC3_DLS_2.parquet",
-        "color": "#1100FF",
+        "name": "BSL",
+        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3  Stint 1 stint 3_-BSL_DLS.parquet",
+        "color": "#FF3300",
         "nlap": 1,
         "type": "DLS"
     },
     {
-        "name": "car",
-        "file": "26R03SUZ_260328_MAC26-02_BOT_Q_R03_1.txt",
-        "color": "#FF8800",
-        "type": "CAR"
+        "name": "25m Less SM",
+        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3  Stint 1 stint 3_-25m_DLS.parquet",
+        "color": "#00CCFF",
+        "nlap": 1,
+        "type": "DLS"
+    },
+        {
+        "name": "50m Less SM",
+        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3  Stint 1 stint 3_-50m_DLS.parquet",
+        "color": "#009FCB",
+        "nlap": 1,
+        "type": "DLS"
+    },
+    {
+        "name": "100m Less SM",
+        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3  Stint 1 stint 3_-100m_DLS.parquet",
+        "color": "#7300FF",
+        "nlap": 1,
+        "type": "DLS"
     }
 ]
 
@@ -485,46 +500,227 @@ WAVEFORM_PLOT_DEFINITIONS = [
 
 SCATTER_PLOT_DEFINITIONS = [
     # Drivetrain
-    ["Gear Ratios", ('nWheelAvg_R', 'nEngine'), None, [('NGear', 1.5, 2.5), ('NGear', 2.5, 3.5), ('NGear', 3.5, 4.5), ('NGear', 4.5, 5.5), ('NGear', 5.5, 6.5), ('NGear', 6.5, 7.5), ('NGear', 7.5, 8.5)], False, True],
-    ["Engine Power", ('nEngine', 'PEngine'), None, 0, True, True],
-    ["Engine Power Gated", ('nEngine', 'PEngine'), None, 0, ('rThrottle', '>', 95), True, True],
-    
-    # Longitudinal/Lateral dynamics
-    ["Long Acceleration", ('vCar', 'gLong'), None, None, True, True],
-    ["Lat Acceleration", ('vCar', 'gLat_Abs'), None, 0, True, True],
-    ["GG Plot", ('gLat', 'gLong'), None, 0, True, True],
-    ["Braking Efficiency", ('pBrakeF', 'gLong'), None, [('y', None, -0.2)], ('gLong', '<', 0), True, True],
-    
-    # Steering and control
-    ["Understeer Plot", ('vCar', 'aUndersteerFromSlip'), None, None, ("rThrottle", '<', 95), True, True],
-    ["Yaw Rate Response", ('aSteerWheel', 'nYaw'), [(-160, 160), (None, None)], [('x', -20, 20)], True, True],
-    ["Lateral Acceleration Response", ('aSteerWheel', 'gLat'), [(-160, 160), (None, None)], [('x', -20, 20)], True, True],
-    ["Steering Moment", ('aSteerWheel', 'MSteerWheel'), [(-160, 160), (None, None)], 0, True, True],
-    
-    # Suspension
-    ["Damper gLat front", ('gLat', 'xDamperDeltaF'), None, [('x', None, None)], True, True],
-    ["Damper gLat rear", ('gLat', 'xDamperDeltaR'), None, [('x', None, None)], True, True],
-    ["Pushrod gLat front", ('gLat', 'FPRodDeltaF'), None, [('x', None, None)], True, True],
-    ["Pushrod gLat rear", ('gLat', 'FPRodDeltaR'), None, [('x', None, None)], True, True],
-    
-    # Heave and roll
-    ["Front Heave", ('xDamperAvgF', 'FPRodAvgF'), None, [('y', None, 10000), ('y', 10000, None)], True, True],
-    ["Front Roll", ('xDamperDeltaF', 'FPRodDeltaF'), None, [('x', None, None)], True, True],
-    ["Rear Heave", ('xDamperAvgR', 'FPRodAvgR'), None, [('y', None, -20000), ('y', -20000, None)], True, True],
-    ["Rear Roll", ('xDamperDeltaR', 'FPRodDeltaR'), None, [('x', None, None)], True, True],
-    ["Roll angle gLat", ('gLat', 'aRoll'), None, [('x', None, None)], True, True],
-    
-    # Ride height
-    ["Front Pushrod vCar", ('vCar', 'FPRodAvgF'), None, [('gLat_Abs', 0, 1)], [('SM', '<', 1)], True, True],
-    ["Rear Pushrod vCar", ('vCar', 'FPRodAvgR'), None, [('gLat_Abs', 0, 1)], [('SM', '<', 1)], True, True],
-    ["Front Ride vCar", ('vCar', 'hRideF'), None, [('SM', 0, 0.5)], True, True],
-    ["Rear Ride vCar", ('vCar', 'hRideR'), None, [('SM', 0, 0.5)], True, True],
-    ["Ride Height Compare", ('hRideF', 'hRideR'), None, 0, True, True],
-    ["Ride Height Compare Gated", ('hRideF', 'hRideR'), None, 0, ('SM', '<', 1), True, True],
-    
-    # Misc
-    ["Plank power acceleration", ('gLong (raw)', 'PPlank_F'), None, 0, True, True],
-    ["engine efficiency", ('dmInjector', 'PEngine'), None, [('x', None, None)], True, True],
+    [
+        "Gear Ratios",
+        ('nWheelAvg_R', 'nEngine'),
+        None,
+        [('NGear', 1.5, 2.5), ('NGear', 2.5, 3.5), ('NGear', 3.5, 4.5), ('NGear', 4.5, 5.5), ('NGear', 5.5, 6.5), ('NGear', 6.5, 7.5), ('NGear', 7.5, 8.5)],
+        False,
+        True
+    ],
+    [
+        "Engine Power",
+        ('nEngine', 'PEngine'),
+        None,
+        0,
+        True,
+        True
+    ],
+    [
+        "Long Acceleration",
+        ('vCar', 'gLong'),
+        None,
+        None,
+        True,
+        True
+    ],
+    [
+        "Lat Acceleration",
+        ('vCar', 'gLat_Abs'),
+        None,
+        0,
+        True,
+        True
+    ],
+    [
+        "GG Plot",
+        ('gLat', 'gLong'),
+        None,
+        0,
+        True,
+        True
+    ],
+    [
+        "Braking Efficiency",
+        ('pBrakeF', 'gLong'),
+        None,
+        [('y', None, -0.2)],
+        ('gLong', '<', 0),
+        True,
+        True
+    ],
+    [
+        "Understeer Plot",
+        ('vCar', 'aUndersteerFromSlip'),
+        None,
+        None,
+        ("rThrottle", '<', 95),
+        True,
+        True
+    ],
+    [
+        "Yaw Rate Response",
+        ('aSteerWheel', 'nYaw'),
+        [(-160, 160), (None, None)],
+        [('x', -20, 20)],
+        True,
+        True
+    ],
+    [
+        "Lateral Acceleration Response",
+        ('aSteerWheel', 'gLat'),
+        [(-160, 160), (None, None)],
+        [('x', -20, 20)],
+        True,
+        True
+    ],
+    [
+        "Steering Moment",
+        ('aSteerWheel', 'MSteerWheel'),
+        [(-160, 160), (None, None)],
+        0,
+        True,
+        True
+    ],
+    [
+        "Damper gLat front",
+        ('gLat', 'xDamperDeltaF'),
+        None,
+        [('x', None, None)],
+        True,
+        True
+    ],
+    [
+        "Damper gLat rear",
+        ('gLat', 'xDamperDeltaR'),
+        None,
+        [('x', None, None)],
+        True,
+        True
+    ],
+    [
+        "Pushrod gLat front",
+        ('gLat', 'FPRodDeltaF'),
+        None,
+        [('x', None, None)],
+        True,
+        True
+    ],
+    [
+        "Pushrod gLat rear",
+        ('gLat', 'FPRodDeltaR'),
+        None,
+        [('x', None, None)],
+        True,
+        True
+    ],
+    [
+        "Front Heave",
+        ('xDamperAvgF', 'FPRodAvgF'),
+        None,
+        [('y', None, 10000), ('y', 10000, None)],
+        True,
+        True
+    ],
+    [
+        "Front Roll",
+        ('xDamperDeltaF', 'FPRodDeltaF'),
+        None,
+        [('x', None, None)],
+        True,
+        True
+    ],
+    [
+        "Rear Heave",
+        ('xDamperAvgR', 'FPRodAvgR'),
+        None,
+        [('y', None, -20000), ('y', -20000, None)],
+        True,
+        True
+    ],
+    [
+        "Rear Roll",
+        ('xDamperDeltaR', 'FPRodDeltaR'),
+        None,
+        [('x', None, None)],
+        True,
+        True
+    ],
+    [
+        "Roll angle gLat",
+        ('gLat', 'aRoll'),
+        None,
+        [('x', None, None)],
+        True,
+        True
+    ],
+    [
+        "Front Pushrod vCar",
+        ('vCar', 'FPRodAvgF'),
+        None,
+        [('gLat_Abs', 0, 1)],
+        [('SM', '<', 1)],
+        True,
+        True
+    ],
+    [
+        "Rear Pushrod vCar",
+        ('vCar', 'FPRodAvgR'),
+        None,
+        [('gLat_Abs', 0, 1)],
+        [('SM', '<', 1)],
+        True,
+        True
+    ],
+    [
+        "Front Ride vCar",
+        ('vCar', 'hRideF'),
+        None,
+        [('SM', 0, 0.5)],
+        True,
+        True
+    ],
+    [
+        "Rear Ride vCar",
+        ('vCar', 'hRideR'),
+        None,
+        [('SM', 0, 0.5)],
+        True,
+        True
+    ],
+    [
+        "Ride Height Compare",
+        ('hRideF', 'hRideR'),
+        None,
+        0,
+        True,
+        True
+    ],
+    [
+        "Ride Height Compare Gated",
+        ('hRideF', 'hRideR'),
+        None,
+        0,
+        ('SM', '<', 1),
+        True,
+        True
+    ],
+    [
+        "Plank power acceleration",
+        ('gLong (raw)','PPlank_F'),
+        None,
+        0,
+        True,
+        True
+    ],
+    [
+        "engine efficiency",
+        ('dmInjector', 'PEngine'),
+        None,
+        [('x', None, None)],
+        True,
+        True
+    ]
 ]
 
 
@@ -544,10 +740,18 @@ SCATTER_PLOT_DEFINITIONS = [
 #   - nperseg:  (optional) FFT window size; larger = higher frequency resolution
 
 PSD_PLOT_DEFINITIONS = [
-    ["Front Vertical Acceleration PSD", 'gVertF', [(0, 50), (1e-4, None)], True],
-    ["Rear Vertical Acceleration PSD", 'gVertR', [(0, 50), (1e-4, None)], True],
-    ["Front Ride PSD", 'hRideF (raw)', [(0, 50), (1e-4, None)], True],
-    ["Rear Ride PSD", 'hRideR (raw)', [(0, 50), (1e-4, None)], True],
+    [
+        "Front Vertical Acceleration PSD", 'gVertF', [(0, 50), (1e-4, None)], True
+    ],
+    [
+        "Rear Vertical Acceleration PSD", 'gVertR', [(0, 50), (1e-4, None)], True
+    ],
+    [
+        "Front Ride PSD", 'hRideF (raw)', [(0, 50), (1e-4, None)], True
+    ],
+    [
+        "Rear Ride PSD", 'hRideR (raw)', [(0, 50), (1e-4, None)], True
+    ]
 ]
 
 
@@ -560,7 +764,9 @@ PSD_PLOT_DEFINITIONS = [
 #   ["Plot Name", 'channel', [(xmin, xmax), (ymin, ymax)], log_scale]
 
 HISTOGRAM_PLOT_DEFINITIONS = [
-    ["Plank Power Distribution", 'PPlank_F', [(1, 51), (None, None)], False],
+    [
+        "Plank Power Distribution", 'PPlank_F', [(1, 51), (None, None)], False
+    ]
 ]
 
 
@@ -585,7 +791,10 @@ BAR_PLOT_DEFINITIONS = [
    ["Cumulative Metrics", (("dmInjector (kg/s)", "integral"),)],
 ]
 
-
+BOX_PLOT_DEFINITIONS = [
+    # Example box plot definition:
+    # ["Box Plot Name", 'channel', [(ymin, ymax)], log_scale]
+]
 # ================================================================================
 # CONFIGURATION: POWERPOINT EXPORT MAP
 # ================================================================================
@@ -645,6 +854,7 @@ PLOT_DEFINITIONS = (
     PSD_PLOT_DEFINITIONS if PSD_PLOT_DEFINITIONS else [],
     HISTOGRAM_PLOT_DEFINITIONS if HISTOGRAM_PLOT_DEFINITIONS else [],
     BAR_PLOT_DEFINITIONS if BAR_PLOT_DEFINITIONS else [],
+    BOX_PLOT_DEFINITIONS if BOX_PLOT_DEFINITIONS else []
 )
 
 
