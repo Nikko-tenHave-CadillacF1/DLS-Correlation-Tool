@@ -3,12 +3,10 @@
 CORRELATION REPORT GENERATOR
 ================================================================================
 Workflow:
-    1. Define run data files, channel mappings, and plot specifications
+    1. Define run data files, processing rules, and plot specifications
     2. DataPlotter loads and processes telemetry data from each run
-    3. Applies channel transforms (unit conversions, sign corrections, etc)
-    4. Generates all configured plot types
-    5. Creates main correlation summary report
-    6. Exports plots to PowerPoint template
+    3. Generates all configured plot types
+    4. Optionally exports plots to a PowerPoint template
 
 Key Configuration Sections:
     - RUNS: Define which data files to load and their visual properties
@@ -20,25 +18,22 @@ Key Configuration Sections:
 ================================================================================
 """
 
-import os
-from pathlib import Path
-
 import numpy as np
 from scipy.integrate import cumulative_trapezoid
 
-from dataplotter import DataPlotter
-from powerpointexporter import (
-    export_report_to_powerpoint,
-    get_template_plot_aspect_ratios
+from data_layout import (
+    CORRELATION_OUTPUT_DIR,
+    resolve_correlation_input_dir,
+    resolve_template_path,
 )
-from main_correlation_points import generate_main_correlation_points_report
+from plot_runtime import build_plot_groups, build_plotter as runtime_build_plotter, run_plot_job
 
 # ================================================================================
 # CONFIGURATION: DATA FILES & LOCATIONS
 # ================================================================================
 # Root folder for input data and output plots
 
-ROOT_FOLDER = Path(r"C:\\GitHub_Local\\DLS-Correlation-Tool\\Data\\")
+ROOT_FOLDER = resolve_correlation_input_dir()
 
 
 # ================================================================================
@@ -116,22 +111,9 @@ RUNS = [
 # Template and output paths for PowerPoint report generation.
 # Template must be a valid .pptx file with placeholders for images.
 
-POWERPOINT_TEMPLATE = ROOT_FOLDER / "template.pptx"
-POWERPOINT_OUTPUT = ROOT_FOLDER / "Correlation_Report.pptx"
+POWERPOINT_TEMPLATE = resolve_template_path("template.pptx")
+POWERPOINT_OUTPUT = CORRELATION_OUTPUT_DIR / "Correlation_Report.pptx"
 EXPORT_TO_POWERPOINT = True
-
-
-# ================================================================================
-# CONFIGURATION: OPTIONAL FEATURES
-# ================================================================================
-# Main correlation summary report generation settings.
-# Generates statistical summary and optionally CSV export of correlations.
-
-ENABLE_MAIN_CORRELATION_SUMMARY = False
-MAIN_CORRELATION_INCLUDE_CSV = False
-MAIN_CORRELATION_LOW_SAMPLE_THRESHOLD = 200            # Min points for correlation
-MAIN_CORRELATION_CORR_CHECK_THRESHOLD = 0.85           # Flag correlations above this
-MAIN_CORRELATION_SLOPE_DELTA_CHECK_PCT = 5.0           # Slope variance % threshold
 
 
 # ================================================================================
@@ -363,7 +345,7 @@ LOW_PASS_FILTERS = {
     
     # Engine and drivetrain
     "nEngine": {"cutoff": 0, "order": 2},
-    "nWheelR_Avg": {"cutoff": 0, "order": 2},
+    "nWheelAvg_R": {"cutoff": 0, "order": 2},
     
     # Plank wear
     "EPlank_F": {"cutoff": 0, "order": 2},
@@ -848,34 +830,21 @@ POWERPOINT_EXPORT_MAP = {
 # ================================================================================
 # Combine all plot type definitions into a single tuple for processing.
 
-PLOT_DEFINITIONS = (
-    WAVEFORM_PLOT_DEFINITIONS if WAVEFORM_PLOT_DEFINITIONS else [],
-    SCATTER_PLOT_DEFINITIONS if SCATTER_PLOT_DEFINITIONS else [],
-    PSD_PLOT_DEFINITIONS if PSD_PLOT_DEFINITIONS else [],
-    HISTOGRAM_PLOT_DEFINITIONS if HISTOGRAM_PLOT_DEFINITIONS else [],
-    BAR_PLOT_DEFINITIONS if BAR_PLOT_DEFINITIONS else [],
-    BOX_PLOT_DEFINITIONS if BOX_PLOT_DEFINITIONS else []
+PLOT_DEFINITIONS = build_plot_groups(
+    WAVEFORM_PLOT_DEFINITIONS,
+    SCATTER_PLOT_DEFINITIONS,
+    PSD_PLOT_DEFINITIONS,
+    HISTOGRAM_PLOT_DEFINITIONS,
+    BAR_PLOT_DEFINITIONS,
+    BOX_PLOT_DEFINITIONS,
 )
 
 
-# ================================================================================
-# MAIN EXECUTION
-# ================================================================================
-# This section runs when the script is executed directly.
-if __name__ == "__main__":
-    print("\n" + "=" * 80)
-    print(" " * 20 + "CORRELATION PLOT GENERATION - STARTING")
-    print("=" * 80 + "\n")
-
-    # Extract PPT-defined target aspect ratios from template
-    plot_aspect_ratios = get_template_plot_aspect_ratios(
-        POWERPOINT_TEMPLATE,
-        POWERPOINT_EXPORT_MAP
-    )
-
-    # Initialize main data plotter with all configurations
-    plotter = DataPlotter(
+def build_plotter():
+    """Build the configured DataPlotter instance for the correlation report."""
+    return runtime_build_plotter(
         root_folder=ROOT_FOLDER,
+        output_dir=CORRELATION_OUTPUT_DIR,
         runs=RUNS,
         plot_definitions=PLOT_DEFINITIONS,
         channel_mappings=CHANNEL_MAPPINGS,
@@ -883,7 +852,8 @@ if __name__ == "__main__":
         calculated_channels=CALCULATED_CHANNELS,
         low_pass_filters=LOW_PASS_FILTERS,
         units_map=UNITS_MAP,
-        plot_aspect_ratios=plot_aspect_ratios,
+        template_path=POWERPOINT_TEMPLATE,
+        export_map=POWERPOINT_EXPORT_MAP,
         scatter_render_mode=SCATTER_RENDER_MODE,
         scatter_density_threshold=SCATTER_DENSITY_THRESHOLD,
         scatter_max_points=SCATTER_MAX_POINTS,
@@ -891,49 +861,18 @@ if __name__ == "__main__":
         bar_secondary_axis_ratio=BAR_SECONDARY_AXIS_RATIO,
     )
 
-    # Generate all plots (waveforms, scatter, PSD, histograms, bar charts)
-    print("\nGenerating plots...")
-    plotter.plot_all()
-
-    # (Optional) Generate main correlation summary report - note this is experimental
-    if ENABLE_MAIN_CORRELATION_SUMMARY:
-        summary_txt, summary_csv = generate_main_correlation_points_report(
-            runs=RUNS,
-            run_data=plotter.run_data,
-            plot_definitions=PLOT_DEFINITIONS,
-            output_dir=plotter.plots_dir,
-            include_csv=MAIN_CORRELATION_INCLUDE_CSV,
-            low_sample_threshold=MAIN_CORRELATION_LOW_SAMPLE_THRESHOLD,
-            corr_check_threshold=MAIN_CORRELATION_CORR_CHECK_THRESHOLD,
-            slope_delta_check_pct=MAIN_CORRELATION_SLOPE_DELTA_CHECK_PCT,
-        )
-        print(f"Correlation summary: {summary_txt}")
-        if summary_csv:
-            print(f"CSV export: {summary_csv}")
-
-    # (Optional) Export all plots to PowerPoint presentation
-    if EXPORT_TO_POWERPOINT:
-        print("\nExporting to PowerPoint...")
-        try:
-            export_report_to_powerpoint(
-                template_path=POWERPOINT_TEMPLATE,
-                output_path=POWERPOINT_OUTPUT,
-                plots_dir=plotter.plots_dir,
-                export_map=POWERPOINT_EXPORT_MAP,
-                visible=False,
-            )
-            # Attempt to open the generated PowerPoint file
-            try:
-                os.startfile(POWERPOINT_OUTPUT)
-            except Exception as open_err:
-                print(f"[WARNING] Could not auto-open PowerPoint file: {open_err}")
-                print(f"File saved to: {POWERPOINT_OUTPUT}")
-        except Exception as export_err:
-            print(f"[ERROR] PowerPoint export failed: {export_err}")
-            import traceback
-            traceback.print_exc()
-
-    print("\n" + "=" * 80)
-    print(" " * 25 + "PROCESSING COMPLETE")
-    print("=" * 80 + "\n")
+# ================================================================================
+# MAIN EXECUTION
+# ================================================================================
+# This section runs when the script is executed directly.
+if __name__ == "__main__":
+    run_plot_job(
+        title="CORRELATION PLOT GENERATION",
+        plotter=build_plotter(),
+        plot_method="plot_all",
+        generate_message="Generating plots...",
+        powerpoint_template=POWERPOINT_TEMPLATE if EXPORT_TO_POWERPOINT else None,
+        powerpoint_output=POWERPOINT_OUTPUT if EXPORT_TO_POWERPOINT else None,
+        export_map=POWERPOINT_EXPORT_MAP if EXPORT_TO_POWERPOINT else None,
+    )
 

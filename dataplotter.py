@@ -58,6 +58,20 @@ def _log_error(run_name: str, msg: str, file_path=None):
     print(f"[ERROR][DataPlotter] Run '{label}' {msg}")
 
 
+def _extract_calculated_dependencies(func):
+    """Return source column names referenced by a calculated-channel lambda."""
+    import inspect
+    import re
+
+    try:
+        source = inspect.getsource(func)
+    except Exception:
+        return set()
+
+    matches = re.findall(r"df\['([^']+)'\]|df\[\"([^\"]+)\"\]", source)
+    return {m[0] or m[1] for m in matches}
+
+
 class DataPlotter:
     """Main class for loading, processing, and plotting multi-run data."""
 
@@ -82,8 +96,11 @@ class DataPlotter:
         scatter_hexbin_gridsize=70,
         bar_secondary_axis_ratio=20.0,
         box_plot_settings=None,
+        output_dir=None,
     ):
         """Build a plotter instance and run the preprocessing pipeline."""
+        root_folder = Path(root_folder)
+        output_dir = Path(output_dir) if output_dir is not None else root_folder
         self.runs = runs
         self._configure_plot_style()
         self.BAR_SECONDARY_AXIS_RATIO = float(bar_secondary_axis_ratio)
@@ -97,10 +114,11 @@ class DataPlotter:
         self.run_data = {}
         self.run_units = {}
         self.run_required_cols = {}
+        self._calculated_dependency_cache = {}
 
         for run in self.runs:
             run_name = run["name"].lower()
-            file_path = Path(root_folder) / run["file"]
+            file_path = root_folder / run["file"]
             self.run_filepaths[run_name] = file_path
 
             if not file_path.exists():
@@ -143,8 +161,8 @@ class DataPlotter:
         self.BOX_PLOT_SETTINGS = box_plot_settings or {}
 
         # Create plots directory
-        self.plots_dir = Path(root_folder) / "plots"
-        self.plots_dir.mkdir(exist_ok=True)
+        self.plots_dir = output_dir / "plots"
+        self.plots_dir.mkdir(parents=True, exist_ok=True)
 
         # Pipeline
         self.apply_channel_mappings()
@@ -206,28 +224,42 @@ class DataPlotter:
 
         # Scan all plot definitions
         if self.PLOT_DEFINITIONS:
-            for plot_group in self.PLOT_DEFINITIONS:
+            for plot_group_index, plot_group in enumerate(self.PLOT_DEFINITIONS):
                 if plot_group is None:
                     continue
                 for plot_def in plot_group:
-                    if len(plot_def) >= 2:
-                        _extract_channels(plot_def[1])
+                    if plot_group_index == 4:
+                        if len(plot_def) >= 2:
+                            metric_specs = datafunctions.normalize_bar_metric_specs(plot_def[1])
+                            for channel, _aggregation in metric_specs:
+                                _extract_channels(channel)
+                    else:
+                        if len(plot_def) >= 2:
+                            _extract_channels(plot_def[1])
 
-                    # Scatter-specific auxiliary channels used by fits/gates:
-                    # plot_def[3] => best_fit, plot_def[4]/[5] => gate spec.
-                    if len(plot_def) >= 4:
-                        best_fit = plot_def[3]
-                        fit_channels = datafunctions.collect_multi_fit_condition_channels(best_fit)
-                        required_channels.update(fit_channels)
+                    if plot_group_index == 1:
+                        # Scatter-specific auxiliary channels used by fits/gates:
+                        # plot_def[3] => best_fit, plot_def[4]/[5] => gate spec.
+                        if len(plot_def) >= 4:
+                            best_fit = plot_def[3]
+                            fit_channels = datafunctions.collect_multi_fit_condition_channels(best_fit)
+                            required_channels.update(fit_channels)
 
-                    gate_spec = None
-                    if len(plot_def) == 5:
-                        gate_spec = plot_def[4]
-                    elif len(plot_def) >= 6:
-                        gate_spec = plot_def[5]
-                    if datafunctions.is_gate_spec(gate_spec):
-                        gate_channels = datafunctions.collect_gate_channels(gate_spec)
-                        required_channels.update(gate_channels)
+                        gate_spec = None
+                        if len(plot_def) == 5:
+                            gate_spec = plot_def[4]
+                        elif len(plot_def) >= 6:
+                            gate_spec = plot_def[5]
+                        if datafunctions.is_gate_spec(gate_spec):
+                            gate_channels = datafunctions.collect_gate_channels(gate_spec)
+                            required_channels.update(gate_channels)
+
+                    elif plot_group_index == 5:
+                        # Box plots use [name, channels, mode, limits, gate_spec, options]
+                        gate_spec = plot_def[4] if len(plot_def) >= 5 else None
+                        if datafunctions.is_gate_spec(gate_spec):
+                            gate_channels = datafunctions.collect_gate_channels(gate_spec)
+                            required_channels.update(gate_channels)
 
         # Resolve calculated dependencies
         resolved_channels = set()
@@ -245,19 +277,14 @@ class DataPlotter:
                 calc_set = calc_set.get(source_type) or calc_set
 
             if isinstance(calc_set, dict) and channel in calc_set:
-                import inspect, re
-
-                try:
-                    source = inspect.getsource(calc_set[channel])
-                    matches = re.findall(
-                        r"df\['([^']+)'\]|df\[\"([^\"]+)\"\]", source
-                    )
-                    for m in matches:
-                        dep = m[0] or m[1]
-                        if dep not in processed:
-                            to_process.append(dep)
-                except Exception:
-                    pass
+                cache_key = id(calc_set[channel])
+                deps = self._calculated_dependency_cache.get(cache_key)
+                if deps is None:
+                    deps = _extract_calculated_dependencies(calc_set[channel])
+                    self._calculated_dependency_cache[cache_key] = deps
+                for dep in deps:
+                    if dep not in processed:
+                        to_process.append(dep)
             else:
                 resolved_channels.add(channel)
 
@@ -677,7 +704,7 @@ class DataPlotter:
     # UTILS
     # ------------------------------------------------------------
 
-    def _get_plot_group(self, index, plot_type):
+    def _get_plot_group(self, index):
         """Return one plot-definition group by index or an empty list."""
         if not self.PLOT_DEFINITIONS or len(self.PLOT_DEFINITIONS) <= index:
             return []
@@ -898,7 +925,7 @@ class DataPlotter:
 
     def generate_waveform_plots(self):
         """Generate all configured waveform subplot figures."""
-        plots = self._get_plot_group(0, "waveform")
+        plots = self._get_plot_group(0)
 
         for plot_def in plots:
             if len(plot_def) == 4:
@@ -1092,7 +1119,7 @@ class DataPlotter:
 
     def generate_scatter_plots(self):
         """Generate all configured scatter plots and optional fit overlays."""
-        plots = self._get_plot_group(1, "scatter")
+        plots = self._get_plot_group(1)
 
         for plot_def in plots:
             show_equations = True  # Default: display equations
@@ -1368,7 +1395,7 @@ class DataPlotter:
 
     def generate_psd_plots(self):
         """Create PSD plots from definitions, skipping only runs with unavailable/invalid channel data."""
-        plots = self._get_plot_group(2, 'psd')
+        plots = self._get_plot_group(2)
 
         for plot_def in plots:
             # Parse plot definition
@@ -1514,7 +1541,7 @@ class DataPlotter:
 
     def generate_histogram_plots(self):
         """Create histogram plots based on HISTOGRAM_PLOT_DEFINITIONS"""
-        plots = self._get_plot_group(3, 'histogram')
+        plots = self._get_plot_group(3)
 
         for plot_def in plots:
             plot_name, channel, axis_limits, log_scale = plot_def
@@ -1667,7 +1694,7 @@ class DataPlotter:
 
     def generate_bar_plots(self):
         """Create grouped bar plots for aggregated channel metrics."""
-        plots = self._get_plot_group(4, "bar")
+        plots = self._get_plot_group(4)
 
         for plot_def in plots:
             # Format:
@@ -2253,61 +2280,169 @@ class DataPlotter:
     # BOX PLOTS
     # ------------------------------------------------------------
 
+    def _parse_boxplot_definition(self, plot_def):
+        """Normalize a box-plot definition into a consistent structure."""
+        if not isinstance(plot_def, (list, tuple)) or len(plot_def) < 4:
+            raise ValueError("Box plot definitions must have at least 4 items.")
+
+        plot_name = plot_def[0]
+        channels = plot_def[1]
+        aggregation_mode = plot_def[2] if len(plot_def) > 2 else "per_run"
+        axis_limits = plot_def[3] if len(plot_def) > 3 else None
+        gate_spec = None
+        options = {}
+
+        if len(plot_def) > 4:
+            item5 = plot_def[4]
+            item6 = plot_def[5] if len(plot_def) > 5 else None
+
+            if datafunctions.is_gate_spec(item5):
+                gate_spec = item5
+                if isinstance(item6, dict):
+                    options = item6
+            elif isinstance(item5, dict):
+                options = item5
+                if datafunctions.is_gate_spec(item6):
+                    gate_spec = item6
+            elif item5 is None:
+                if datafunctions.is_gate_spec(item6):
+                    gate_spec = item6
+                elif isinstance(item6, dict):
+                    options = item6
+            else:
+                # Keep the parser forgiving: unknown 5th item is treated as gate_spec
+                # only if it matches the supported gate shape.
+                if datafunctions.is_gate_spec(item5):
+                    gate_spec = item5
+                elif isinstance(item5, dict):
+                    options = item5
+
+        if channels is None:
+            channels = []
+        elif isinstance(channels, str):
+            channels = [channels]
+        else:
+            channels = list(channels)
+
+        if not isinstance(options, dict):
+            options = {}
+
+        return plot_name, channels, aggregation_mode, axis_limits, gate_spec, options
+
+    def _collect_boxplot_point_series(self, channel, gate_spec=None):
+        """Collect per-run point series for optional box-plot overlays."""
+        series = []
+        for run in self.runs:
+            run_name = run["name"].lower()
+            df = self.run_data.get(run_name)
+            if df is None:
+                continue
+
+            filtered_df = datafunctions.apply_gate_to_dataframe(df, gate_spec) if gate_spec is not None else df
+            if channel not in filtered_df.columns:
+                continue
+
+            values = pd.to_numeric(filtered_df[channel], errors="coerce").dropna().to_numpy(dtype=float)
+            if len(values) == 0:
+                continue
+
+            series.append((run["name"].upper(), run["color"], values))
+
+        return series
+
+    def _collect_boxplot_point_series_from_data(self, channel, filtered_run_data):
+        """Collect per-run point series using prefiltered run data."""
+        series = []
+        for run in self.runs:
+            run_name = run["name"].lower()
+            df = filtered_run_data.get(run_name)
+            if df is None or channel not in df.columns:
+                continue
+
+            values = pd.to_numeric(df[channel], errors="coerce").dropna().to_numpy(dtype=float)
+            if len(values) == 0:
+                continue
+
+            series.append((run["name"].upper(), run["color"], values))
+
+        return series
+
+    def _apply_boxplot_artist_style(self, bp, box_settings, colors=None, facecolor=None, alpha=0.7):
+        """Apply consistent styling to a matplotlib boxplot result."""
+        box_linewidth = box_settings.get("box_linewidth", 1.5)
+        median_color = box_settings.get("medianline_color", "#000000")
+        median_width = box_settings.get("medianline_width", 2.0)
+        whisker_color = box_settings.get("box_edge_color", "#4A4A4A")
+        cap_color = box_settings.get("box_edge_color", "#4A4A4A")
+
+        for idx, patch in enumerate(bp.get("boxes", [])):
+            patch.set_linewidth(box_linewidth)
+            if colors and idx < len(colors):
+                patch.set_facecolor(colors[idx])
+            elif facecolor is not None:
+                patch.set_facecolor(facecolor)
+            patch.set_alpha(alpha)
+
+        for item in bp.get("whiskers", []):
+            item.set(color=whisker_color, linewidth=box_linewidth)
+
+        for item in bp.get("caps", []):
+            item.set(color=cap_color, linewidth=box_linewidth)
+
+        for median in bp.get("medians", []):
+            median.set(color=median_color, linewidth=median_width)
+
+        for flier in bp.get("fliers", []):
+            flier.set(markerfacecolor=median_color, markeredgecolor=median_color, alpha=0.7)
+
     def generate_box_plots(self):
         """Generate box plots for distribution analysis across runs."""
-        plots = self._get_plot_group(5, "box")
+        plots = self._get_plot_group(5)
 
         if not plots:
             return
 
-        # Get box plot settings from parent scope (if available) or use defaults
-        box_settings = getattr(self, 'BOX_PLOT_SETTINGS', {})
+        box_settings = getattr(self, "BOX_PLOT_SETTINGS", {})
 
         for plot_def in plots:
-            # Parse definition
-            plot_name = plot_def[0] if len(plot_def) > 0 else "Unknown"
-            channels = plot_def[1] if len(plot_def) > 1 else None
-            aggregation_mode = plot_def[2] if len(plot_def) > 2 else "per_run"
-            axis_limits = plot_def[3] if len(plot_def) > 3 else None
-            gate_spec = plot_def[4] if len(plot_def) > 4 else None
-            options = plot_def[5] if len(plot_def) > 5 else {}
+            try:
+                plot_name, channels, aggregation_mode, axis_limits, gate_spec, options = self._parse_boxplot_definition(plot_def)
+            except ValueError as exc:
+                print(f"[WARNING][DataPlotter] {exc} Skipping box plot definition: {plot_def!r}")
+                continue
 
-            if channels is None:
+            if not channels:
                 print(f"[WARNING][DataPlotter] Box plot '{plot_name}': no channels specified. Skipping.")
                 continue
 
-            # Normalize channels to list
-            if isinstance(channels, str):
-                channels = [channels]
-            else:
-                channels = list(channels)
+            plot_options = dict(box_settings)
+            plot_options.update(options or {})
 
             print(f"Creating box plot: {plot_name}")
 
             # Determine figure size
             num_channels = len(channels)
-            if num_channels == 1 and aggregation_mode == "aggregated":
-                figsize = box_settings.get("figsize_single_channel", (10, 6))
+            if num_channels == 1:
+                figsize = box_settings.get("figsize_single_channel", self.boxplot_FIGSIZE)
             else:
-                if aggregation_mode == "aggregated" and num_channels > 1:
-                    figsize = box_settings.get("figsize_multi_channel", (14, 10))
-                else:
-                    figsize = self.boxplot_FIGSIZE
+                figsize = box_settings.get("figsize_multi_channel", self.boxplot_FIGSIZE)
 
             # Generate plot based on mode
             if aggregation_mode == "per_run":
                 self._generate_boxplot_per_run(
-                    plot_name, channels, axis_limits, gate_spec, options, figsize, box_settings
+                    plot_name, channels, axis_limits, gate_spec, plot_options, figsize
                 )
             elif aggregation_mode == "aggregated":
                 self._generate_boxplot_aggregated(
-                    plot_name, channels, axis_limits, gate_spec, options, figsize, box_settings
+                    plot_name, channels, axis_limits, gate_spec, plot_options, figsize
                 )
             else:
                 print(f"[WARNING][DataPlotter] Box plot '{plot_name}': unknown aggregation_mode '{aggregation_mode}'. Skipping.")
 
-    def _generate_boxplot_per_run(self, plot_name, channels, axis_limits, gate_spec, options, figsize, box_settings):
+    def _generate_boxplot_per_run(self, plot_name, channels, axis_limits, gate_spec, options, figsize):
         """Generate per-run box plots (one box per run per channel)."""
+        box_settings = dict(self.BOX_PLOT_SETTINGS or {})
+        box_settings.update(options or {})
         # Aggregate data
         agg_data = datafunctions.aggregate_channel_for_boxplot(
             self.run_data, channels, aggregation_mode='per_run', gate_spec=gate_spec
@@ -2325,6 +2460,13 @@ class DataPlotter:
 
         # Build run color map
         run_colors = {run['name'].lower(): run['color'] for run in self.runs}
+        show_points = bool(options.get("show_points", box_settings.get("show_points", False)))
+        show_fliers = bool(box_settings.get("show_fliers", True))
+        point_alpha = float(box_settings.get("point_alpha", 0.25))
+        point_size = float(box_settings.get("point_size", 18))
+        jitter = float(box_settings.get("jitter", 0.15))
+        box_width = float(box_settings.get("box_width", 0.6))
+        gate_text = datafunctions.format_gate_text(gate_spec) if gate_spec is not None else None
 
         # Create figure with subplots (one per channel if multiple)
         num_channels = len(channels)
@@ -2332,15 +2474,23 @@ class DataPlotter:
             fig, axes = plt.subplots(1, 1, figsize=figsize)
             axes = [axes]
         else:
-            fig, axes = plt.subplots(num_channels, 1, figsize=(figsize[0], figsize[1] * num_channels * 0.5), sharex=False)
-            if num_channels == 1:
-                axes = [axes]
+            fig, axes = plt.subplots(
+                num_channels,
+                1,
+                figsize=(figsize[0], max(figsize[1], 4.5) * num_channels * 0.62),
+                sharex=False,
+            )
+            axes = list(np.atleast_1d(axes))
 
-        for ax, channel in zip(axes, channels):
+        fig.suptitle(plot_name, fontsize=16, fontweight="bold")
+        rng = np.random.default_rng(42)
+
+        for ax_index, (ax, channel) in enumerate(zip(axes, channels)):
             # Prepare data for boxplot
             data_list = []
             labels_list = []
             colors_list = []
+            overlay_series = []
 
             for run_name in run_names:
                 if channel in agg_data[run_name]:
@@ -2349,6 +2499,10 @@ class DataPlotter:
                         data_list.append(values)
                         labels_list.append(run_name.upper())
                         colors_list.append(run_colors.get(run_name, '#3498DB'))
+                        if show_points:
+                            overlay_series.append(
+                                (run_name.upper(), run_colors.get(run_name, "#3498DB"), values)
+                            )
 
             if not data_list:
                 print(f"[WARNING][DataPlotter] Box plot '{plot_name}' channel '{channel}': no data for any runs. Skipping subplot.")
@@ -2359,29 +2513,29 @@ class DataPlotter:
                 data_list,
                 labels=labels_list,
                 patch_artist=True,
-                widths=box_settings.get('box_width', 0.6),
-                showfliers=box_settings.get('show_fliers', True),
+                widths=box_width,
+                showfliers=show_fliers,
             )
 
-            # Color boxes by run
-            for patch, color in zip(bp['boxes'], colors_list):
-                patch.set_facecolor(color)
-                patch.set_alpha(box_settings.get('per_run_box_alpha', 0.7))
-
-            # Style median lines
-            for median in bp['medians']:
-                median.set(color=box_settings.get('medianline_color', '#000000'),
-                          linewidth=box_settings.get('medianline_width', 2.0))
+            self._apply_boxplot_artist_style(
+                bp,
+                box_settings,
+                colors=colors_list,
+                alpha=options.get("per_run_box_alpha", box_settings.get("per_run_box_alpha", 0.7)),
+            )
 
             # Axis labels
             ax.set_ylabel(
                 datafunctions.add_units_to_label(channel, self.units_map),
                 fontweight='bold', fontsize=12
             )
+            ax.set_title(channel, fontweight="bold", fontsize=12)
 
             # Apply axis limits if specified
-            if axis_limits:
-                ax.set_ylim(axis_limits)
+            if isinstance(axis_limits, (list, tuple)) and len(axis_limits) == 2:
+                ymin, ymax = axis_limits
+                if ymin is not None or ymax is not None:
+                    ax.set_ylim(bottom=ymin, top=ymax)
 
             # Styling
             ax.grid(True, axis='y', alpha=0.3)
@@ -2394,20 +2548,36 @@ class DataPlotter:
             if yl <= 0 <= yr:
                 ax.axhline(0, color="#5E5E5E", linewidth=1, alpha=0.8)
 
-        # Add gate info if applicable
-        # if gate_spec is not None:
-        #     gate_text = datafunctions.format_gate_text(gate_spec)
-        #     if gate_text:
-        #         self._display_gate_info(ax, gate_text)
+            if show_points:
+                for box_index, (_, color, values) in enumerate(overlay_series, start=1):
+                    x_points = np.full(len(values), box_index, dtype=float)
+                    x_points += rng.uniform(-jitter, jitter, size=len(values))
+                    ax.scatter(
+                        x_points,
+                        values,
+                        s=point_size,
+                        alpha=point_alpha,
+                        color=color,
+                        edgecolors="none",
+                        zorder=3,
+                    )
 
-        plt.tight_layout(rect=[0, 0.03, 1, 0.96])
+        if gate_text:
+            self._display_gate_info(axes[0], gate_text)
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         filename = self._sanitize_plot_filename("box", plot_name)
         fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.05, facecolor='white')
         plt.close(fig)
         print(f"  Saved: {filename}")
 
-    def _generate_boxplot_aggregated(self, plot_name, channels, axis_limits, gate_spec, options, figsize, box_settings):
+    def _generate_boxplot_aggregated(self, plot_name, channels, axis_limits, gate_spec, options, figsize):
         """Generate aggregated box plots (all runs combined into single/multiple boxes)."""
+        box_settings = dict(self.BOX_PLOT_SETTINGS or {})
+        box_settings.update(options or {})
+        filtered_run_data = {
+            run_name: datafunctions.apply_gate_to_dataframe(df, gate_spec) if gate_spec is not None else df
+            for run_name, df in self.run_data.items()
+        }
         # Aggregate data
         agg_data = datafunctions.aggregate_channel_for_boxplot(
             self.run_data, channels, aggregation_mode='aggregated', gate_spec=gate_spec
@@ -2417,17 +2587,36 @@ class DataPlotter:
             print(f"[WARNING][DataPlotter] Box plot '{plot_name}': no data after aggregation. Skipping.")
             return
 
+        show_points = bool(box_settings.get("show_points", False))
+        show_fliers = bool(box_settings.get("show_fliers", True))
+        point_alpha = float(box_settings.get("point_alpha", 0.25))
+        point_size = float(box_settings.get("point_size", 18))
+        jitter = float(box_settings.get("jitter", 0.15))
+        box_width = float(box_settings.get("box_width", 0.6))
+        aggregated_box_color = box_settings.get("aggregated_box_color", "#3498DB")
+        aggregated_box_alpha = float(box_settings.get("aggregated_box_alpha", 0.7))
+        gate_text = datafunctions.format_gate_text(gate_spec) if gate_spec is not None else None
+
         # Create figure with subplots (one per channel if multiple)
         num_channels = len(channels)
         if num_channels == 1:
             fig, axes = plt.subplots(1, 1, figsize=figsize)
             axes = [axes]
         else:
-            fig, axes = plt.subplots(num_channels, 1, figsize=(figsize[0], figsize[1] * num_channels * 0.5), sharex=False)
-            if num_channels == 1:
-                axes = [axes]
+            fig, axes = plt.subplots(
+                num_channels,
+                1,
+                figsize=(figsize[0], max(figsize[1], 4.5) * num_channels * 0.62),
+                sharex=False,
+            )
+            axes = list(np.atleast_1d(axes))
 
-        for ax, channel in zip(axes, channels):
+        fig.suptitle(plot_name, fontsize=16, fontweight="bold")
+        rng = np.random.default_rng(42)
+        legend_handles = []
+        legend_labels = []
+
+        for ax_index, (ax, channel) in enumerate(zip(axes, channels)):
             if channel not in agg_data:
                 print(f"[WARNING][DataPlotter] Box plot '{plot_name}' channel '{channel}': no aggregated data. Skipping subplot.")
                 continue
@@ -2442,29 +2631,29 @@ class DataPlotter:
                 [data],
                 labels=[channel],
                 patch_artist=True,
-                widths=box_settings.get('box_width', 0.6),
-                showfliers=box_settings.get('show_fliers', True),
+                widths=box_width,
+                showfliers=show_fliers,
             )
 
-            # Color box
-            for patch in bp['boxes']:
-                patch.set_facecolor(box_settings.get('aggregated_box_color', '#3498DB'))
-                patch.set_alpha(box_settings.get('aggregated_box_alpha', 0.7))
-
-            # Style median line
-            for median in bp['medians']:
-                median.set(color=box_settings.get('medianline_color', '#000000'),
-                          linewidth=box_settings.get('medianline_width', 2.0))
+            self._apply_boxplot_artist_style(
+                bp,
+                box_settings,
+                facecolor=aggregated_box_color,
+                alpha=aggregated_box_alpha,
+            )
 
             # Axis labels
             ax.set_ylabel(
                 datafunctions.add_units_to_label(channel, self.units_map),
                 fontweight='bold', fontsize=12
             )
+            ax.set_title(channel, fontweight="bold", fontsize=12)
 
             # Apply axis limits if specified
-            if axis_limits:
-                ax.set_ylim(axis_limits)
+            if isinstance(axis_limits, (list, tuple)) and len(axis_limits) == 2:
+                ymin, ymax = axis_limits
+                if ymin is not None or ymax is not None:
+                    ax.set_ylim(bottom=ymin, top=ymax)
 
             # Styling
             ax.grid(True, axis='y', alpha=0.3)
@@ -2477,13 +2666,30 @@ class DataPlotter:
             if yl <= 0 <= yr:
                 ax.axhline(0, color="#5E5E5E", linewidth=1, alpha=0.8)
 
-        # Add gate info if applicable
-        if gate_spec is not None:
-            gate_text = datafunctions.format_gate_text(gate_spec)
-            if gate_text:
-                self._display_gate_info(ax, gate_text)
+            if show_points:
+                overlay_series = self._collect_boxplot_point_series_from_data(channel, filtered_run_data)
+                for run_label, color, values in overlay_series:
+                    x_points = np.full(len(values), 1.0, dtype=float)
+                    x_points += rng.uniform(-jitter, jitter, size=len(values))
+                    ax.scatter(
+                        x_points,
+                        values,
+                        s=point_size,
+                        alpha=point_alpha,
+                        color=color,
+                        edgecolors="none",
+                        zorder=3,
+                    )
+                    if run_label not in legend_labels:
+                        legend_handles.append(Line2D([0], [0], marker='o', linestyle='None', color=color))
+                        legend_labels.append(run_label)
 
-        plt.tight_layout(rect=[0, 0.03, 1, 0.96])
+        if show_points and legend_handles:
+            self._add_standard_legend(axes[0], handles=legend_handles, labels=legend_labels, loc="upper right")
+        if gate_text:
+            self._display_gate_info(axes[0], gate_text, legend=axes[0].get_legend() if show_points and legend_handles else None)
+
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         filename = self._sanitize_plot_filename("box", plot_name)
         fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.05, facecolor='white')
         plt.close(fig)

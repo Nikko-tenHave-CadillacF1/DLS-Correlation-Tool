@@ -947,6 +947,7 @@ def build_fit_condition_data(df, index, fit_defs, plot_name="", run_name=""):
             continue
         series = pd.to_numeric(df[channel], errors="coerce").reindex(index)
         data[channel] = series.to_numpy(dtype=float)
+    return data
 
 
 # ================================================================
@@ -969,18 +970,20 @@ def apply_gate_to_dataframe(df, gate_spec):
     
     conditions = _normalize_gate_conditions(gate_spec)
     mask = pd.Series(True, index=df.index)
-    
+
     for condition in conditions:
         if not isinstance(condition, (list, tuple)) or len(condition) != 3:
-            continue
-        
+            print("[WARNING][datafunctions] Invalid gate condition. Skipping dataframe.")
+            return df.iloc[0:0].copy()
+
         channel, operator, value = condition
-        
+
         if channel not in df.columns:
-            continue
-        
+            print(f"[WARNING][datafunctions] Gate channel '{channel}' missing. Skipping dataframe.")
+            return df.iloc[0:0].copy()
+
         col = pd.to_numeric(df[channel], errors="coerce")
-        
+
         if operator == '>':
             gate_mask = col > value
         elif operator == '<':
@@ -993,15 +996,28 @@ def apply_gate_to_dataframe(df, gate_spec):
             gate_mask = col == value
         elif operator == 'between' and isinstance(value, (list, tuple)) and len(value) == 2:
             low, high = value
-            gate_mask = (col >= low) & (col <= high)
+            gate_mask = pd.Series(True, index=col.index)
+            if low is not None:
+                gate_mask &= col >= low
+            if high is not None:
+                gate_mask &= col <= high
         elif operator == 'outside' and isinstance(value, (list, tuple)) and len(value) == 2:
             low, high = value
-            gate_mask = (col < low) | (col > high)
+            gate_mask = pd.Series(True, index=col.index)
+            if low is not None and high is not None:
+                gate_mask = (col < low) | (col > high)
+            elif low is not None:
+                gate_mask = col < low
+            elif high is not None:
+                gate_mask = col > high
+            else:
+                gate_mask = pd.Series(False, index=col.index)
         else:
-            continue
-        
+            print(f"[WARNING][datafunctions] Unsupported gate condition for channel '{channel}'. Skipping dataframe.")
+            return df.iloc[0:0].copy()
+
         mask &= gate_mask.fillna(False)
-    
+
     return df[mask].copy()
 
 
@@ -1029,14 +1045,14 @@ def aggregate_channel_for_boxplot(run_data_dict, channels, aggregation_mode='per
         channels = list(channels)
     
     result = {}
+    filtered_run_data = {
+        run_name: apply_gate_to_dataframe(df, gate_spec) if gate_spec is not None else df
+        for run_name, df in run_data_dict.items()
+    }
     
     if aggregation_mode == 'per_run':
         # Structure: {run_name: {channel: values_array}}
-        for run_name, df in run_data_dict.items():
-            # Apply gate if specified
-            if gate_spec is not None:
-                df = apply_gate_to_dataframe(df, gate_spec)
-            
+        for run_name, df in filtered_run_data.items():
             run_dict = {}
             for channel in channels:
                 if channel in df.columns:
@@ -1052,11 +1068,7 @@ def aggregate_channel_for_boxplot(run_data_dict, channels, aggregation_mode='per
         for channel in channels:
             all_values = []
             
-            for run_name, df in run_data_dict.items():
-                # Apply gate if specified
-                if gate_spec is not None:
-                    df = apply_gate_to_dataframe(df, gate_spec)
-                
+            for run_name, df in filtered_run_data.items():
                 if channel in df.columns:
                     values = df[channel].dropna().values
                     all_values.extend(values)
@@ -1064,80 +1076,6 @@ def aggregate_channel_for_boxplot(run_data_dict, channels, aggregation_mode='per
             result[channel] = np.array(all_values)
     
     return result
-
-
-def get_boxplot_data_for_matplotlib(agg_data, aggregation_mode, channels, run_names):
-    """
-    Convert aggregated data to format suitable for matplotlib boxplot().
-    
-    Args:
-        agg_data: Output from aggregate_channel_for_boxplot()
-        aggregation_mode: 'per_run' or 'aggregated'
-        channels: List of channels
-        run_names: List of run display names (for per_run mode)
-    
-    Returns:
-        Tuple of (data_list, labels_list)
-        where data_list contains arrays to pass to ax.boxplot()
-    """
-    if aggregation_mode == 'per_run':
-        # Create list of arrays: [run1_ch1, run1_ch2, ..., run2_ch1, run2_ch2, ...]
-        data_list = []
-        labels_list = []
-        
-        for channel in channels:
-            for run_name in run_names:
-                if run_name in agg_data and channel in agg_data[run_name]:
-                    data_list.append(agg_data[run_name][channel])
-                    labels_list.append(f"{run_name}\n{channel}")
-                else:
-                    data_list.append(np.array([]))
-                    labels_list.append(f"{run_name}\n{channel}")
-    
-    else:  # aggregated
-        # Create list of arrays: [ch1_agg, ch2_agg, ...]
-        data_list = []
-        labels_list = []
-        
-        for channel in channels:
-            if channel in agg_data:
-                data_list.append(agg_data[channel])
-            else:
-                data_list.append(np.array([]))
-            labels_list.append(channel)
-    
-    return data_list, labels_list
-
-
-def format_boxplot_colors(data_list, aggregation_mode, run_colors, channels, run_names, box_color):
-    """
-    Generate color list for box plots based on aggregation mode.
-    
-    Args:
-        data_list: List of arrays for each box
-        aggregation_mode: 'per_run' or 'aggregated'
-        run_colors: Dict of {run_name: hex_color}
-        channels: List of channels
-        run_names: List of run names
-        box_color: Default box color for aggregated mode
-    
-    Returns:
-        List of colors (one per box)
-    """
-    colors = []
-    
-    if aggregation_mode == 'per_run':
-        # Color by run
-        for channel in channels:
-            for run_name in run_names:
-                colors.append(run_colors.get(run_name, '#3498DB'))
-    else:
-        # Single color for all boxes
-        colors = [box_color] * len(data_list)
-    
-    return colors
-
-    return data
 
 
 def build_multi_fit_mask(
@@ -1183,7 +1121,7 @@ def build_multi_fit_mask(
         condition_values = np.asarray(y_data, dtype=float)
         axis_name = y_var or "y"
     else:
-        if not fit_condition_data: #or axis_key not in fit_condition_data
+        if not fit_condition_data or axis_key not in fit_condition_data:
             result["status"] = "missing_condition_channel"
             result["axis_name"] = axis_key
             result["mask"] = np.zeros(len(x_data), dtype=bool)
