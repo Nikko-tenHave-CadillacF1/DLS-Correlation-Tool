@@ -1,8 +1,6 @@
-"""
-Box plot analysis entry point.
+"""Box-plot workflow entry point.
 
-This script keeps only the box-plot configuration and the minimal runner needed
-to generate the plots.
+Keep this file focused on the box-plot run list and box-specific plot settings.
 """
 
 import numpy as np
@@ -103,6 +101,7 @@ PLOT_DEFINITIONS = build_plot_groups([], [], [], [], [], BOX_PLOT_DEFINITIONS)
 
 
 def build_plotter():
+    """Build the configured plotter for the box-plot workflow."""
     return runtime_build_plotter(
         root_folder=ROOT_FOLDER,
         output_dir=BOXPLOT_OUTPUT_DIR,
@@ -118,6 +117,7 @@ def build_plotter():
 
 
 if __name__ == "__main__":
+    # The shared runner handles console framing and any future export hooks.
     run_plot_job(
         title="BOX PLOT ANALYSIS",
         plotter=build_plotter(),

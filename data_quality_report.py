@@ -1,4 +1,4 @@
-"""Preflight data-quality checks and report writing utilities."""
+"""Data-quality checks and report writing."""
 
 from pathlib import Path
 

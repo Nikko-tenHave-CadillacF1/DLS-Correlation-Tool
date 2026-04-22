@@ -1,14 +1,4 @@
-"""
-PowerPoint Export Utilities
-===========================
-Handles:
- - reading plot-target aspect ratios from a PPTX template
- - replacing template images with generated plots
- - applying main/double plot layouts
- - scaling/centering images proportionally
-
-This version is cleaned, modernised, and made robust while preserving full functionality.
-"""
+"""PowerPoint export helpers."""
 
 from pathlib import Path
 from datetime import datetime

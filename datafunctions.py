@@ -1,4 +1,4 @@
-"""Shared data-cleaning, filtering, PSD, and scatter-fit utilities."""
+"""Shared data cleaning, filtering, and plotting helpers."""
 
 import pandas as pd
 import numpy as np
@@ -994,6 +994,8 @@ def apply_gate_to_dataframe(df, gate_spec):
             gate_mask = col <= value
         elif operator == '==':
             gate_mask = col == value
+        elif operator == '!=':
+            gate_mask = col != value
         elif operator == 'between' and isinstance(value, (list, tuple)) and len(value) == 2:
             low, high = value
             gate_mask = pd.Series(True, index=col.index)
@@ -1021,7 +1023,13 @@ def apply_gate_to_dataframe(df, gate_spec):
     return df[mask].copy()
 
 
-def aggregate_channel_for_boxplot(run_data_dict, channels, aggregation_mode='per_run', gate_spec=None):
+def aggregate_channel_for_boxplot(
+    run_data_dict,
+    channels,
+    aggregation_mode='per_run',
+    gate_spec=None,
+    filtered_run_data=None,
+):
     """
     Aggregate channel data from multiple runs for box plotting.
     
@@ -1045,10 +1053,11 @@ def aggregate_channel_for_boxplot(run_data_dict, channels, aggregation_mode='per
         channels = list(channels)
     
     result = {}
-    filtered_run_data = {
-        run_name: apply_gate_to_dataframe(df, gate_spec) if gate_spec is not None else df
-        for run_name, df in run_data_dict.items()
-    }
+    if filtered_run_data is None:
+        filtered_run_data = {
+            run_name: apply_gate_to_dataframe(df, gate_spec) if gate_spec is not None else df
+            for run_name, df in run_data_dict.items()
+        }
     
     if aggregation_mode == 'per_run':
         # Structure: {run_name: {channel: values_array}}

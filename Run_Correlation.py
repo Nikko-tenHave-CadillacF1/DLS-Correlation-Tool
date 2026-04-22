@@ -1,21 +1,7 @@
-"""
-================================================================================
-CORRELATION REPORT GENERATOR
-================================================================================
-Workflow:
-    1. Define run data files, processing rules, and plot specifications
-    2. DataPlotter loads and processes telemetry data from each run
-    3. Generates all configured plot types
-    4. Optionally exports plots to a PowerPoint template
+"""Correlation report entry point.
 
-Key Configuration Sections:
-    - RUNS: Define which data files to load and their visual properties
-    - CHANNEL_MAPPINGS: Map source channels to standardized names
-    - CHANNEL_TRANSFORMS: Apply unit conversions and corrections
-    - CALCULATED_CHANNELS: Define derived channels from raw data
-    - PLOT_DEFINITIONS: Specify waveforms, scatter, PSD, and other plots
-    - POWERPOINT_EXPORT_MAP: Map plots to PowerPoint slide layouts
-================================================================================
+This file stays intentionally configuration-heavy, but only for the settings
+that are specific to the correlation workflow.
 """
 
 import numpy as np
@@ -27,6 +13,7 @@ from data_layout import (
     resolve_template_path,
 )
 from plot_runtime import build_plot_groups, build_plotter as runtime_build_plotter, run_plot_job
+from plot_shared_config import CHANNEL_MAPPINGS, UNITS_MAP
 
 # ================================================================================
 # CONFIGURATION: DATA FILES & LOCATIONS
@@ -56,7 +43,7 @@ ROOT_FOLDER = resolve_correlation_input_dir()
 #   - type:    Data source type (OC, CAR, DLS, DIL) - determines mapping rules
 #
 # Notes:
-#   - Set type correctly; it determines which CHANNEL_MAPPINGS and
+#   - Set type correctly; it determines which shared mappings and
 #     CHANNEL_TRANSFORMS are applied
 #   - Use nrun for ranked selection when multiple runs exist in one file
 #   - nlap filters on exact nLap value when available
@@ -117,67 +104,6 @@ EXPORT_TO_POWERPOINT = True
 
 
 # ================================================================================
-# CONFIGURATION: CHANNEL MAPPINGS
-# ================================================================================
-# Map source channel names to standardized names for consistency across data types.
-# Enables comparing equivalent signals from different data sources/formats.
-#
-# Usage:
-#   If a raw channel name is in the mapping, it will be renamed to the mapped
-#   name. Example: 'rSLMActive' (OC format) → 'SM' (standardized name)
-#
-# Add new mappings as needed when working with different data sources.
-CHANNEL_MAPPINGS = {
-    'OC': {
-        # Optimal Control format mappings
-        'rSLMActive': 'SM',
-        'aUndersteer_aSlip': 'aUndersteerFromSlip'
-    },
-    
-    'DIL': {
-        # Driver-in-Loop format mappings
-        'BSLMActiveCan': 'SM',
-        'FPushrodFL': 'FPRodFL',
-        'FPushrodFR': 'FPRodFR',
-        'FPushrodRL': 'FPRodRL',
-        'FPushrodRR': 'FPRodRR',
-        'EPlankWearLapF': 'EPlankF',
-        'PPlankWearF': 'PPlankF',
-        'pBrakeF1': 'pBrakeF',
-        'CAN_6_632_aSteerWheel_Can': 'aSteerWheel',
-    },
-    
-    'DLS': {
-        # DLS/LTS simulator format mappings - NB LTS type is same as DLS
-        'aRollCarTrack': 'aRoll',
-        'FPushrodFL': 'FPRodFL',
-        'FPushrodFR': 'FPRodFR',
-        'FPushrodRL': 'FPRodRL',
-        'FPushrodRR': 'FPRodRR',
-        'aUndersteer_aSlip': 'aUndersteerFromSlip',
-        'BAeroModeXDriver': 'SM',
-        'rThrottlePedal': 'rThrottle',
-        'EPlankLTS_Lap': 'EPlankF',
-        'PPlankWearF': 'PPlankF'
-    },
-    
-    'CAR': {
-        # Trackside format mappings
-        'BNSLMEnablingStatusEnabled': 'SM',
-        'PMGUKActual': 'PMGUK',
-        'rThrottlePedal': 'rThrottle',
-        'xDamperPotFL': 'xDamperFL',
-        'xDamperPotFR': 'xDamperFR',
-        'xDamperPotRL': 'xDamperRL',
-        'xDamperPotRR': 'xDamperRR',
-        'nYawSlipSensor': 'nYaw',
-        'EPlankWearLapF': 'EPlankF',
-        'PPlankWearF': 'PPlankF',
-    }
-}
-
-
-# ================================================================================
 # CONFIGURATION: CHANNEL TRANSFORMS
 # ================================================================================
 # Apply mathematical transformations to channels (unit conversions, sign corrections).
@@ -209,63 +135,6 @@ CHANNEL_TRANSFORMS = {
         "PMGUK": lambda x: x / 1000,              # W → kW
         "sLap": lambda x: x - 15,                 # GPS alignment shift
     }
-}
-
-
-# ================================================================================
-# CONFIGURATION: UNITS MAPPING
-# ================================================================================
-# Map channel names to their physical units. Used for axis labels and legends.
-# Add new channels as they're incorporated into plots. Beware of channel transforms that may change units (e.g. W → kW).
-
-UNITS_MAP = {
-    # Acceleration channels
-    "glat": "g", "glong": "g", "gvertf": "g", "gvertr": "g", "glat_abs": "g",
-    "gLong (raw)": "g", "gVert": "g",
-    
-    # Velocity/speed
-    "vcar": "kph",
-    
-    # Angles
-    "aroll": "deg", "asteer": "deg", "asteerwheel": "deg", "aundersteerfromslip": "deg",
-    
-    # Displacement
-    "xrh": "mm", "laser": "mm", "hrider": "mm", "hridef": "mm",
-    "damper": "mm", "xdamper": "mm",
-    
-    # Forces
-    "fprod": "N", "fpushrod": "N", "pushrod": "N",
-    "fprodfl": "N", "fprodfr": "N", "fprodrl": "N", "fprodrr": "N",
-    "fprodavgf": "N", "fprodavgr": "N",
-    "fproddeltaf": "N", "fproddeltar": "N",
-    "trackrod": "N",
-    
-    # Suspension
-    "xdamperavgf": "mm", "xdamperavgr": "mm",
-    "xdamperdeltaf": "mm", "xdamperdeltar": "mm",
-    
-    # Engine
-    "nengine": "rpm", "mengine": "Nm", "msteerwheel": "Nm",
-    
-    # Pressure/Power
-    "brake": "bar", "throttle": "%", "pmguk": "kW", "pengine": "kW",
-    "nwheelr_avg": "rpm",
-    
-    # Sensors
-    "nyaw": "deg/s",
-    "pbrakef": "bar",
-    "rthrottle": "%",
-    
-    # Grounding and plank wear
-    "EPlank_F": "kJ",
-    "PPlank_F": "kW",
-    "FzPlankF": "N",
-
-    # Energy/Power consumption
-    "dmInjector": "kg/h",
-    "PMGUK_Deploy": "kW",
-    "PMGUK_Charge": "kW",
-    "dmInjector (kg/s)": "kg/s",
 }
 
 
@@ -786,7 +655,7 @@ BOX_PLOT_DEFINITIONS = [
 # Format:
 #   slide_number: {
 #       'layout': 'layout_name',      # 'main_plot' (full-width) or 'double_plot' (two side-by-side)
-#       'images': ['image1.png', 'image2.png']  # Files generated by plot_all()
+#       'images': ['image1.png', 'image2.png']  # Files generated by plot_data()
 #   }
 #
 # The 'images' list order matters for 'double_plot' layout:
@@ -869,7 +738,7 @@ if __name__ == "__main__":
     run_plot_job(
         title="CORRELATION PLOT GENERATION",
         plotter=build_plotter(),
-        plot_method="plot_all",
+        plot_method="plot_data",
         generate_message="Generating plots...",
         powerpoint_template=POWERPOINT_TEMPLATE if EXPORT_TO_POWERPOINT else None,
         powerpoint_output=POWERPOINT_OUTPUT if EXPORT_TO_POWERPOINT else None,

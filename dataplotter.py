@@ -9,7 +9,7 @@ from pathlib import Path
 import importlib.util
 import datafunctions
 import data_quality_report
-from collections import Counter
+from collections import Counter, deque
 from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
 
@@ -72,6 +72,17 @@ def _extract_calculated_dependencies(func):
     return {m[0] or m[1] for m in matches}
 
 
+def _resolve_scatter_style(point_count, base_size, base_alpha):
+    """Tune scatter styling slightly for dense plots."""
+    if point_count <= 5000:
+        return base_size, base_alpha
+    if point_count <= 20000:
+        return max(3.5, base_size * 0.9), min(0.75, base_alpha + 0.05)
+    if point_count <= 60000:
+        return max(3.0, base_size * 0.8), max(0.35, base_alpha * 0.8)
+    return max(2.5, base_size * 0.7), max(0.22, base_alpha * 0.65)
+
+
 class DataPlotter:
     """Main class for loading, processing, and plotting multi-run data."""
 
@@ -115,30 +126,16 @@ class DataPlotter:
         self.run_units = {}
         self.run_required_cols = {}
         self._calculated_dependency_cache = {}
+        self._gated_data_cache = {}
+        self._reverse_mappings = {}
+        self._loaded = False
+        self._preprocessed = False
 
-        for run in self.runs:
-            run_name = run["name"].lower()
-            file_path = root_folder / run["file"]
-            self.run_filepaths[run_name] = file_path
-
-            if not file_path.exists():
-                print(f"[WARNING][DataPlotter] Missing data file for run '{run_name}': {file_path}. Skipping run.")
-                continue
-
-            use_python_engine = (run_name == "car")
-            self.run_required_cols[run_name] = self._get_required_source_columns(run.get("type", run_name))
-
-            data, _, units = self._load_run_data(
-                file_path,
-                use_python_engine=use_python_engine,
-                columns_to_load=self.run_required_cols[run_name],
-                parquet_nrun=run.get("nrun"),
-                parquet_nlap=run.get("nlap"),
-                run_name=run_name,
-            )
-
-            self.run_data[run_name] = data
-            self.run_units[run_name] = units
+        if self.CHANNEL_MAPPINGS:
+            for source_type, mapping in self.CHANNEL_MAPPINGS.items():
+                self._reverse_mappings[source_type] = {
+                    mapped: raw for raw, mapped in mapping.items()
+                }
 
         self.CHANNEL_TRANSFORMS = channel_transforms
         self.units_map = units_map
@@ -165,12 +162,8 @@ class DataPlotter:
         self.plots_dir.mkdir(parents=True, exist_ok=True)
 
         # Pipeline
-        self.apply_channel_mappings()
-        self.apply_transformations()
-        self.clean_data()
-        self.apply_calculated_channels()
-        self.apply_lowpass_filters()
-        self.run_data_quality_checks()
+        self.load_data(root_folder)
+        self.preprocess_data()
 
     # ------------------------------------------------------------
     # STYLE
@@ -263,11 +256,11 @@ class DataPlotter:
 
         # Resolve calculated dependencies
         resolved_channels = set()
-        to_process = list(required_channels)
+        to_process = deque(required_channels)
         processed = set()
 
         while to_process:
-            channel = to_process.pop(0)
+            channel = to_process.popleft()
             if channel in processed:
                 continue
             processed.add(channel)
@@ -290,14 +283,9 @@ class DataPlotter:
 
         # Apply channel mappings: convert mapped names to original raw names
         source_columns = set()
-        mappings = self.CHANNEL_MAPPINGS.get(source_type) if self.CHANNEL_MAPPINGS else {}
+        mappings = self._reverse_mappings.get(source_type, {})
         for ch in resolved_channels:
-            found_src = None
-            for raw, mapped in mappings.items():
-                if mapped == ch:
-                    found_src = raw
-                    break
-            source_columns.add(found_src or ch)
+            source_columns.add(mappings.get(ch, ch))
 
         return source_columns
 
@@ -641,11 +629,8 @@ class DataPlotter:
 
     def clean_data(self):
         """Remove non-numeric columns and patch YES/NO."""
-        for run_name, df in self.run_data.items():
-            df = datafunctions.convert_yes_no_to_binary(df)
-
         for run_name in list(self.run_data.keys()):
-            df = self.run_data[run_name]
+            df = datafunctions.convert_yes_no_to_binary(self.run_data[run_name])
             for col in list(df.columns):
                 if df[col].dtype == "object":
                     non_nan = df[col].dropna()
@@ -656,6 +641,7 @@ class DataPlotter:
 
                 df[col] = datafunctions.sanitize_numeric_series(df[col])
                 df[col] = df[col].interpolate(method="linear")
+            self.run_data[run_name] = df
 
     # ------------------------------------------------------------
     # MAPPINGS / TRANSFORMS / CALCULATED / FILTERS
@@ -699,6 +685,13 @@ class DataPlotter:
                     self.FILTER_SAMPLE_RATE,
                     name,
                 )
+
+    def _ensure_preprocessed(self):
+        """Guard against plotting before preprocessing has completed."""
+        if not self._loaded:
+            raise RuntimeError("Data has not been loaded.")
+        if not self._preprocessed:
+            raise RuntimeError("Data has not been preprocessed.")
 
     # ------------------------------------------------------------
     # UTILS
@@ -755,6 +748,46 @@ class DataPlotter:
             pad = (ymax - ymin) * y_pad_ratio
             ax.set_ylim(ymin - pad, ymax + pad)
 
+    def _get_filtered_run_dataframe(self, run_name, gate_spec=None):
+        """Return a cached gated dataframe for a run."""
+        if gate_spec is None:
+            return self.run_data.get(run_name)
+
+        cache_key = (run_name, repr(gate_spec))
+        cached = self._gated_data_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        df = self.run_data.get(run_name)
+        if df is None:
+            return None
+
+        filtered = datafunctions.apply_gate_to_dataframe(df, gate_spec)
+        self._gated_data_cache[cache_key] = filtered
+        return filtered
+
+    def _prepare_scatter_xy(self, df, x_var, y_var):
+        """Build aligned numeric x/y arrays from a dataframe."""
+        if df is None:
+            return None, None, None
+        if x_var not in df.columns or y_var not in df.columns:
+            return None, None, None
+
+        xy = pd.concat(
+            [
+                pd.to_numeric(df[x_var], errors="coerce").rename(x_var),
+                pd.to_numeric(df[y_var], errors="coerce").rename(y_var),
+            ],
+            axis=1,
+        ).dropna()
+        if xy.empty:
+            return None, None, None
+        return xy.index, xy[x_var].to_numpy(dtype=float), xy[y_var].to_numpy(dtype=float)
+
+    def _resolve_scatter_plot_style(self, point_count):
+        """Adjust scatter style slightly for dense plots."""
+        return _resolve_scatter_style(point_count, self.SCATTER_DOT_SIZE, self.SCATTER_TRANSPARENCY)
+
     def _build_gradient_segment_labels(self, fit_defs, x_var=None, y_var=None):
         """Create descriptive labels for segmented gradient error reporting."""
         if not isinstance(fit_defs, (list, tuple)):
@@ -796,6 +829,63 @@ class DataPlotter:
 
         report_path = data_quality_report.write_data_quality_report(self.plots_dir, sections)
         print(f"[INFO][DataPlotter] Wrote data quality report: {report_path}")
+
+    # ------------------------------------------------------------
+    # PIPELINE STAGES
+    # ------------------------------------------------------------
+
+    def load_data(self, root_folder):
+        """Load raw run files into memory."""
+        root_folder = Path(root_folder)
+        self._loaded = False
+        self._preprocessed = False
+        self.run_filepaths = {}
+        self.run_data = {}
+        self.run_units = {}
+        self.run_required_cols = {}
+        self._gated_data_cache = {}
+
+        for run in self.runs:
+            run_name = run["name"].lower()
+            file_path = root_folder / run["file"]
+            self.run_filepaths[run_name] = file_path
+
+            if not file_path.exists():
+                print(f"[WARNING][DataPlotter] Missing data file for run '{run_name}': {file_path}. Skipping run.")
+                continue
+
+            use_python_engine = (run_name == "car")
+            self.run_required_cols[run_name] = self._get_required_source_columns(run.get("type", run_name))
+
+            data, _, units = self._load_run_data(
+                file_path,
+                use_python_engine=use_python_engine,
+                columns_to_load=self.run_required_cols[run_name],
+                parquet_nrun=run.get("nrun"),
+                parquet_nlap=run.get("nlap"),
+                run_name=run_name,
+            )
+
+            self.run_data[run_name] = data
+            self.run_units[run_name] = units
+
+        self._loaded = True
+        return self.run_data
+
+    def preprocess_data(self):
+        """Apply mappings, transforms, calculated channels, and filters."""
+        if not self._loaded:
+            raise RuntimeError("Data must be loaded before preprocessing.")
+
+        self._gated_data_cache.clear()
+        self.apply_channel_mappings()
+        self.apply_transformations()
+        self.clean_data()
+        self.apply_calculated_channels()
+        self.apply_lowpass_filters()
+        self.run_data_quality_checks()
+        self._preprocessed = True
+        return self.run_data
 
     # ------------------------------------------------------------
     # WAVEFORM PLOTS
@@ -925,6 +1015,7 @@ class DataPlotter:
 
     def generate_waveform_plots(self):
         """Generate all configured waveform subplot figures."""
+        self._ensure_preprocessed()
         plots = self._get_plot_group(0)
 
         for plot_def in plots:
@@ -1119,6 +1210,7 @@ class DataPlotter:
 
     def generate_scatter_plots(self):
         """Generate all configured scatter plots and optional fit overlays."""
+        self._ensure_preprocessed()
         plots = self._get_plot_group(1)
 
         for plot_def in plots:
@@ -1224,7 +1316,9 @@ class DataPlotter:
                 if rn not in self.run_data:
                     continue
 
-                df = self.run_data[rn]
+                df = self._get_filtered_run_dataframe(rn, gate_spec)
+                if df is None:
+                    continue
 
                 if x_var not in df.columns or y_var not in df.columns:
                     print(
@@ -1232,30 +1326,27 @@ class DataPlotter:
                     )
                     continue
 
-                x = df[x_var].dropna()
-                y = df[y_var].reindex(x.index).dropna()
-                x = x.reindex(y.index)
-                x, y = datafunctions.apply_scatter_gate(
-                    df,
-                    x,
-                    y,
-                    gate_spec,
-                    plot_name=plot_name,
-                    run_name=rn,
-                )
+                xy_index, x_values, y_values = self._prepare_scatter_xy(df, x_var, y_var)
+                if x_values is None or y_values is None:
+                    print(
+                        f"[WARNING][DataPlotter] Scatter plot '{plot_name}': no valid points in run '{rn}'. Skipping run."
+                    )
+                    continue
+
+                point_size, point_alpha = self._resolve_scatter_plot_style(len(x_values))
 
                 if isinstance(best_fit, (list, tuple)) and best_fit and isinstance(best_fit[0], (list, tuple)):
                     fit_condition_data = datafunctions.build_fit_condition_data(
                         df,
-                        x.index,
+                        xy_index,
                         best_fit,
                         plot_name=plot_name,
                         run_name=rn,
                     )
                     ok, slopes, intercepts, eq_text, color = datafunctions.plot_scatter_with_multi_fit(
-                        ax, x.values, y.values,
+                        ax, x_values, y_values,
                         run["name"].upper(), run["color"],
-                        self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
+                        point_alpha, point_size,
                         x_var, y_var,
                         fit_defs=best_fit,
                         fit_condition_data=fit_condition_data,
@@ -1265,13 +1356,13 @@ class DataPlotter:
                         hexbin_gridsize=self.SCATTER_HEXBIN_GRIDSIZE,
                     )
                     if ok:
-                        eq_list.append((run["name"].upper(), eq_text, run["color"], x.values, y.values, slopes))
+                        eq_list.append((run["name"].upper(), eq_text, run["color"], x_values, y_values, slopes))
 
                 elif best_fit == 0:
                     datafunctions.plot_scatter(
-                        ax, x.values, y.values,
+                        ax, x_values, y_values,
                         run["name"].upper(), run["color"],
-                        self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
+                        point_alpha, point_size,
                         x_var, y_var,
                         render_mode=self.SCATTER_RENDER_MODE,
                         density_threshold=self.SCATTER_DENSITY_THRESHOLD,
@@ -1281,9 +1372,9 @@ class DataPlotter:
 
                 elif best_fit == 1:
                     ok, slope, intercept, eq_text, color = datafunctions.plot_scatter_with_1fit(
-                        ax, x.values, y.values,
+                        ax, x_values, y_values,
                         run["name"].upper(), run["color"],
-                        self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
+                        point_alpha, point_size,
                         x_var, y_var,
                         render_mode=self.SCATTER_RENDER_MODE,
                         density_threshold=self.SCATTER_DENSITY_THRESHOLD,
@@ -1291,16 +1382,16 @@ class DataPlotter:
                         hexbin_gridsize=self.SCATTER_HEXBIN_GRIDSIZE,
                     )
                     if ok:
-                        eq_list.append((run["name"].upper(), eq_text, run["color"], x.values, y.values, slope))
+                        eq_list.append((run["name"].upper(), eq_text, run["color"], x_values, y_values, slope))
 
                 elif best_fit == 2:
                     print(
                         f"[WARNING][DataPlotter] Scatter plot '{plot_name}': best_fit=2 uses removed fit_split behavior; falling back to single fit."
                     )
                     ok, slope, intercept, eq_text, color = datafunctions.plot_scatter_with_1fit(
-                        ax, x.values, y.values,
+                        ax, x_values, y_values,
                         run["name"].upper(), run["color"],
-                        self.SCATTER_TRANSPARENCY, self.SCATTER_DOT_SIZE,
+                        point_alpha, point_size,
                         x_var, y_var,
                         render_mode=self.SCATTER_RENDER_MODE,
                         density_threshold=self.SCATTER_DENSITY_THRESHOLD,
@@ -1308,7 +1399,7 @@ class DataPlotter:
                         hexbin_gridsize=self.SCATTER_HEXBIN_GRIDSIZE,
                     )
                     if ok:
-                        eq_list.append((run["name"].upper(), eq_text, run["color"], x.values, y.values, slope))
+                        eq_list.append((run["name"].upper(), eq_text, run["color"], x_values, y_values, slope))
 
             # Axis limits
             has_x_limits = False
@@ -1395,6 +1486,7 @@ class DataPlotter:
 
     def generate_psd_plots(self):
         """Create PSD plots from definitions, skipping only runs with unavailable/invalid channel data."""
+        self._ensure_preprocessed()
         plots = self._get_plot_group(2)
 
         for plot_def in plots:
@@ -1541,6 +1633,7 @@ class DataPlotter:
 
     def generate_histogram_plots(self):
         """Create histogram plots based on HISTOGRAM_PLOT_DEFINITIONS"""
+        self._ensure_preprocessed()
         plots = self._get_plot_group(3)
 
         for plot_def in plots:
@@ -1694,6 +1787,7 @@ class DataPlotter:
 
     def generate_bar_plots(self):
         """Create grouped bar plots for aggregated channel metrics."""
+        self._ensure_preprocessed()
         plots = self._get_plot_group(4)
 
         for plot_def in plots:
@@ -2397,6 +2491,7 @@ class DataPlotter:
 
     def generate_box_plots(self):
         """Generate box plots for distribution analysis across runs."""
+        self._ensure_preprocessed()
         plots = self._get_plot_group(5)
 
         if not plots:
@@ -2443,9 +2538,17 @@ class DataPlotter:
         """Generate per-run box plots (one box per run per channel)."""
         box_settings = dict(self.BOX_PLOT_SETTINGS or {})
         box_settings.update(options or {})
+        filtered_run_data = {
+            run_name: self._get_filtered_run_dataframe(run_name, gate_spec)
+            for run_name in self.run_data
+        }
         # Aggregate data
         agg_data = datafunctions.aggregate_channel_for_boxplot(
-            self.run_data, channels, aggregation_mode='per_run', gate_spec=gate_spec
+            self.run_data,
+            channels,
+            aggregation_mode='per_run',
+            gate_spec=gate_spec,
+            filtered_run_data=filtered_run_data,
         )
 
         if not agg_data:
@@ -2460,7 +2563,7 @@ class DataPlotter:
 
         # Build run color map
         run_colors = {run['name'].lower(): run['color'] for run in self.runs}
-        show_points = bool(options.get("show_points", box_settings.get("show_points", False)))
+        show_points = bool(box_settings.get("show_points", False))
         show_fliers = bool(box_settings.get("show_fliers", True))
         point_alpha = float(box_settings.get("point_alpha", 0.25))
         point_size = float(box_settings.get("point_size", 18))
@@ -2521,7 +2624,7 @@ class DataPlotter:
                 bp,
                 box_settings,
                 colors=colors_list,
-                alpha=options.get("per_run_box_alpha", box_settings.get("per_run_box_alpha", 0.7)),
+                alpha=box_settings.get("per_run_box_alpha", 0.7),
             )
 
             # Axis labels
@@ -2575,12 +2678,16 @@ class DataPlotter:
         box_settings = dict(self.BOX_PLOT_SETTINGS or {})
         box_settings.update(options or {})
         filtered_run_data = {
-            run_name: datafunctions.apply_gate_to_dataframe(df, gate_spec) if gate_spec is not None else df
-            for run_name, df in self.run_data.items()
+            run_name: self._get_filtered_run_dataframe(run_name, gate_spec)
+            for run_name in self.run_data
         }
         # Aggregate data
         agg_data = datafunctions.aggregate_channel_for_boxplot(
-            self.run_data, channels, aggregation_mode='aggregated', gate_spec=gate_spec
+            self.run_data,
+            channels,
+            aggregation_mode='aggregated',
+            gate_spec=gate_spec,
+            filtered_run_data=filtered_run_data,
         )
 
         if not agg_data:
@@ -2699,8 +2806,9 @@ class DataPlotter:
     # RUN ALL
     # ------------------------------------------------------------
 
-    def plot_all(self):
+    def plot_data(self):
         """Run all plot generators in sequence."""
+        self._ensure_preprocessed()
         self.generate_waveform_plots()
         self.generate_scatter_plots()
         self.generate_psd_plots()
@@ -2708,4 +2816,8 @@ class DataPlotter:
         self.generate_bar_plots()
         self.generate_box_plots()
         print(f"\nAll plots saved to: {self.plots_dir}")
+
+    def plot_all(self):
+        """Backward-compatible alias for plot_data()."""
+        self.plot_data()
 
