@@ -11,6 +11,7 @@ CHANNEL_MAPPINGS = {
         "FPushrodFR": "FPRodFR",
         "FPushrodRL": "FPRodRL",
         "FPushrodRR": "FPRodRR",
+        "FPlankVertF": "FzPlankF",
         "EPlankWearLapF": "EPlankF",
         "PPlankWearF": "PPlankF",
         "pBrakeF1": "pBrakeF",
@@ -95,5 +96,6 @@ UNITS_MAP = {
     "dmInjector": "kg/h",
     "PMGUK_Deploy": "kW",
     "PMGUK_Charge": "kW",
-    "dmInjector (kg/s)": "kg/s",
+    "dmInjector": "kg/hr",
+    "dmInjector (kg/s)": "",
 }

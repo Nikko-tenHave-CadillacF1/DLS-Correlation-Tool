@@ -63,37 +63,23 @@ RUNS = [
     #    "type": "CAR"
     #},
     {
-        "name": "BSL",
-        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3 _V1_+2FRH STD SMv2_DLS.parquet",
-        "color": "#FF3300",
+        "name": "DRY",
+        "file": r"VPG Baselines  MIA  26R04MIA v1b - DRY_LTS_Iteration_3.parquet",
+        "color": "#FF0000",
         "nlap": 1,
         "type": "DLS"
     },
     {
-        "name": "25m Less SM",
-        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3 _V1_+2FRH -25 SMv2_DLS.parquet",
-        "color": "#00CCFF",
-        "nlap": 1,
-        "type": "DLS"
-    },
-        {
-        "name": "50m Less SM",
-        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3 _V1_+2FRH -50 SMv2_DLS.parquet",
-        "color": "#009FCB",
+        "name": "WET",
+        "file": r"VPG Baselines  MIA  26R04MIA v1b - DRY_LTS_Iteration_3_1.parquet",
+        "color": "#0066DA",
         "nlap": 1,
         "type": "DLS"
     },
     {
-        "name": "100m Less SM",
-        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3 _V1_+2FRH -100m SMv2_DLS.parquet",
-        "color": "#7300FF",
-        "nlap": 1,
-        "type": "DLS"
-    },
-    {
-        "name": "100m Less SM - Corrected",
-        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3 _V1_+2p5FRH -100 SMv2_DLS.parquet",
-        "color": "#3ADA00",
+        "name": "WET +2FRH",
+        "file": r"VPG Baselines  MIA  26R04MIA v1b +2 FRH_LTS_Iteration_3.parquet",
+        "color": "#07DA00",
         "nlap": 1,
         "type": "DLS"
     }
@@ -315,7 +301,7 @@ WAVEFORM_PLOT_DEFINITIONS = [
         "Plank Wear",
         ('PMGUK', 'vCar', 'FzPlankF', 'EPlank_F', 'pBrakeF', ('rThrottle', 'SM')),
         (None, None, None, None, None, ((0, 105), (0, 1.3))),
-        ((-350, 0, 350), None, (0, 7500), (0), None, None),
+        ((-350, 0, 350), None, (0, 7500), (0,100), None, None),
         (0.4, 0.6, 0.4, 0.6, 0.4, 0.4)
     ],
     
@@ -646,7 +632,7 @@ HISTOGRAM_PLOT_DEFINITIONS = [
 #   - "min": Minimum value
 
 BAR_PLOT_DEFINITIONS = [
-   ["Cumulative Metrics", (("dmInjector (kg/s)", "integral"),)],
+   ["Cumulative Metrics", (("dmInjector (kg/s)", "integral"),("PMGUK_Deploy", "max"), ("PMGUK_Charge", "max"))],
 ]
 
 BOX_PLOT_DEFINITIONS = [

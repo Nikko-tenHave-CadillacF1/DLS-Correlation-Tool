@@ -1032,15 +1032,21 @@ class DataPlotter:
         """Generate all configured waveform subplot figures."""
         self._ensure_preprocessed()
         plots = self._get_plot_group(0)
-
+        
         for plot_def in plots:
+            # Optional x-axis limits (sLap zoom)
+            x_limits = None
+
             if len(plot_def) == 4:
                 plot_name, channels, axis_limits, ref_lines = plot_def
                 subplot_heights = None
             elif len(plot_def) == 5:
                 plot_name, channels, axis_limits, ref_lines, subplot_heights = plot_def
+            elif len(plot_def) == 6:
+                plot_name, channels, axis_limits, ref_lines, subplot_heights, x_limits = plot_def
             else:
                 raise ValueError("Waveform plot definition malformed")
+
 
             # print(f"Creating waveform plot: {plot_name}")  # Reduce verbosity
 
@@ -1185,17 +1191,25 @@ class DataPlotter:
             bottom.set_xlabel(xlabel, fontweight="bold")
             bottom.tick_params(axis="x", labelsize=10)
 
-            if xlabel == "sLap (m)":
-                xmaxs = []
-                for ax in axes:
-                    _, xm = ax.get_xlim()
-                    if xm > 0:
-                        xmaxs.append(xm)
-                if xmaxs:
-                    xv = max(xmaxs)
-                    xv = np.ceil(xv/100) * 100
+            # Apply optional sLap zoom window
+            if x_limits is not None:
+                xmin, xmax = x_limits
+                if xmin is not None or xmax is not None:
                     for ax in axes:
-                        ax.set_xlim(0, xv)
+                        ax.set_xlim(left=xmin, right=xmax)
+            else:
+                # Default auto-range behaviour
+                if xlabel == "sLap (m)":
+                    xmaxs = []
+                    for ax in axes:
+                        _, xm = ax.get_xlim()
+                        if xm > 0:
+                            xmaxs.append(xm)
+                    if xmaxs:
+                        xv = max(xmaxs)
+                        xv = np.ceil(xv / 100) * 100
+                        for ax in axes:
+                            ax.set_xlim(0, xv)
 
                 for ax in axes:
                     ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=8, min_n_ticks=5, steps=[1, 2, 2.5, 5, 10]))

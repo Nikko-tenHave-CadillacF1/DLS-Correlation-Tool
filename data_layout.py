@@ -13,11 +13,14 @@ ARCHIVE_DIR = DATA_ROOT / "archive"
 
 CORRELATION_INPUT_DIR = INPUTS_DIR / "correlation"
 BOXPLOT_INPUT_DIR = INPUTS_DIR / "boxplots"
+DAMPER_INPUT_DIR = INPUTS_DIR / "dampers"
 
 CORRELATION_OUTPUT_DIR = OUTPUTS_DIR / "correlation"
 BOXPLOT_OUTPUT_DIR = OUTPUTS_DIR / "boxplots"
+DAMPER_OUTPUT_DIR = OUTPUTS_DIR / "dampers"
 CORRELATION_PLOTS_DIR = CORRELATION_OUTPUT_DIR / "plots"
 BOXPLOT_PLOTS_DIR = BOXPLOT_OUTPUT_DIR / "plots"
+DAMPER_PLOTS_DIR = DAMPER_OUTPUT_DIR / "plots"
 
 
 def _ensure_dir(path: Path) -> Path:
@@ -35,10 +38,13 @@ def ensure_data_dirs() -> None:
         ARCHIVE_DIR,
         CORRELATION_INPUT_DIR,
         BOXPLOT_INPUT_DIR,
+        DAMPER_INPUT_DIR,
         CORRELATION_OUTPUT_DIR,
         BOXPLOT_OUTPUT_DIR,
+        DAMPER_OUTPUT_DIR,
         CORRELATION_PLOTS_DIR,
         BOXPLOT_PLOTS_DIR,
+        DAMPER_PLOTS_DIR,
     ):
         _ensure_dir(path)
 
@@ -54,6 +60,10 @@ def resolve_boxplot_input_dir() -> Path:
     ensure_data_dirs()
     return BOXPLOT_INPUT_DIR
 
+def resolve_damper_input_dir() -> Path:
+    """Return the fixed damper input directory."""
+    ensure_data_dirs()
+    return DAMPER_INPUT_DIR
 
 def resolve_template_path(filename: str = "template.pptx") -> Path:
     """Return a template path inside the fixed templates directory."""
