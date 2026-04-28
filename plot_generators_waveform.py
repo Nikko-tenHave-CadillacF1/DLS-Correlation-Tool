@@ -8,7 +8,8 @@ from matplotlib.transforms import blended_transform_factory
 import datafunctions
 
 try:
-    from tqdm import tqdm as _tqdm
+    from tqdm import tqdm as _tqdm_raw
+    def _tqdm(it, **kw): return _tqdm_raw(it, file=__import__('sys').stderr, dynamic_ncols=True, force=True, **kw)
 except ImportError:
     def _tqdm(iterable, **kwargs):
         return iterable
@@ -339,7 +340,7 @@ class WaveformMixin:
                         ch_label = f"{ch_primary} / {ch_secondary}"
                     ax.set_ylabel(
                         f"{ch_label}\n(norm.)",
-                        fontsize=8.2, fontweight="bold", rotation=0, ha="right", va="center",
+                        fontsize=9.5, fontweight="bold", rotation=0, ha="right", va="center",
                     )
                     ax.set_ylim(-0.05, 1.05)
                 else:
@@ -347,7 +348,7 @@ class WaveformMixin:
                         self._format_waveform_channel_label(
                             ch_primary, secondary=False, show_style_hint=(ch_secondary is not None)
                         ),
-                        fontsize=8.2, fontweight="bold", rotation=0, ha="right", va="center",
+                        fontsize=9.5, fontweight="bold", rotation=0, ha="right", va="center",
                     )
                 ax.yaxis.set_label_coords(-0.035, 0.5)
                 ax.grid(True, axis="y", alpha=0.28, linewidth=0.45)
@@ -369,7 +370,7 @@ class WaveformMixin:
                         self._format_waveform_channel_label(
                             ch_secondary, secondary=True, show_style_hint=True
                         ),
-                        fontsize=8.2, fontweight="bold", rotation=0, ha="left", va="center",
+                        fontsize=9.5, fontweight="bold", rotation=0, ha="left", va="center",
                     )
                     ax_right.yaxis.set_label_coords(1.03, 0.5)
                     ax_right.spines["top"].set_visible(False)
@@ -471,8 +472,8 @@ class WaveformMixin:
             ]
             self._add_waveform_figure_legend(fig, run_handles, run_labels)
 
-            plt.tight_layout(pad=0.3, h_pad=-0.4, rect=(0, 0, 1, 0.95))
-            fig.savefig(self.plots_dir / filename, dpi=300, facecolor="white", bbox_inches="tight")
+            plt.tight_layout(pad=0.3, h_pad=0.0, rect=(0, 0, 1, 0.95))
+            fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.15, facecolor="white", bbox_inches="tight")
             plt.close(fig)
             if self.verbose:
                 print(f"  Saved: {filename}")

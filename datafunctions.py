@@ -683,7 +683,8 @@ def plot_scatter_with_1fit(
     yr = slope * xr + interc
     _plot_scatter_fit_line(ax, xr, yr, color=color, linestyle="-", linewidth=1.6)
 
-    equation = f"y = {slope:.3g}x + {interc:.3g}"
+    sign = "−" if interc < 0 else "+"
+    equation = f"y = {slope:.3g}x {sign} {abs(interc):.3g}"
     return True, slope, interc, equation, color
 
 
@@ -740,10 +741,10 @@ def plot_scatter_with_multi_fit(
     eq_lines = []
     line_styles = ["-", "-", "-"]
 
-    def _format_bound(value):
-        """Format range bounds compactly for multi-fit equation labels."""
+    def _format_bound(value, is_lower=True):
+        """Format range bounds compactly; open bounds shown as −∞ / +∞."""
         if value is None or not np.isfinite(value):
-            return "n/a"
+            return "−∞" if is_lower else "+∞"
         return f"{float(value):.4g}"
 
     for idx, fit_def in enumerate(fit_defs):
@@ -796,8 +797,11 @@ def plot_scatter_with_multi_fit(
             linestyle=line_styles[idx % len(line_styles)],
             linewidth=1.6,
         )
+        lo = _format_bound(min_bound, is_lower=True)
+        hi = _format_bound(max_bound, is_lower=False)
+        eq_sign = "−" if interc < 0 else "+"
         eq_lines.append(
-            f"{label} ({_format_bound(min_bound)} < {axis_name} < {_format_bound(max_bound)}): y = {slope:.3g}x + {interc:.3g}"
+            f"{axis_name}: [{lo}, {hi}]   y = {slope:.3g}x {eq_sign} {abs(interc):.3g}"
         )
         slopes_list.append(slope)
         intercepts_list.append(interc)

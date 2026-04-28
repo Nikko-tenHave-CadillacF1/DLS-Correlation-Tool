@@ -1134,7 +1134,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
 
         legend = ax.legend(
             handles, labels,
-            fontsize=10, framealpha=1, loc=loc,
+            fontsize=10, framealpha=0.93, edgecolor="#CCCCCC", loc=loc,
             bbox_to_anchor=bbox_to_anchor,
             borderpad=0.35, handlelength=1.8, ncol=ncol,
             prop={"family": "Montserrat", "weight": "bold", "size": 12},
@@ -1150,7 +1150,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
             handles, labels,
             loc="upper center", bbox_to_anchor=(0.5, 0.995),
             ncol=max(1, min(len(handles), 5)),
-            framealpha=1, borderpad=0.35, handlelength=1.8,
+            framealpha=0.93, edgecolor="#CCCCCC", borderpad=0.35, handlelength=1.8,
             prop={"family": "Montserrat", "weight": "bold", "size": 11},
         )
         self._colorize_legend_labels(legend)

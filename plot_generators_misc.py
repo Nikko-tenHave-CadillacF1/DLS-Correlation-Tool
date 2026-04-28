@@ -6,7 +6,8 @@ from matplotlib import ticker
 import datafunctions
 
 try:
-    from tqdm import tqdm as _tqdm
+    from tqdm import tqdm as _tqdm_raw
+    def _tqdm(it, **kw): return _tqdm_raw(it, file=__import__('sys').stderr, dynamic_ncols=True, force=True, **kw)
 except ImportError:
     def _tqdm(iterable, **kwargs):
         return iterable
@@ -51,11 +52,11 @@ class PsdHistMixin:
             figsize = self._resolve_plot_figsize(filename, self.psd_FIGSIZE)
 
             fig, ax = plt.subplots(figsize=figsize)
-            ax.set_xlabel("Frequency (Hz)", fontsize=13, fontweight="bold")
+            ax.set_xlabel("Frequency (Hz)", fontweight="bold")
             primary_ch = channels_list[0]
             ax.set_ylabel(
                 datafunctions.format_psd_ylabel(primary_ch, self.units_map),
-                fontsize=13, fontweight="bold",
+                fontweight="bold",
             )
 
             plotted_any = False
@@ -137,7 +138,7 @@ class PsdHistMixin:
                 y_pad_ratio=(0 if has_y_limits else default_y_pad),
             )
             ax.grid(True, which="major", alpha=0.3)
-            ax.grid(True, which="minor", alpha=0.15)
+            ax.grid(True, which="minor", alpha=0.22)
             ax.set_axisbelow(True)
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
@@ -145,7 +146,7 @@ class PsdHistMixin:
             self._add_standard_legend(ax, loc="best")
 
             plt.tight_layout(pad=0.25)
-            fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.05, facecolor="white")
+            fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.15, facecolor="white")
             plt.close(fig)
             if self.verbose:
                 print(f"  Saved: {filename}")
@@ -230,8 +231,8 @@ class PsdHistMixin:
             if hist_data:
                 ax.hist(
                     hist_data, bins=bins, weights=hist_weights,
-                    alpha=0.9, color=hist_colors, label=hist_labels,
-                    edgecolor="black", linewidth=0.5,
+                    alpha=0.72, color=hist_colors, label=hist_labels,
+                    edgecolor="white", linewidth=0.8,
                     log=log_scale, stacked=False, histtype="bar", rwidth=0.9,
                 )
 

@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 import datafunctions
 
 try:
-    from tqdm import tqdm as _tqdm
+    from tqdm import tqdm as _tqdm_raw
+    def _tqdm(it, **kw): return _tqdm_raw(it, file=__import__('sys').stderr, dynamic_ncols=True, force=True, **kw)
 except ImportError:
     def _tqdm(iterable, **kwargs):
         return iterable
@@ -69,16 +70,16 @@ class ScatterMixin:
             if min_val is None and max_val is None:
                 labels.append(f"{axis_name}: full range")
             elif min_val is None:
-                labels.append(f"{axis_name} < {max_val:g}")
+                labels.append(f"{axis_name}: [−∞, {max_val:g}]")
             elif max_val is None:
-                labels.append(f"{axis_name} >= {min_val:g}")
+                labels.append(f"{axis_name}: [{min_val:g}, +∞]")
             else:
-                labels.append(f"{min_val:g} <= {axis_name} < {max_val:g}")
+                labels.append(f"{axis_name}: [{min_val:g}, {max_val:g}]")
 
         return labels if labels else None
 
     def _select_trendline_anchor(self, ax, equations_list):
-        """Place text in the least-crowded corner."""
+        """Place text in the least-crowded position (corners + mid-edges)."""
         x0, x1 = ax.get_xlim()
         y0, y1 = ax.get_ylim()
         xs, ys = [], []
@@ -88,44 +89,59 @@ class ScatterMixin:
         xs = np.array(xs)
         ys = np.array(ys)
 
-        corners = {
-            "tl": (0.03, 0.97, "left", "top"),
-            "tr": (0.97, 0.97, "right", "top"),
-            "bl": (0.03, 0.03, "left", "bottom"),
-            "br": (0.97, 0.03, "right", "bottom"),
+        candidates = {
+            "tl": (0.03, 0.97, "left",   "top"),
+            "tr": (0.97, 0.97, "right",  "top"),
+            "bl": (0.03, 0.03, "left",   "bottom"),
+            "br": (0.97, 0.03, "right",  "bottom"),
+            "tc": (0.50, 0.97, "center", "top"),
+            "bc": (0.50, 0.03, "center", "bottom"),
         }
 
-        def _count_pts(corner):
-            xa, ya, hal, val = corners[corner]
+        def _count_pts(key):
+            xa, ya, hal, val = candidates[key]
             w = (x1 - x0) * 0.22
             h = (y1 - y0) * 0.28
-            x_min = x0 + xa * (x1 - x0) if hal == "left" else x0 + xa * (x1 - x0) - w
+            x_abs = x0 + xa * (x1 - x0)
+            if hal == "left":
+                x_min = x_abs
+            elif hal == "right":
+                x_min = x_abs - w
+            else:  # center
+                x_min = x_abs - w / 2
             x_max = x_min + w
             y_min = y0 + ya * (y1 - y0) - h if val == "top" else y0 + ya * (y1 - y0)
             y_max = y_min + h
             return ((xs >= x_min) & (xs <= x_max) & (ys >= y_min) & (ys <= y_max)).sum()
 
-        best = min(corners.keys(), key=_count_pts)
-        return corners[best]
+        best = min(candidates.keys(), key=_count_pts)
+        return candidates[best]
 
     def _format_trendline_text(self, label, equation):
-        """Normalize trendline text and ensure each line carries the run label."""
-        lines = []
-        for line in str(equation).splitlines():
-            cleaned = line.strip()
-            if not cleaned:
-                continue
-            prefix = f"{label} "
-            if not cleaned.startswith(prefix):
-                cleaned = f"{prefix}{cleaned}"
-            lines.append(cleaned)
-        return "\n".join(lines) if lines else f"{label} fit unavailable"
+        """Format trendline text: single line for one fit, grouped header for multi-segment."""
+        raw_lines = [l.strip() for l in str(equation).splitlines() if l.strip()]
+        if not raw_lines:
+            return f"{label}  fit unavailable"
+        if len(raw_lines) == 1:
+            line = raw_lines[0]
+            if not line.startswith(label):
+                line = f"{label}  {line}"
+            return line
+        # Multi-segment: label as header, each segment indented below
+        out = [label]
+        for line in raw_lines:
+            # Strip any existing label prefix (backward compatibility)
+            if line.upper().startswith(label.upper() + " "):
+                line = line[len(label):].lstrip(" :(")
+            out.append(f"  {line}")
+        return "\n".join(out)
 
     def _display_equations(self, ax, eq_list):
         """Render trendline equation callouts and return their anchor metadata."""
         x_anchor, y_anchor, halign, valign = self._select_trendline_anchor(ax, eq_list)
-        line_height = 0.042
-        box_gap = 0.018
+        fig_height = ax.get_figure().get_size_inches()[1]
+        line_height = 0.042 * 8.0 / max(fig_height, 4.0)
+        box_gap = 0.015
         boxes = []
         cursor = y_anchor
 
@@ -144,7 +160,7 @@ class ScatterMixin:
             ax.text(
                 x_anchor, ypos, text,
                 transform=ax.transAxes,
-                fontsize=10,
+                fontsize=11,
                 verticalalignment=valign,
                 horizontalalignment=halign,
                 bbox=dict(
@@ -181,10 +197,9 @@ class ScatterMixin:
             return ((value - baseline) / baseline) * 100
 
         def fmt(value):
-            return "undefined" if value is None else f"{value:+.1f}%"
+            return "n/a" if value is None else f"{value:+.1f}%"
 
-        lines = [f"Gradient Error (%) vs {baseline_label.upper()}:"]
-        label_width = max(len(e[0].upper()) for e in comparison_entries)
+        lines = [f"Gradient Error vs {baseline_label.upper()}"]
 
         if isinstance(baseline_slopes, tuple):
             for idx in range(len(baseline_slopes)):
@@ -192,7 +207,7 @@ class ScatterMixin:
                     fit_labels[idx] if fit_labels and idx < len(fit_labels)
                     else f"Segment {idx + 1}"
                 )
-                lines.append(f"For {segment_name}:")
+                lines.append(f"  {segment_name}")
                 base_val = baseline_slopes[idx] if idx < len(baseline_slopes) else None
                 for label, _, _, _, _, run_slopes in comparison_entries:
                     run_val = (
@@ -201,14 +216,12 @@ class ScatterMixin:
                         else None
                     )
                     lines.append(
-                        f"  {label.upper():<{label_width}} : {fmt(percent_error(run_val, base_val))}"
+                        f"    {label.upper()}  \u2022  {fmt(percent_error(run_val, base_val))}"
                     )
         else:
-            lines.append("Overall:")
             for label, _, _, _, _, run_slopes in comparison_entries:
                 lines.append(
-                    f"  {label.upper():<{label_width}} : "
-                    f"{fmt(percent_error(run_slopes, baseline_slopes))}"
+                    f"  {label.upper()}  \u2022  {fmt(percent_error(run_slopes, baseline_slopes))}"
                 )
 
         return "\n".join(lines)
@@ -225,12 +238,12 @@ class ScatterMixin:
         ax.text(
             x_anchor, ypos, text,
             transform=ax.transAxes,
-            fontsize=10,
+            fontsize=11,
             verticalalignment=valign,
             horizontalalignment=halign,
             bbox=dict(
                 boxstyle="round,pad=0.26",
-                facecolor="white", alpha=0.9,
+                facecolor="#F7F7F7", alpha=0.9,
                 edgecolor="#6E6E6E", linewidth=1.2,
             ),
             color="#3F3F3F", fontweight="bold", family="Montserrat",
@@ -463,7 +476,7 @@ class ScatterMixin:
             if xl <= 0 <= xr:
                 ax.axvline(0, color="#5E5E5E", linewidth=1, alpha=0.8)
 
-            ax.grid(True, alpha=0.26)
+            ax.grid(True, alpha=0.35, linewidth=0.6)
             ax.set_axisbelow(True)
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
@@ -543,7 +556,7 @@ class ScatterMixin:
                         )
 
             plt.tight_layout(pad=0.25)
-            fig.savefig(self.plots_dir / filename, dpi=300, facecolor="white")
+            fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.15, facecolor="white")
             plt.close(fig)
             if self.verbose:
                 print(f"  Saved: {filename}")

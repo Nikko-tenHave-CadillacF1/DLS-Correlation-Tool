@@ -7,7 +7,8 @@ from matplotlib.lines import Line2D
 import datafunctions
 
 try:
-    from tqdm import tqdm as _tqdm
+    from tqdm import tqdm as _tqdm_raw
+    def _tqdm(it, **kw): return _tqdm_raw(it, file=__import__('sys').stderr, dynamic_ncols=True, force=True, **kw)
 except ImportError:
     def _tqdm(iterable, **kwargs):
         return iterable
@@ -173,7 +174,7 @@ class BarBoxMixin:
                     padding = 0.02 * y_range
                     y_pos = value + (padding if value >= 0 else -padding)
                     va = "bottom" if value >= 0 else "top"
-                    axis.text(offset, y_pos, f"{value:.2f}",
+                    axis.text(offset, y_pos, f"{value:.3g}",
                               ha="center", va=va, fontsize=10, fontweight="bold", color="black")
 
             for axis in ([ax2, ax] if ax2 is not None else [ax]):
@@ -220,7 +221,7 @@ class BarBoxMixin:
                 )
 
             plt.tight_layout(pad=0.25)
-            fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.05, facecolor="white")
+            fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.15, facecolor="white")
             plt.close(fig)
             if self.verbose:
                 print(f"  Saved: {filename}")
@@ -281,7 +282,7 @@ class BarBoxMixin:
                 series.append((run["name"].upper(), run["color"], values))
         return series
 
-    def _apply_boxplot_artist_style(self, bp, box_settings, colors=None, facecolor=None, alpha=0.7):
+    def _apply_boxplot_artist_style(self, bp, box_settings, colors=None, facecolor=None, alpha=0.82):
         """Apply consistent styling to a matplotlib boxplot result."""
         box_lw = box_settings.get("box_linewidth", 1.5)
         median_color = box_settings.get("medianline_color", "#000000")
@@ -304,6 +305,15 @@ class BarBoxMixin:
             median.set(color=median_color, linewidth=median_width)
         for flier in bp.get("fliers", []):
             flier.set(markerfacecolor=median_color, markeredgecolor=median_color, alpha=0.7)
+            # Downsample flier markers to avoid dense plots obscuring IQR structure
+            _MAX_FLIERS = 200
+            xdata = flier.get_xdata()
+            ydata = flier.get_ydata()
+            if len(xdata) > _MAX_FLIERS:
+                rng = np.random.default_rng(42)
+                idx = rng.choice(len(xdata), size=_MAX_FLIERS, replace=False)
+                flier.set_xdata(xdata[idx])
+                flier.set_ydata(ydata[idx])
 
     # ------------------------------------------------------------------
     # Box plot generator
@@ -462,7 +472,7 @@ class BarBoxMixin:
 
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         filename = self._sanitize_plot_filename("box", plot_name)
-        fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.05, facecolor="white")
+        fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.15, facecolor="white")
         plt.close(fig)
         if self.verbose:
             print(f"  Saved: {filename}")
@@ -564,7 +574,7 @@ class BarBoxMixin:
 
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         filename = self._sanitize_plot_filename("box", plot_name)
-        fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.05, facecolor="white")
+        fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.15, facecolor="white")
         plt.close(fig)
         if self.verbose:
             print(f"  Saved: {filename}")
