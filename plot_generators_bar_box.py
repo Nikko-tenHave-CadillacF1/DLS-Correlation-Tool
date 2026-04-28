@@ -8,7 +8,7 @@ import datafunctions
 
 try:
     from tqdm import tqdm as _tqdm_raw
-    def _tqdm(it, **kw): return _tqdm_raw(it, file=__import__('sys').stderr, dynamic_ncols=True, force=True, **kw)
+    def _tqdm(it, **kw): return _tqdm_raw(it, file=__import__('sys').stderr, dynamic_ncols=True, **kw)
 except ImportError:
     def _tqdm(iterable, **kwargs):
         return iterable
