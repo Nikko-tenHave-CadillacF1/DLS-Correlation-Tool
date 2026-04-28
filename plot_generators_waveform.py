@@ -389,35 +389,41 @@ class WaveformMixin:
                             ax_right.axhline(vv2, linestyle=":", color="gray", alpha=0.36)
 
                 # ── highlight_zones ───────────────────────────────────────
+                # Gate spec: ('ch', 'op', val) or list of such tuples (all must match).
+                # Each run is evaluated against its own data and shaded in a
+                # highly transparent version of that run's own color.
                 if highlight_zones is not None:
-                    # Parse: ('ch', 'op', val) or ('ch', 'op', val, '#color')
-                    # or list of such tuples
-                    zones = highlight_zones if isinstance(highlight_zones[0], (list, tuple)) else [highlight_zones]
-                    for zone in zones:
-                        if len(zone) >= 4 and isinstance(zone[3], str):
-                            z_spec, z_color = zone[:3], zone[3]
-                        else:
-                            z_spec, z_color = zone[:3], "#FFA500"
-                        # Find condition mask from first run that has the channel
-                        for run in self.runs:
-                            df_z = self.run_data.get(run["name"].lower())
-                            if df_z is None:
-                                continue
-                            z_ch = z_spec[0]
-                            if z_ch not in df_z.columns:
-                                continue
-                            x_z = df_z[x_channel] if (x_channel and x_channel in df_z.columns) else df_z.index
-                            df_cond = datafunctions.apply_gate_to_dataframe(df_z, z_spec)
-                            mask_z = df_z.index.isin(df_cond.index) if df_cond is not None else np.zeros(len(df_z), bool)
-                            trans = blended_transform_factory(ax.transData, ax.transAxes)
-                            ax.fill_between(
-                                x_z.to_numpy() if hasattr(x_z, "to_numpy") else np.array(x_z),
-                                0, 1,
-                                where=mask_z.to_numpy() if hasattr(mask_z, "to_numpy") else np.array(mask_z),
-                                transform=trans, interpolate=True,
-                                color=z_color, alpha=0.15, zorder=0,
+                    # Normalise to a list of specs; support single tuple or list of tuples
+                    if isinstance(highlight_zones[0], (list, tuple)):
+                        z_spec = list(highlight_zones)
+                    else:
+                        z_spec = highlight_zones[:3]  # strip any legacy color element
+
+                    for run in self.runs:
+                        df_z = self.run_data.get(run["name"].lower())
+                        if df_z is None:
+                            continue
+                        # Check the gate channel(s) exist
+                        spec_list = z_spec if isinstance(z_spec[0], (list, tuple)) else [z_spec]
+                        if not all(s[0] in df_z.columns for s in spec_list):
+                            continue
+                        x_z = df_z[x_channel] if (x_channel and x_channel in df_z.columns) else df_z.index
+                        df_cond = datafunctions.apply_gate_to_dataframe(df_z, z_spec)
+                        if df_cond is None or df_cond.empty:
+                            continue
+                        mask_z = df_z.index.isin(df_cond.index)
+                        x_arr = x_z.to_numpy() if hasattr(x_z, "to_numpy") else np.array(x_z)
+                        m_arr = mask_z.to_numpy() if hasattr(mask_z, "to_numpy") else np.array(mask_z, dtype=bool)
+                        # Draw one axvspan per contiguous True segment
+                        padded = np.concatenate([[False], m_arr, [False]])
+                        starts = np.where(~padded[:-1] & padded[1:])[0]
+                        ends   = np.where( padded[:-1] & ~padded[1:])[0]
+                        for s, e in zip(starts, ends):
+                            xe = min(e, len(x_arr) - 1)
+                            ax.axvspan(
+                                x_arr[s], x_arr[xe],
+                                alpha=0.18, color=run["color"], zorder=0, linewidth=0,
                             )
-                            break
 
                 if idx < len(prepared_rows) - 1:
                     ax.tick_params(labelbottom=False)

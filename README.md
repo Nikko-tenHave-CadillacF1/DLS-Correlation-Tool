@@ -118,11 +118,13 @@ WaveformPlot(
     # X-axis channel. Default "sLap" (distance). Use "tLap" for elapsed time.
     x_limits=(0, 4000),
     # Optional (x_min, x_max) to zoom to a section.
-    highlight_zones=('SM', '<', 0.3, '#FF6600'),
-    # Shade x-regions where the condition is true.
-    # Format: ('channel', 'operator', value) — uses default orange tint.
-    # Add a 4th element (hex string) to override the color.
-    # For multiple zones, pass a list of such tuples.
+    highlight_zones=('SM', '<', 0.3),
+    # Shade x-regions where the gate condition is true.
+    # Each run is evaluated against its own data and shaded in a highly
+    # transparent version of that run's own colour.
+    # Single condition: ('channel', 'operator', value)
+    # Multiple (all must match): [('ch1', '>', v1), ('ch2', '<', v2)]
+    # Operators: '>' '<' '>=' '<=' '==' 'between'
     normalise=False,
     # If True, all channels on each subplot are normalised to [0, 1] using
     # the global min/max across all runs. Dual-axis becomes single-axis.

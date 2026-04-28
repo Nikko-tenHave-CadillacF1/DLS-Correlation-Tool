@@ -22,11 +22,17 @@ ROOT_FOLDER = _INPUT_DIR
 RUNS = [
     # {"name": "v37", "file": "...", "color": "#0051FF", "nrun": 1, "type": "OC"},
     {
-        "name": "COT",
-        "file": r"20260427-OC-OC-VPG - Full Season SM Update Scan - GM PU-Several.parquet",
-        "color": "#D70000",
-        "nrun": 3,
-        "type": "OC",
+        "name": "DLS",
+        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3  Stint 1 stint 3_-Plank Stiffness Added_DLS.parquet",
+        "color": "#0099FF",
+        "nlap": 1,
+        "type": "DLS",
+    },
+    {
+        "name": "CAR",
+        "file": r"26R03SUZ_260328_MAC26-02_BOT_Q_R03_1.txt",
+        "color": "#FF9900",
+        "type": "CAR",
     },
 ]
 
@@ -79,6 +85,27 @@ WAVEFORM_PLOT_DEFINITIONS = [
         reference_lines=((-350, 0, 350), None, None, None, None),
         subplot_heights=(0.4, 0.8, 0.4, 0.4, 0.4),
     ),
+
+    # ── Demo: highlight_zones ──────────────────────────────────────────────────
+    # Shades x-regions where pBrakeF > 50 in red. Good for spotting braking zones
+    # at a glance across channels.
+    WaveformPlot(
+        name="[Demo] Highlight Zones",
+        channels=('vCar', 'pBrakeF', ('rThrottle', 'SM')),
+        axis_limits=(None, None, ((0, 105), (0, 1.3))),
+        reference_lines=(None, (50,), None),
+        subplot_heights=(0.6, 0.4, 0.4),
+        highlight_zones=('SM', '>', 0.5),
+    ),
+    # ── Demo: normalise ─────────────────────────────────────────────────────────
+    # Channels with very different scales (kW, km/h, %) shown on a shared [0,1]
+    # axis. Useful for comparing signal shapes directly.
+    WaveformPlot(
+        name="[Demo] Normalised",
+        channels=('PMGUK', 'vCar', 'pBrakeF', 'rThrottle'),
+        subplot_heights=(0.4, 0.4, 0.4, 0.4),
+        normalise=True,
+    ),
 ]
 
 # ─── SCATTER PLOTS ────────────────────────────────────────────────────────────
@@ -93,6 +120,8 @@ SCATTER_PLOT_DEFINITIONS = [
                           ('NGear', 4.5, 5.5), ('NGear', 5.5, 6.5), ('NGear', 6.5, 7.5), ('NGear', 7.5, 8.5)],
                 show_equations=False),
     ScatterPlot("Engine Power",            "nEngine",       "PEngine",              best_fit=0),
+    ScatterPlot("Engine Efficiency",       "dmInjector",       "PEngine",
+                best_fit=0, show_equations=False),
     ScatterPlot("Long Acceleration",       "vCar",          "gLong"),
     ScatterPlot("Lat Acceleration",        "vCar",          "gLat_Abs",             best_fit=0),
     ScatterPlot("GG Plot",                 "gLat",          "gLong",                best_fit=0),
@@ -129,6 +158,31 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("Plank power acceleration",    "gLong (raw)", "PPlank_F",           best_fit=0),
     ScatterPlot("Driver Line",                 "xCar",      "yCar",
                 best_fit=0, show_equations=False, show_error=False),
+
+    # ── Demo: color_gate ────────────────────────────────────────────────────────
+    # Points where SM < 0.3 (simulator margin near minimum) are drawn in magenta
+    # so outlier/low-confidence regions are immediately visible against the run
+    # color. The fit line still uses all (pre-gate) data.
+    ScatterPlot(
+        name="[Demo] Color Gate",
+        x_channel="vCar",
+        y_channel="hRideF",
+        best_fit=[('SM', 0, 0.5)],
+        color_gate=('SM', '<', 0.3, '#FF00CC'),
+    ),
+
+    # ── Demo: annotate_fit_at ───────────────────────────────────────────────────
+    # Annotates the fit-line y-value for each run at vCar = 250 km/h with a
+    # vertical dashed line and marker. Makes it easy to read off the delta
+    # between runs at a specific operating point.
+    ScatterPlot(
+        name="[Demo] Annotate Fit At",
+        x_channel="vCar",
+        y_channel="hRideR",
+        best_fit=1,
+        gate=[('SM', '<', 0.5)],
+        annotate_fit_at=250.0,
+    ),
 ]
 
 # ─── PSD PLOTS ────────────────────────────────────────────────────────────────
@@ -137,6 +191,15 @@ PSD_PLOT_DEFINITIONS = [
     PsdPlot("Rear Vertical Acceleration PSD",  "gVertR",       axis_limits=[(0, 50), (1e-4, None)]),
     PsdPlot("Front Ride PSD",                  "hRideF (raw)", axis_limits=[(0, 50), (1e-4, None)]),
     PsdPlot("Rear Ride PSD",                   "hRideR (raw)", axis_limits=[(0, 50), (1e-4, None)]),
+
+    # ── Demo: multi-channel PSD ─────────────────────────────────────────────────
+    # Both front and rear ride channels overlaid on the same axes. Line style
+    # cycles (solid → dashed) per channel; legend shows "RUN — channel".
+    PsdPlot(
+        name="[Demo] Ride PSD Front+Rear",
+        channel=["hRideF (raw)", "hRideR (raw)"],
+        axis_limits=[(0, 50), (1e-4, None)],
+    ),
 ]
 
 # ─── HISTOGRAM PLOTS ──────────────────────────────────────────────────────────
@@ -152,6 +215,15 @@ BAR_PLOT_DEFINITIONS = [
     BarPlot("Cumulative Metrics", (("dmInjector (kg/s)", "integral"),)),
     BarPlot("Plank Energy",       (("EPlank_F",          "max"),)),
     BarPlot("Lap Time",           (("tLap_Calc",         "max"),)),
+
+    # ── Demo: target_line ───────────────────────────────────────────────────────
+    # Draws a dashed reference line at the target peak plank energy. Runs above
+    # the line are immediately flagged without needing to read axis values.
+    BarPlot(
+        name="[Demo] Plank Energy Target",
+        metrics=(("EPlank_F", "max"),),
+        target_line=500.0,
+    ),
 ]
 
 # ─── BOX PLOTS ────────────────────────────────────────────────────────────────

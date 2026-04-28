@@ -199,12 +199,20 @@ class BarBoxMixin:
             self._add_standard_legend(ax, handles=handles, labels=labels, loc="upper right")
 
             if target_line is not None:
+                tl = float(target_line)
+                # Expand y-limits if the target line falls outside the current range
+                y0, y1 = ax.get_ylim()
+                padding = (y1 - y0) * 0.08
+                new_y0 = min(y0, tl - padding)
+                new_y1 = max(y1, tl + padding)
+                ax.set_ylim(new_y0, new_y1)
+
                 ax.axhline(
-                    float(target_line),
+                    tl,
                     color="#333333", linestyle="--", linewidth=1.4, alpha=0.8, zorder=5,
                 )
                 ax.text(
-                    0.99, float(target_line),
+                    0.99, tl,
                     f" {target_line:g}",
                     transform=ax.get_yaxis_transform(),
                     ha="right", va="bottom",

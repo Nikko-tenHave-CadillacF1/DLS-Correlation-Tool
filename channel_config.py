@@ -262,7 +262,7 @@ CORRELATION_FILTERS = {
     "dmInjector":    {"cutoff": 0,  "order": 2},
     "PPUTotal":      {"cutoff": 0,  "order": 2},
     "vCar":          {"cutoff": 0,  "order": 2},
-    "all":           {"cutoff": 20, "order": 2},
+    "all":           {"cutoff": 5,  "order": 2},
 }
 
 BOXPLOT_FILTERS = {

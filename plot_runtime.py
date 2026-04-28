@@ -165,8 +165,14 @@ def WaveformPlot(
     x_channel : str
         Channel to use as the x-axis. Defaults to ``'sLap'`` (distance-based).
         Use ``'tLap'`` for elapsed lap time, or any other monotonic channel.
-
-    Examples
+    highlight_zones : tuple | list | None
+        Gate condition used to shade x-axis regions where the condition is true.
+        Each run is evaluated against its own data and shaded in a highly
+        transparent version of that run's own colour.
+        Single condition: ``('channel', 'operator', value)``
+        Multiple (all must match): ``[('ch1', '>', v1), ('ch2', '<', v2)]``
+        Operators: ``'>'``, ``'<'``, ``'>='``, ``'<='``, ``'=='``, ``'between'``
+    normalise : bool
     --------
     # Distance-based (default)
     WaveformPlot(
@@ -264,7 +270,7 @@ def ScatterPlot(
 
 def PsdPlot(
     name: str,
-    channel: str,
+    channel: Union[str, list],
     axis_limits: Optional[list] = None,
     log_scale: bool = True,
     nperseg: Optional[int] = None,
@@ -275,8 +281,9 @@ def PsdPlot(
     ----------
     name : str
         Plot title and output filename stem.
-    channel : str
-        Channel to compute PSD for.
+    channel : str | list[str]
+        Channel to compute PSD for. Pass a list to overlay multiple channels
+        on the same axes. Legend entries will read ``"RUN — channel"``.
     axis_limits : list | None
         ``[(f_min, f_max), (power_min, power_max)]``.
         Example: ``[(0, 50), (1e-4, None)]``
@@ -296,7 +303,11 @@ def PsdPlot(
     )
     """
     _require_str(name, "name")
-    _require_str(channel, "channel")
+    if isinstance(channel, (list, tuple)):
+        if not channel:
+            raise ValueError("'channel' list must not be empty.")
+    else:
+        _require_str(channel, "channel")
     definition = [name, channel, axis_limits, log_scale]
     if nperseg is not None:
         definition.append(int(nperseg))
