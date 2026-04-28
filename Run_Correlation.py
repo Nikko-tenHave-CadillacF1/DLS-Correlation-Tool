@@ -87,15 +87,17 @@ WAVEFORM_PLOT_DEFINITIONS = [
     ),
 
     # ── Demo: highlight_zones ──────────────────────────────────────────────────
-    # Shades x-regions where pBrakeF > 50 in red. Good for spotting braking zones
-    # at a glance across channels.
+    # Shades x-regions where rThrottle < 20% (lift-off / braking zones) in red.
+    # rThrottle is always 0-100% so this condition reliably produces zones on
+    # any racing lap. Supply a 4th hex string to override the shading colour;
+    # omit it to use each run's own colour.
     WaveformPlot(
         name="[Demo] Highlight Zones",
         channels=('vCar', 'pBrakeF', ('rThrottle', 'SM')),
         axis_limits=(None, None, ((0, 105), (0, 1.3))),
-        reference_lines=(None, (50,), None),
+        reference_lines=(None, None, (20,)),
         subplot_heights=(0.6, 0.4, 0.4),
-        highlight_zones=('SM', '>', 0.5),
+        highlight_zones=('rThrottle', '<', 20, '#FF4444'),
     ),
     # ── Demo: normalise ─────────────────────────────────────────────────────────
     # Channels with very different scales (kW, km/h, %) shown on a shared [0,1]

@@ -389,15 +389,20 @@ class WaveformMixin:
                             ax_right.axhline(vv2, linestyle=":", color="gray", alpha=0.36)
 
                 # ── highlight_zones ───────────────────────────────────────
-                # Gate spec: ('ch', 'op', val) or list of such tuples (all must match).
-                # Each run is evaluated against its own data and shaded in a
-                # highly transparent version of that run's own color.
+                # Gate spec: ('ch', 'op', val) or ('ch', 'op', val, '#hexcolor')
+                # or list of such tuples. Optional color overrides the run color.
                 if highlight_zones is not None:
-                    # Normalise to a list of specs; support single tuple or list of tuples
+                    # Normalise to a 3-element spec tuple and extract optional color
                     if isinstance(highlight_zones[0], (list, tuple)):
                         z_spec = list(highlight_zones)
+                        z_override_color = None
                     else:
-                        z_spec = highlight_zones[:3]  # strip any legacy color element
+                        z_spec = highlight_zones[:3]
+                        z_override_color = (
+                            highlight_zones[3]
+                            if len(highlight_zones) >= 4 and isinstance(highlight_zones[3], str)
+                            else None
+                        )
 
                     for run in self.runs:
                         df_z = self.run_data.get(run["name"].lower())
@@ -414,6 +419,7 @@ class WaveformMixin:
                         mask_z = df_z.index.isin(df_cond.index)
                         x_arr = x_z.to_numpy() if hasattr(x_z, "to_numpy") else np.array(x_z)
                         m_arr = mask_z.to_numpy() if hasattr(mask_z, "to_numpy") else np.array(mask_z, dtype=bool)
+                        shade_color = z_override_color if z_override_color else run["color"]
                         # Draw one axvspan per contiguous True segment
                         padded = np.concatenate([[False], m_arr, [False]])
                         starts = np.where(~padded[:-1] & padded[1:])[0]
@@ -422,7 +428,7 @@ class WaveformMixin:
                             xe = min(e, len(x_arr) - 1)
                             ax.axvspan(
                                 x_arr[s], x_arr[xe],
-                                alpha=0.18, color=run["color"], zorder=0, linewidth=0,
+                                alpha=0.25, color=shade_color, zorder=0, linewidth=0,
                             )
 
                 if idx < len(prepared_rows) - 1:
