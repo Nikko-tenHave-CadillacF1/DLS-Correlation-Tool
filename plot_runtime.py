@@ -1,11 +1,17 @@
-"""Shared helpers for plot-entry scripts."""
+"""Plot-entry helpers: plot constructors, plotter builder, job runner, and PowerPoint export."""
+
+from __future__ import annotations
 
 import os
 import traceback
 import json
+from pathlib import Path
+from datetime import datetime
+from zipfile import ZipFile
+import xml.etree.ElementTree as ET
+from typing import Optional, Union
 
 from dataplotter import DataPlotter
-from powerpointexporter import export_report_to_powerpoint, get_template_plot_aspect_ratios
 
 
 DEFAULT_FIG_SIZE = [(15.5, 6.4), (10, 8), (10, 8), (10, 8), (10, 6)]
@@ -30,13 +36,11 @@ def build_plotter(
     template_path=None,
     export_map=None,
     fig_size=None,
-    scatter_render_mode="auto",
-    scatter_density_threshold=25000,
     scatter_max_points=45000,
-    scatter_hexbin_gridsize=70,
     bar_secondary_axis_ratio=20.0,
     box_plot_settings=None,
     output_dir=None,
+    verbose=False,
 ):
     """Build a DataPlotter with optional PowerPoint aspect-ratio hints."""
     plot_aspect_ratios = {}
@@ -61,13 +65,11 @@ def build_plotter(
         fig_size=fig_size or DEFAULT_FIG_SIZE,
         units_map=units_map,
         plot_aspect_ratios=plot_aspect_ratios,
-        scatter_render_mode=scatter_render_mode,
-        scatter_density_threshold=scatter_density_threshold,
         scatter_max_points=scatter_max_points,
-        scatter_hexbin_gridsize=scatter_hexbin_gridsize,
         bar_secondary_axis_ratio=bar_secondary_axis_ratio,
         box_plot_settings=box_plot_settings,
         output_dir=output_dir,
+        verbose=verbose,
     )
 
 
@@ -77,6 +79,8 @@ def run_plot_job(
     plotter,
     plot_method="plot_all",
     generate_message="Generating plots...",
+    plot_types=None,
+    plot_names=None,
     powerpoint_template=None,
     powerpoint_output=None,
     export_map=None,
@@ -87,7 +91,10 @@ def run_plot_job(
     print("=" * 80 + "\n")
 
     print(f"\n{generate_message}")
-    getattr(plotter, plot_method)()
+    if (plot_types is not None or plot_names is not None) and plot_method in ("plot_all", "plot_data"):
+        plotter.plot_data(plot_types=plot_types, plot_names=plot_names)
+    else:
+        getattr(plotter, plot_method)()
 
     if powerpoint_template and powerpoint_output and export_map:
         print("\nExporting to PowerPoint...")
@@ -112,3 +119,710 @@ def run_plot_job(
     print("\n" + "=" * 80)
     print(f"{'PROCESSING COMPLETE':^80}")
     print("=" * 80 + "\n")
+
+
+# ================================================================
+# PLOT CONSTRUCTORS
+# ================================================================
+
+# ---------------------------------------------------------------------------
+# Waveform
+# ---------------------------------------------------------------------------
+
+def WaveformPlot(
+    name: str,
+    channels: tuple,
+    axis_limits: Optional[tuple] = None,
+    reference_lines: Optional[tuple] = None,
+    subplot_heights: Optional[tuple] = None,
+    x_limits: Optional[tuple] = None,
+    x_channel: str = "sLap",
+    highlight_zones=None,
+    normalise: bool = False,
+) -> list:
+    """Define a waveform (time-series) subplot figure.
+
+    Parameters
+    ----------
+    name : str
+        Plot title and output filename stem.
+    channels : tuple
+        One entry per subplot row.
+        ``'channel'`` — single y-axis row.
+        ``('left_channel', 'right_channel')`` — dual y-axis overlay row.
+    axis_limits : tuple | None
+        Per-row y-limits matching the length of ``channels``.
+        Single-axis row: ``(y_min, y_max)`` or ``None``.
+        Dual-axis row:  ``((y1_min, y1_max), (y2_min, y2_max))`` or ``None``.
+    reference_lines : tuple | None
+        Per-row horizontal reference line values.
+        Scalar, tuple of scalars, or ``None`` per row.
+    subplot_heights : tuple | None
+        Relative heights for each row. Default is equal heights.
+        Example: ``(0.4, 0.8, 0.4)`` makes the middle row twice as tall.
+    x_limits : tuple | None
+        ``(x_min, x_max)`` override for the shared x-axis. ``None`` to auto-scale.
+    x_channel : str
+        Channel to use as the x-axis. Defaults to ``'sLap'`` (distance-based).
+        Use ``'tLap'`` for elapsed lap time, or any other monotonic channel.
+
+    Examples
+    --------
+    # Distance-based (default)
+    WaveformPlot(
+        name="Power Unit",
+        channels=('PMGUK', 'PEngine', ('vCar', 'NGear')),
+        axis_limits=(None, None, ((60, 400), (-1, 9))),
+        reference_lines=((-350, 0, 350), (0,), None),
+        subplot_heights=(0.4, 0.4, 0.6),
+    )
+
+    # Time-based x-axis
+    WaveformPlot(
+        name="Sector 1 Detail",
+        channels=('vCar', 'gLong'),
+        x_channel="tLap",
+        x_limits=(0, 30),
+    )
+    """
+    _require_str(name, "name")
+    _require_nonempty(channels, "channels")
+    return [name, channels, axis_limits, reference_lines, subplot_heights, x_limits, x_channel, highlight_zones, normalise]
+
+
+# ---------------------------------------------------------------------------
+# Scatter
+# ---------------------------------------------------------------------------
+
+def ScatterPlot(
+    name: str,
+    x_channel: str,
+    y_channel: str,
+    axis_limits: Optional[list] = None,
+    best_fit: Union[int, list, None] = None,
+    gate: Union[tuple, list, None] = None,
+    show_equations: bool = True,
+    show_error: bool = True,
+    color_gate=None,
+    annotate_fit_at=None,
+) -> list:
+    """Define a scatter (XY correlation) plot.
+
+    Parameters
+    ----------
+    name : str
+        Plot title and output filename stem.
+    x_channel : str
+        Channel plotted on the x-axis.
+    y_channel : str
+        Channel plotted on the y-axis.
+    axis_limits : list | None
+        ``[(x_min, x_max), (y_min, y_max)]``. Use ``None`` for either pair to
+        auto-scale that axis.
+    best_fit : int | list | None
+        ``None`` or ``0`` — no trend line.
+        ``1`` — single fit line across all data.
+        ``list`` — segmented fits, each entry is ``(split_channel, low, high)``.
+        Example: ``[('NGear', 1.5, 2.5), ('NGear', 2.5, 3.5)]``
+    gate : tuple | list | None
+        Data filter applied before plotting.
+        Single condition: ``('vCar', '>', 120)``
+        Multiple (all must match): ``[('vCar', '>', 120), ('gLong', '<', 0)]``
+        Operators: ``'>'``, ``'<'``, ``'>='``, ``'<='``, ``'=='``, ``'between'``
+    show_equations : bool
+        Display trend-line equations on the plot.
+    show_error : bool
+        Display gradient error percentage box.
+
+    Examples
+    --------
+    ScatterPlot(
+        name="Front Ride vCar",
+        x_channel="vCar",
+        y_channel="hRideF",
+        best_fit=[('SM', 0, 0.5)],
+        gate=[('SM', '<', 1)],
+    )
+
+    ScatterPlot(
+        name="Braking Efficiency",
+        x_channel="pBrakeF",
+        y_channel="gLong",
+        best_fit=[('y', None, -0.2)],
+        gate=('gLong', '<', 0),
+    )
+    """
+    _require_str(name, "name")
+    _require_str(x_channel, "x_channel")
+    _require_str(y_channel, "y_channel")
+    return [name, (x_channel, y_channel), axis_limits, best_fit, gate, show_equations, show_error, color_gate, annotate_fit_at]
+
+
+# ---------------------------------------------------------------------------
+# PSD
+# ---------------------------------------------------------------------------
+
+def PsdPlot(
+    name: str,
+    channel: str,
+    axis_limits: Optional[list] = None,
+    log_scale: bool = True,
+    nperseg: Optional[int] = None,
+) -> list:
+    """Define a Power Spectral Density (frequency-domain) plot.
+
+    Parameters
+    ----------
+    name : str
+        Plot title and output filename stem.
+    channel : str
+        Channel to compute PSD for.
+    axis_limits : list | None
+        ``[(f_min, f_max), (power_min, power_max)]``.
+        Example: ``[(0, 50), (1e-4, None)]``
+    log_scale : bool
+        Use logarithmic y-axis. Recommended for PSD plots.
+    nperseg : int | None
+        Welch window size in samples. Larger values give higher frequency
+        resolution but require more data. Default uses the pipeline default.
+
+    Examples
+    --------
+    PsdPlot(
+        name="Front Ride PSD",
+        channel="hRideF (raw)",
+        axis_limits=[(0, 50), (1e-4, None)],
+        log_scale=True,
+    )
+    """
+    _require_str(name, "name")
+    _require_str(channel, "channel")
+    definition = [name, channel, axis_limits, log_scale]
+    if nperseg is not None:
+        definition.append(int(nperseg))
+    return definition
+
+
+# ---------------------------------------------------------------------------
+# Histogram
+# ---------------------------------------------------------------------------
+
+def HistogramPlot(
+    name: str,
+    channel: str,
+    axis_limits: Optional[list] = None,
+    log_scale: bool = False,
+) -> list:
+    """Define a histogram (value-distribution) plot.
+
+    Parameters
+    ----------
+    name : str
+        Plot title and output filename stem.
+    channel : str
+        Channel to build the histogram for.
+    axis_limits : list | None
+        ``[(x_min, x_max), (y_min, y_max)]``.
+    log_scale : bool
+        Use logarithmic y-axis.
+
+    Examples
+    --------
+    HistogramPlot(
+        name="Plank Power Distribution",
+        channel="PPlank_F",
+        axis_limits=[(1, 51), (None, None)],
+    )
+    """
+    _require_str(name, "name")
+    _require_str(channel, "channel")
+    return [name, channel, axis_limits, log_scale]
+
+
+# ---------------------------------------------------------------------------
+# Bar
+# ---------------------------------------------------------------------------
+
+def BarPlot(
+    name: str,
+    metrics: tuple,
+    default_aggregation: str = "last",
+    axis_limits: Optional[tuple] = None,
+    target_line=None,
+) -> list:
+    """Define an aggregated bar chart.
+
+    Parameters
+    ----------
+    name : str
+        Plot title and output filename stem.
+    metrics : tuple
+        Channel names or ``(channel, aggregation)`` pairs.
+        Plain string entries use ``default_aggregation``.
+        Accepted aggregations: ``'integral'``, ``'sum'``, ``'last'``,
+        ``'mean'``, ``'max'``, ``'min'``.
+    default_aggregation : str
+        Aggregation applied to plain-string channel entries.
+    axis_limits : tuple | None
+        ``(y_min, y_max)`` y-axis override.
+
+    Examples
+    --------
+    BarPlot(
+        name="Cumulative Fuel",
+        metrics=(("dmInjector (kg/s)", "integral"),),
+    )
+
+    BarPlot(
+        name="Peak Values",
+        metrics=("PMGUK_Deploy", "PMGUK_Charge"),
+        default_aggregation="max",
+    )
+    """
+    _require_str(name, "name")
+    _require_nonempty(metrics, "metrics")
+    if default_aggregation not in {"integral", "sum", "last", "mean", "max", "min"}:
+        raise ValueError(
+            f"BarPlot '{name}': default_aggregation must be one of "
+            "'integral', 'sum', 'last', 'mean', 'max', 'min'. Got: {default_aggregation!r}"
+        )
+    return [name, metrics, default_aggregation, axis_limits, target_line]
+
+
+# ---------------------------------------------------------------------------
+# Box
+# ---------------------------------------------------------------------------
+
+def BoxPlot(
+    name: str,
+    channels: Union[str, list],
+    aggregation_mode: str = "per_run",
+    axis_limits: Optional[tuple] = None,
+    gate: Union[tuple, list, None] = None,
+    options: Optional[dict] = None,
+) -> list:
+    """Define a box plot (statistical distribution).
+
+    Parameters
+    ----------
+    name : str
+        Plot title and output filename stem.
+    channels : str | list
+        One or more channel names to plot distributions for.
+    aggregation_mode : str
+        ``'per_run'`` — one box per run per channel (shows run-to-run variation).
+        ``'aggregated'`` — all runs merged into one box per channel.
+    axis_limits : tuple | None
+        ``(y_min, y_max)`` y-axis override.
+    gate : tuple | list | None
+        Data filter. Same format as ``ScatterPlot.gate``.
+    options : dict | None
+        Override box plot visual settings.
+        Keys: ``show_points``, ``show_fliers``, ``box_width``, ``point_alpha``,
+        ``point_size``, ``jitter``, ``box_linewidth``, ``medianline_color``.
+
+    Examples
+    --------
+    BoxPlot(
+        name="Front Damper Distribution",
+        channels=["xDamperFL", "xDamperFR"],
+        gate=('vCar', '>', 100),
+        options={"show_points": True},
+    )
+    """
+    _require_str(name, "name")
+    if aggregation_mode not in {"per_run", "aggregated"}:
+        raise ValueError(
+            f"BoxPlot '{name}': aggregation_mode must be 'per_run' or 'aggregated'. "
+            f"Got: {aggregation_mode!r}"
+        )
+    definition = [name, channels, aggregation_mode, axis_limits]
+    if gate is not None:
+        definition.append(gate)
+    if options is not None:
+        definition.append(options)
+    return definition
+
+
+# ---------------------------------------------------------------------------
+# Internal validators
+# ---------------------------------------------------------------------------
+
+def _require_str(value, param_name: str):
+    if not isinstance(value, str) or not value.strip():
+        raise TypeError(f"'{param_name}' must be a non-empty string. Got: {value!r}")
+
+
+def _require_nonempty(value, param_name: str):
+    if not value:
+        raise ValueError(f"'{param_name}' must not be empty. Got: {value!r}")
+
+
+# ================================================================
+# POWERPOINT EXPORT
+# ================================================================
+
+# ================================================================
+# CONSTANT LAYOUT DEFINITIONS
+# ================================================================
+
+MAIN_PLOT_BOX = {
+    "left_ratio": 0.079,
+    "top_ratio": 0.260,
+    "width_ratio": 0.90,
+    "height_ratio": 0.65,
+}
+
+DOUBLE_PLOT_LAYOUT = {
+    "left_ratio": 0.0,
+    "top_ratio": 0.245,
+    "width_ratio": 1.2,
+    "height_ratio": 0.9,
+    "gap_ratio": 0.0,
+}
+
+# PowerPoint picture MsoShapeType values
+MSO_PICTURE_TYPES = {11, 13}
+
+PPTX_NS = {
+    "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+    "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
+}
+
+
+# ================================================================
+# GEOMETRY HELPERS
+# ================================================================
+
+def _resolve_box(layout_name, slide_width, slide_height, slot_index=0, slot_count=1):
+    """Compute a plot box for main/double layouts."""
+    if layout_name == "main_plot":
+        box = MAIN_PLOT_BOX
+        return (
+            slide_width * box["left_ratio"],
+            slide_height * box["top_ratio"],
+            slide_width * box["width_ratio"],
+            slide_height * box["height_ratio"],
+        )
+
+    if layout_name == "double_plot":
+        box = DOUBLE_PLOT_LAYOUT
+        left = slide_width * box["left_ratio"]
+        top = slide_height * box["top_ratio"]
+        width = slide_width * box["width_ratio"]
+        height = slide_height * box["height_ratio"]
+        gap = slide_width * box["gap_ratio"]
+
+        slot_width = (width - gap) / 2
+        return (
+            left + slot_index * (slot_width + gap),
+            top,
+            slot_width,
+            height,
+        )
+
+    raise ValueError(f"Unsupported PowerPoint layout: {layout_name}")
+
+
+# ================================================================
+# SLIDE TEMPLATE PARSING
+# ================================================================
+
+def _replace_slide_pictures(slide):
+    """Delete all picture shapes from a slide."""
+    # reversed loop because PowerPoint collection mutates on delete
+    for idx in range(slide.Shapes.Count, 0, -1):
+        shape = slide.Shapes(idx)
+        if shape.Type in MSO_PICTURE_TYPES:
+            shape.Delete()
+
+
+def _get_picture_boxes(slide):
+    """Extract picture bounding boxes from a slide."""
+    boxes = []
+    for idx in range(1, slide.Shapes.Count + 1):
+        sh = slide.Shapes(idx)
+        if sh.Type in MSO_PICTURE_TYPES:
+            boxes.append((sh.Left, sh.Top, sh.Width, sh.Height))
+
+    return sorted(boxes, key=lambda b: (b[0], b[1]))
+
+
+def _get_double_plot_boxes(picture_boxes, slide_width, slide_height):
+    """
+    For double-plot layouts:
+    - If template already contains picture placeholders, use those.
+    - Otherwise derive new ones using the DOUBLE_PLOT_LAYOUT ratios.
+    """
+    if len(picture_boxes) >= 2:
+        # Use template-detected bounding boxes
+        sorted_boxes = sorted(picture_boxes, key=lambda b: b[0])
+        return sorted_boxes[:2]
+
+    # Fall back to generic
+    layout = DOUBLE_PLOT_LAYOUT
+    left = slide_width * layout["left_ratio"]
+    top = slide_height * layout["top_ratio"]
+    total_width = slide_width * layout["width_ratio"]
+    total_height = slide_height * layout["height_ratio"]
+    gap = slide_width * layout["gap_ratio"]
+
+    slot_width = max((total_width - gap) / 2, 0)
+
+    return [
+        (left, top, slot_width, total_height),
+        (left + slot_width + gap, top, slot_width, total_height),
+    ]
+
+
+def _get_main_plot_box(picture_boxes, slide_width, slide_height):
+    """
+    For main-plot layouts:
+    - If template has a placeholder, expand horizontally
+    - Otherwise use layout constants
+    """
+    if picture_boxes:
+        _, top, _, height = picture_boxes[0]
+        return (0, top, slide_width, height)
+
+    box = MAIN_PLOT_BOX
+    return (
+        slide_width * box["left_ratio"],
+        slide_height * box["top_ratio"],
+        slide_width * box["width_ratio"],
+        slide_height * box["height_ratio"],
+    )
+
+
+# ================================================================
+# IMAGE INSERTION
+# ================================================================
+
+def _add_picture_fit(slide, image_path, left, top, width, height, fill_factor=1.0):
+    """
+    Insert image into slide, preserving aspect ratio and centering it.
+    fill_factor > 1 expands slightly to avoid white bands.
+    """
+    image_path = str(image_path)
+    shape = slide.Shapes.AddPicture(image_path, False, True, 0, 0, -1, -1)
+
+    shape.LockAspectRatio = True
+
+    scale = min(width / shape.Width, height / shape.Height)
+    scale *= fill_factor
+
+    shape.Width *= scale
+    shape.Height *= scale
+
+    shape.Left = left + (width - shape.Width) / 2
+    shape.Top = top + (height - shape.Height) / 2
+
+    # Cosmetic border to separate plots visually
+    shape.Line.Visible = True
+    shape.Line.ForeColor.RGB = 0
+    shape.Line.Weight = 1
+
+    return shape
+
+
+# ================================================================
+# TEMPLATE ASPECT RATIO EXTRACTION
+# ================================================================
+
+def get_template_plot_aspect_ratios(template_path, export_map):
+    """
+    Reads the PPTX template and extracts the native aspect ratios of picture
+    placeholders so exported plots match layout proportions precisely.
+    Returns empty dict if template cannot be read (graceful degradation).
+    """
+    template_path = Path(template_path).resolve()
+    if not template_path.exists():
+        print(f"[WARNING][powerpointexporter] PowerPoint template not found: {template_path}. Using default aspect ratios.")
+        return {}
+
+    aspect_ratios = {}
+
+    try:
+        with ZipFile(template_path) as pptx:
+            pres_root = ET.fromstring(pptx.read("ppt/presentation.xml"))
+            slide_size = pres_root.find("p:sldSz", PPTX_NS)
+            slide_width = int(slide_size.attrib.get("cx", 0)) if slide_size is not None else None
+
+            for slide_num, config in export_map.items():
+                slide_xml = f"ppt/slides/slide{slide_num}.xml"
+                if slide_xml not in pptx.namelist():
+                    continue
+
+                root = ET.fromstring(pptx.read(slide_xml))
+
+                # Collect all <p:pic> shapes
+                picture_boxes = []
+                for pic in root.findall(".//p:pic", PPTX_NS):
+                    xfrm = pic.find("p:spPr/a:xfrm", PPTX_NS)
+                    if xfrm is None:
+                        continue
+
+                    ext = xfrm.find("a:ext", PPTX_NS)
+                    off = xfrm.find("a:off", PPTX_NS)
+                    if ext is None:
+                        continue
+
+                    width = int(ext.attrib.get("cx", 0))
+                    height = int(ext.attrib.get("cy", 0))
+                    left = int(off.attrib.get("x", 0)) if off is not None else 0
+                    top = int(off.attrib.get("y", 0)) if off is not None else 0
+
+                    if width > 0 and height > 0:
+                        picture_boxes.append((left, top, width, height))
+
+                picture_boxes.sort(key=lambda b: (b[0], b[1]))
+
+                image_files = config.get("images", [])
+                slide_aspects = []
+
+                for i, img_file in enumerate(image_files):
+                    if i >= len(picture_boxes):
+                        break
+
+                    _, _, w, h = picture_boxes[i]
+                    # For main plot with only one picture, stretch horizontally
+                    if (
+                        config.get("layout") == "main_plot"
+                        and slide_width is not None
+                        and len(image_files) == 1
+                    ):
+                        w = slide_width  # stretch to full width
+
+                    slide_aspects.append((img_file, w / h))
+
+                # For two-up scatter plots → average aspect ratio
+                if (
+                    config.get("layout") == "double_plot"
+                    and len(slide_aspects) == 2
+                    and not all(
+                        name.startswith(("scatter_", "psd_", "bar_"))
+                        for name, _ in slide_aspects
+                    )
+                ):
+                    avg = sum(a for _, a in slide_aspects) / len(slide_aspects)
+                    for img, _ in slide_aspects:
+                        aspect_ratios[img] = (avg,)
+                else:
+                    for img, ar in slide_aspects:
+                        aspect_ratios[img] = ar
+    except Exception as e:
+        print(f"[WARNING][powerpointexporter] Error reading template aspect ratios: {e}. Using default aspect ratios.")
+        return {}
+
+    return aspect_ratios
+
+
+# ================================================================
+# MAIN EXPORT FUNCTION
+# ================================================================
+
+def export_report_to_powerpoint(template_path, output_path, plots_dir, export_map, visible=False):
+    """
+    Insert generated plots into a PowerPoint template according to export_map.
+    """
+    try:
+        import win32com.client
+    except ImportError as exc:
+        raise ImportError(
+            "pywin32 is required for PowerPoint export. Install with:\n"
+            "    pip install pywin32"
+        ) from exc
+
+    template_path = Path(template_path).resolve()
+    plots_dir = Path(plots_dir).resolve()
+    output_path = Path(output_path).resolve()
+
+    if not template_path.exists():
+        raise FileNotFoundError(f"PowerPoint template not found: {template_path}")
+
+    # PowerPoint COM object
+    ppt = win32com.client.Dispatch("PowerPoint.Application")
+    ppt.Visible = True  # PowerPoint does not allow True/False control here
+
+    pres = None
+    try:
+        pres = ppt.Presentations.Open(str(template_path), WithWindow=visible)
+
+        slide_width = pres.PageSetup.SlideWidth
+        slide_height = pres.PageSetup.SlideHeight
+
+        for slide_num, cfg in export_map.items():
+            slide = pres.Slides(slide_num)
+            layout = cfg["layout"]
+            image_list = cfg["images"]
+
+            picture_boxes = _get_picture_boxes(slide)
+
+            if layout == "main_plot" and len(image_list) == 1:
+                target_boxes = [_get_main_plot_box(picture_boxes, slide_width, slide_height)]
+            elif layout == "double_plot" and len(image_list) == 2:
+                target_boxes = _get_double_plot_boxes(picture_boxes, slide_width, slide_height)
+            else:
+                target_boxes = picture_boxes or [
+                    _resolve_box(layout, slide_width, slide_height, slot_index=i, slot_count=len(image_list))
+                    for i in range(len(image_list))
+                ]
+
+            _replace_slide_pictures(slide)
+
+            for i, img in enumerate(image_list):
+                img_path = plots_dir / img
+                if not img_path.exists():
+                    print(f"[WARNING][powerpointexporter] Missing plot for slide {slide_num}: {img}")
+                    continue
+
+                if i < len(target_boxes):
+                    left, top, width, height = target_boxes[i]
+                else:
+                    left, top, width, height = _resolve_box(
+                        layout,
+                        slide_width,
+                        slide_height,
+                        slot_index=i,
+                        slot_count=len(image_list),
+                    )
+
+                # Aggressive padding for scatter/PSD in double-layout
+                if (
+                    layout == "double_plot"
+                    and img.startswith(("scatter_", "psd_", "histogram_", "bar_"))
+                ):
+                    fill_factor = 1.2
+                else:
+                    fill_factor = 1.0
+
+                _add_picture_fit(slide, img_path, left, top, width, height, fill_factor)
+
+        # save result
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            pres.SaveAs(str(output_path))
+            final = output_path
+        except Exception as exc:
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            fallback = output_path.with_name(f"{output_path.stem}_{ts}{output_path.suffix}")
+            print(
+                f"[WARNING][powerpointexporter] Could not save to {output_path} ({exc}). Using fallback: {fallback}"
+            )
+            pres.SaveAs(str(fallback))
+            final = fallback
+
+        print(f"PowerPoint report saved to: {final}")
+
+    except Exception as exc:
+        print(f"[ERROR][powerpointexporter] PowerPoint export failed: {exc}")
+
+    finally:
+        try:
+            ppt.Quit()
+        except Exception as quit_err:
+            print(f"[WARNING][powerpointexporter] Error quitting PowerPoint: {quit_err}")
+
+        # Release COM objects
+        pres = None
+        ppt = None

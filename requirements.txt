@@ -2,7 +2,7 @@ pandas>=1.3.0
 numpy>=1.21.0
 matplotlib>=3.4.0
 scipy>=1.7.0
-
+tqdm>=4.64.0
 # Optional but recommended for this project:
 # - pywin32: required for PowerPoint export on Windows
 # - parquet backend: pyarrow or fastparquet required when reading parquet input files

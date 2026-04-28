@@ -1,127 +1,86 @@
-"""Damper workflow entry point.
+"""Damper workflow — edit RUNS and plot definitions to configure your analysis."""
 
-Keep this file focused on the plots used for dampers.
-"""
-
-import numpy as np
-
-from data_layout import DAMPER_PLOTS_DIR, resolve_damper_input_dir
-from plot_runtime import (
-    build_plot_groups,
-    build_plotter as runtime_build_plotter,
-    run_plot_job,
+from channel_config import DAMPER_INPUT_DIR as _INPUT_DIR, DAMPER_PLOTS_DIR
+from plot_runtime import build_plot_groups, build_plotter as _build_plotter, run_plot_job
+from plot_runtime import WaveformPlot, ScatterPlot
+from channel_config import (
+    CHANNEL_MAPPINGS, UNITS_MAP, CHANNEL_TRANSFORMS,
+    DAMPER_CALCULATED, DAMPER_FILTERS,
 )
-from plot_shared_config import CHANNEL_MAPPINGS, UNITS_MAP
 
+ROOT_FOLDER = _INPUT_DIR
 
-ROOT_FOLDER = resolve_damper_input_dir()
+# ─── RUNS ─────────────────────────────────────────────────────────────────────
 
 RUNS = [
-    {
-        "name": "Front Heave - 7A",
-        "file": "VPG Baselines  MIA  26R04MIA v1b_-7A FRONT HEAVE_LTS_Iteration_8.parquet",
-        "color": "#D70000",
-        "nlap" : 1,
-        "type": "DLS",
-    },
-    {
-        "name": "Front Heave - 7B",
-        "file": "VPG Baselines  MIA  26R04MIA v1b_-7B FRONT HEAVE_LTS_Iteration_8.parquet",
-        "color": "#059E00",
-        "nlap" : 1,
-        "type": "DLS",
-    },
-    {
-        "name": "Front Heave - 7C",
-        "file": "VPG Baselines  MIA  26R04MIA v1b_- 7C FRONT HEAVE_LTS_Iteration_8.parquet",
-        "color": "#008CFF",
-        "nlap" : 1,
-        "type": "DLS",
-    },
+    {"name": "Front Heave - 7A", "file": "VPG Baselines  MIA  26R04MIA v1b_-7A FRONT HEAVE_LTS_Iteration_8.parquet",    "color": "#D70000", "nlap": 1, "type": "DLS"},
+    {"name": "Front Heave - 7B", "file": "VPG Baselines  MIA  26R04MIA v1b_-7B FRONT HEAVE_LTS_Iteration_8.parquet",    "color": "#059E00", "nlap": 1, "type": "DLS"},
+    {"name": "Front Heave - 7C", "file": "VPG Baselines  MIA  26R04MIA v1b_- 7C FRONT HEAVE_LTS_Iteration_8.parquet",  "color": "#008CFF", "nlap": 1, "type": "DLS"},
 ]
 
-CALCULATED_CHANNELS = {
-    "gLat_Abs": lambda df: np.abs(df["gLat"]),
-}
-
-LOW_PASS_FILTERS = {
-    "CosPhi": {"cutoff": 3, "order": 3},
-    "rLLTD": {"cutoff": 10, "order": 2},
-    "gVert": {"cutoff": 30, "order": 2},
-    "gVertF": {"cutoff": 30, "order": 2},
-    "gVertR": {"cutoff": 30, "order": 2},
-    "all": {"cutoff": 10, "order": 3},
-}
+# ─── WAVEFORM PLOTS ───────────────────────────────────────────────────────────
 
 WAVEFORM_PLOT_DEFINITIONS = [
-    [
-        "Load Transfer Roll",
-        ('rLLTD', 'aRoll', 'gLat_Abs'),
-        ((0,100), (-1,1), None),
-        (None, None, 0),
-        (1, 1, 1),
-        (3920, 3980)
-    ],
-    [
-        "rLLTD",
-        ('rLLTD',),
-        ((35,70),),
-        (None,),
-        (1,),
-        (3400, 3440)
-    ],
-    [
-        "Driver Input",
-        ('PMGUK', ('vCar', 'NGear'), 'aSteerWheel'),
-        (None, ((60, 400), (-1, 9)), (-160, 160)),
-        (None, None, None),
-        (0.4, 0.8, 0.4),
-        (1200, 1800) 
-    ],
-    [
-        "gVert",
-        ('gVert', 'gVertF', 'gVertR'),
-        ((-2,4), (-2,4), (-2,4)),
-        (1, 1, 1),
-        (1, 1, 1),
-        (680, 820)
-    ],
+    WaveformPlot(
+        name="Load Transfer Roll",
+        channels=('rLLTD', 'aRoll', 'gLat_Abs'),
+        axis_limits=((0, 100), (-1, 1), None),
+        reference_lines=(None, None, 0),
+        subplot_heights=(1, 1, 1),
+        x_limits=(3920, 3980),
+    ),
+    WaveformPlot(
+        name="rLLTD",
+        channels=('rLLTD',),
+        axis_limits=((35, 70),),
+        reference_lines=(None,),
+        subplot_heights=(1,),
+        x_limits=(3400, 3440),
+    ),
+    WaveformPlot(
+        name="Driver Input",
+        channels=('PMGUK', ('vCar', 'NGear'), 'aSteerWheel'),
+        axis_limits=(None, ((60, 400), (-1, 9)), (-160, 160)),
+        reference_lines=(None, None, None),
+        subplot_heights=(0.4, 0.8, 0.4),
+        x_limits=(1200, 1800),
+    ),
+    WaveformPlot(
+        name="gVert",
+        channels=('gVert', 'gVertF', 'gVertR'),
+        axis_limits=((-2, 4), (-2, 4), (-2, 4)),
+        reference_lines=(1, 1, 1),
+        subplot_heights=(1, 1, 1),
+        x_limits=(680, 820),
+    ),
 ]
 
+# ─── SCATTER PLOTS ────────────────────────────────────────────────────────────
+
 SCATTER_PLOT_DEFINITIONS = [
-    [
-        "rLLTD vs. CosPhi",
-        ("rLLTD", "CosPhi"),
-        None,
-        0,
-        True,
-        True,
-    ],
+    ScatterPlot("rLLTD vs. CosPhi", "rLLTD", "CosPhi", best_fit=0),
 ]
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 PLOT_DEFINITIONS = build_plot_groups(WAVEFORM_PLOT_DEFINITIONS, SCATTER_PLOT_DEFINITIONS, [], [], [], [])
 
-
-def build_plotter():
-    """Build the configured plotter for the damper workflow."""
-    FIG_SIZE = [(9.5, 8), (10, 8), (10, 8), (10, 8), (10, 6)]
-    return runtime_build_plotter(
-        root_folder=ROOT_FOLDER,
-        output_dir=DAMPER_PLOTS_DIR,
-        runs=RUNS,
-        plot_definitions=PLOT_DEFINITIONS,
-        channel_mappings=CHANNEL_MAPPINGS,
-        calculated_channels=CALCULATED_CHANNELS,
-        low_pass_filters=LOW_PASS_FILTERS,
-        units_map=UNITS_MAP,
-        fig_size=FIG_SIZE,
-    )
-
+_FIG_SIZE = [(9.5, 8), (10, 8), (10, 8), (10, 8), (10, 6)]
 
 if __name__ == "__main__":
-    # The shared runner handles console framing and any future export hooks.
     run_plot_job(
         title="DAMPER PLOT ANALYSIS",
-        plotter=build_plotter(),
+        plotter=_build_plotter(
+            root_folder=ROOT_FOLDER,
+            output_dir=DAMPER_PLOTS_DIR,
+            runs=RUNS,
+            plot_definitions=PLOT_DEFINITIONS,
+            channel_mappings=CHANNEL_MAPPINGS,
+            channel_transforms=CHANNEL_TRANSFORMS,
+            calculated_channels=DAMPER_CALCULATED,
+            low_pass_filters=DAMPER_FILTERS,
+            units_map=UNITS_MAP,
+            fig_size=_FIG_SIZE,
+        ),
         generate_message="Generating damper plots...",
     )

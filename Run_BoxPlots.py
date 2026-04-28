@@ -1,126 +1,56 @@
-"""Box-plot workflow entry point.
+"""Box plot workflow — edit RUNS and BOX_PLOT_DEFINITIONS to configure your analysis."""
 
-Keep this file focused on the box-plot run list and box-specific plot settings.
-"""
-
-import numpy as np
-
-from data_layout import BOXPLOT_OUTPUT_DIR, resolve_boxplot_input_dir
-from plot_runtime import (
-    build_plot_groups,
-    build_plotter as runtime_build_plotter,
-    run_plot_job,
+from channel_config import BOXPLOT_INPUT_DIR as _INPUT_DIR, BOXPLOT_OUTPUT_DIR
+from plot_runtime import build_plot_groups, build_plotter as _build_plotter, run_plot_job
+from plot_runtime import BoxPlot
+from channel_config import (
+    CHANNEL_MAPPINGS, UNITS_MAP, CHANNEL_TRANSFORMS,
+    BOXPLOT_CALCULATED, BOXPLOT_FILTERS, BOX_PLOT_SETTINGS,
 )
-from plot_shared_config import CHANNEL_MAPPINGS, UNITS_MAP
 
+ROOT_FOLDER = _INPUT_DIR
 
-ROOT_FOLDER = resolve_boxplot_input_dir()
+# ─── RUNS ─────────────────────────────────────────────────────────────────────
 
 RUNS = [
-    {
-        "name": "T01BCN - R4",
-        "file": "26T01BCN_260129_MAC26-01_PER_R04PARTIAL.txt",
-        "color": "#D70000",
-        "type": "CAR",
-    },
-    {
-        "name": "T01BCN - R5",
-        "file": "26T01BCN_260129_MAC26-01_PER_R05PARTIAL.txt",
-        "color": "#06B300",
-        "type": "CAR",
-    },
-    {
-        "name": "T01BCN - R6",
-        "file": "26T01BCN_260129_MAC26-01_PER_R06PARTIAL.txt",
-        "color": "#008CFF",
-        "type": "CAR",
-    },
-    {
-        "name": "T01BCN - R7",
-        "file": "26T01BCN_260129_MAC26-01_PER_R07PARTIAL.txt",
-        "color": "#EA00FF",
-        "type": "CAR",
-    },
+    {"name": "T01BCN - R4", "file": "26T01BCN_260129_MAC26-01_PER_R04PARTIAL.txt", "color": "#D70000", "type": "CAR"},
+    {"name": "T01BCN - R5", "file": "26T01BCN_260129_MAC26-01_PER_R05PARTIAL.txt", "color": "#06B300", "type": "CAR"},
+    {"name": "T01BCN - R6", "file": "26T01BCN_260129_MAC26-01_PER_R06PARTIAL.txt", "color": "#008CFF", "type": "CAR"},
+    {"name": "T01BCN - R7", "file": "26T01BCN_260129_MAC26-01_PER_R07PARTIAL.txt", "color": "#EA00FF", "type": "CAR"},
 ]
 
-CHANNEL_TRANSFORMS = {
-    "CAR": None,
-}
-
-CALCULATED_CHANNELS = {
-    "dmInjector (kg/s)": lambda df: df["dmInjector"] / 3600,
-    "rLambda_avg (%)": lambda df: 100 * (df["rLambdaL"] + df["rLambdaR"]) / 2,
-    "dmExhaust": lambda df: df["dmInjector"] * (1 + 13.23 * df["rLambda_avg (%)"] / 100) / 3600,
-    "dmExhaust_Estimated": lambda df: df["dmInjector"] * (1 + 13.23 * (0.155 * df["vCar"] + 109.329) / 100) / 3600,
-    "Error_dmExhaust": lambda df: df["dmExhaust"] - df["dmExhaust_Estimated"],
-    "CosPhi_Calc": lambda df: df["gLong"] / np.sqrt(df["gLat"] ** 2 + df["gLong"] ** 2),
-}
-
-LOW_PASS_FILTERS = {
-    "rLambdaL": {"cutoff": 5, "order": 2},
-    "rLambdaR": {"cutoff": 5, "order": 2},
-    "rLambda_avg": {"cutoff": 3, "order": 2},
-    "dmInjector": {"cutoff": 5, "order": 2},
-    "dmFFMFuel": {"cutoff": 5, "order": 2},
-    "CosPhi": {"cutoff": 5, "order": 2},
-    "CosPhi_Calc": {"cutoff": 5, "order": 2},
-    "gLong": {"cutoff": 3, "order": 2},
-    "gLat": {"cutoff": 5, "order": 2},
-}
+# ─── BOX PLOTS ────────────────────────────────────────────────────────────────
+# aggregation_mode: "per_run" (one box per run) | "aggregated" (all runs merged)
+# gate: filter data before plotting — ('channel', 'operator', value) or list of conditions
 
 BOX_PLOT_DEFINITIONS = [
-    [
-        "Low Speed Corner Distribution",
-        "vCar",
-        "per_run",
-        (None, None),
-        [("gLong", "between", (-0.1, 0.1)), ("vCar", "<", 120)],
-        {},
-    ],
+    BoxPlot(
+        name="Low Speed Corner Distribution",
+        channels="vCar",
+        aggregation_mode="per_run",
+        gate=[("gLong", "between", (-0.1, 0.1)), ("vCar", "<", 120)],
+    ),
 ]
 
-BOX_PLOT_SETTINGS = {
-    "show_points": True,
-    "jitter": 0.15,
-    "point_alpha": 0.25,
-    "point_size": 18,
-    "show_fliers": False,
-    "box_width": 0.65,
-    "box_linewidth": 1.8,
-    "box_edge_color": "#4A4A4A",
-    "medianline_color": "#1A1A1A",
-    "medianline_width": 2.5,
-    "aggregated_box_color": "#2E7D99",
-    "aggregated_box_alpha": 0.75,
-    "per_run_box_alpha": 0.75,
-    "figsize_single_channel": (10, 6),
-    "figsize_multi_channel": (14, 10),
-}
+# ─────────────────────────────────────────────────────────────────────────────
 
 PLOT_DEFINITIONS = build_plot_groups([], [], [], [], [], BOX_PLOT_DEFINITIONS)
 
-
-def build_plotter():
-    """Build the configured plotter for the box-plot workflow."""
-    return runtime_build_plotter(
-        root_folder=ROOT_FOLDER,
-        output_dir=BOXPLOT_OUTPUT_DIR,
-        runs=RUNS,
-        plot_definitions=PLOT_DEFINITIONS,
-        channel_mappings=CHANNEL_MAPPINGS,
-        channel_transforms=CHANNEL_TRANSFORMS,
-        calculated_channels=CALCULATED_CHANNELS,
-        low_pass_filters=LOW_PASS_FILTERS,
-        units_map=UNITS_MAP,
-        box_plot_settings=BOX_PLOT_SETTINGS,
-    )
-
-
 if __name__ == "__main__":
-    # The shared runner handles console framing and any future export hooks.
     run_plot_job(
         title="BOX PLOT ANALYSIS",
-        plotter=build_plotter(),
+        plotter=_build_plotter(
+            root_folder=ROOT_FOLDER,
+            output_dir=BOXPLOT_OUTPUT_DIR,
+            runs=RUNS,
+            plot_definitions=PLOT_DEFINITIONS,
+            channel_mappings=CHANNEL_MAPPINGS,
+            channel_transforms=CHANNEL_TRANSFORMS,
+            calculated_channels=BOXPLOT_CALCULATED,
+            low_pass_filters=BOXPLOT_FILTERS,
+            units_map=UNITS_MAP,
+            box_plot_settings=BOX_PLOT_SETTINGS,
+        ),
         plot_method="generate_box_plots",
         generate_message="Generating box plots...",
     )

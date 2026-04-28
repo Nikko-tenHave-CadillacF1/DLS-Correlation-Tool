@@ -591,18 +591,6 @@ def find_best_text_position(ax):
     return pos[best]
 
 
-def _build_run_density_cmap(color):
-    """Create a light-to-color colormap for per-run density overlays."""
-    rgba = mcolors.to_rgba(color, alpha=0.95)
-    return mcolors.LinearSegmentedColormap.from_list(
-        f"density_{color}",
-        [
-            (1.0, 1.0, 1.0, 0.0),
-            (rgba[0], rgba[1], rgba[2], 0.95),
-        ],
-    )
-
-
 def _decimate_xy(x_data, y_data, max_points):
     """Downsample evenly when data volume is large to keep plots responsive."""
     if max_points is None or max_points <= 0:
@@ -614,69 +602,19 @@ def _decimate_xy(x_data, y_data, max_points):
     return x_data[::stride], y_data[::stride]
 
 
-def _plot_scatter_layer(
-    ax,
-    x_data,
-    y_data,
-    label,
-    color,
-    alpha,
-    size,
-    render_mode="auto",
-    density_threshold=25000,
-    max_points=45000,
-    hexbin_gridsize=70,
-):
-    """Plot either regular scatter or hexbin density based on sample count."""
-    mode = render_mode
-    if mode == "auto":
-        mode = "hexbin" if len(x_data) >= density_threshold else "scatter"
-
-    if mode == "hexbin":
-        ax.hexbin(
-            x_data,
-            y_data,
-            gridsize=hexbin_gridsize,
-            mincnt=1,
-            cmap=_build_run_density_cmap(color),
-            linewidths=0,
-            zorder=1,
-        )
-        # Empty handle to keep run in legend
-        ax.scatter([], [], color=color, marker="s", s=max(24, size * 5), alpha=0.95, label=label)
-        return
-
+def _plot_scatter_layer(ax, x_data, y_data, label, color, alpha, size, max_points=45000):
+    """Plot scatter points with optional decimation for dense data."""
     x_plot, y_plot = _decimate_xy(x_data, y_data, max_points=max_points)
     ax.scatter(x_plot, y_plot, alpha=alpha, s=size, color=color, label=label, edgecolors="none")
 
 
-def plot_scatter(
-    ax,
-    x_data,
-    y_data,
-    label,
-    color,
-    alpha,
-    size,
-    x_var="",
-    y_var="",
-    render_mode="auto",
-    density_threshold=25000,
-    max_points=45000,
-    hexbin_gridsize=70,
-):
+def plot_scatter(ax, x_data, y_data, label, color, alpha, size, x_var="", y_var="", max_points=45000):
     """Simple scatter plot."""
     if len(x_data) == 0:
         print(f"[WARNING][datafunctions] No data for scatter: {label} ({x_var} vs {y_var}).")
         return False, None, None
 
-    _plot_scatter_layer(
-        ax, x_data, y_data, label, color, alpha, size,
-        render_mode=render_mode,
-        density_threshold=density_threshold,
-        max_points=max_points,
-        hexbin_gridsize=hexbin_gridsize,
-    )
+    _plot_scatter_layer(ax, x_data, y_data, label, color, alpha, size, max_points=max_points)
     return True, None, None
 
 
@@ -721,23 +659,14 @@ def plot_scatter_with_1fit(
     x_var="",
     y_var="",
     FIT_LINE_X_LIMITS=None,
-    render_mode="auto",
-    density_threshold=25000,
     max_points=45000,
-    hexbin_gridsize=70,
 ):
     """Scatter + single linear trendline."""
     if len(x_data) == 0:
         print(f"[WARNING][datafunctions] No data for single fit: {label} ({x_var} vs {y_var}).")
         return False, None, None, None, None
 
-    _plot_scatter_layer(
-        ax, x_data, y_data, label, color, alpha, size,
-        render_mode=render_mode,
-        density_threshold=density_threshold,
-        max_points=max_points,
-        hexbin_gridsize=hexbin_gridsize,
-    )
+    _plot_scatter_layer(ax, x_data, y_data, label, color, alpha, size, max_points=max_points)
 
     if FIT_LINE_X_LIMITS:
         xmin, xmax = FIT_LINE_X_LIMITS
@@ -759,20 +688,8 @@ def plot_scatter_with_1fit(
 
 
 def plot_scatter_with_double_fit(
-    ax,
-    x_data,
-    y_data,
-    label,
-    color,
-    alpha,
-    size,
-    x_var="",
-    y_var="",
-    fit_split=None,
-    render_mode="auto",
-    density_threshold=25000,
-    max_points=45000,
-    hexbin_gridsize=70,
+    ax, x_data, y_data, label, color, alpha, size,
+    x_var="", y_var="", fit_split=None, max_points=45000,
 ):
     """Legacy wrapper: fit_split is removed; falls back to single linear fit."""
     if len(x_data) == 0:
@@ -785,11 +702,7 @@ def plot_scatter_with_double_fit(
         )
 
     return plot_scatter_with_1fit(
-        ax, x_data, y_data, label, color, alpha, size, x_var, y_var,
-        render_mode=render_mode,
-        density_threshold=density_threshold,
-        max_points=max_points,
-        hexbin_gridsize=hexbin_gridsize,
+        ax, x_data, y_data, label, color, alpha, size, x_var, y_var, max_points=max_points
     )
 
 def plot_scatter_with_multi_fit(
@@ -804,10 +717,7 @@ def plot_scatter_with_multi_fit(
     y_var="",
     fit_defs=None,
     fit_condition_data=None,
-    render_mode="auto",
-    density_threshold=25000,
     max_points=45000,
-    hexbin_gridsize=70,
 ):
     """Scatter + as many linear fit segments as provided.
 
@@ -820,20 +730,10 @@ def plot_scatter_with_multi_fit(
 
     if not fit_defs:
         return plot_scatter_with_1fit(
-            ax, x_data, y_data, label, color, alpha, size, x_var, y_var,
-            render_mode=render_mode,
-            density_threshold=density_threshold,
-            max_points=max_points,
-            hexbin_gridsize=hexbin_gridsize,
+            ax, x_data, y_data, label, color, alpha, size, x_var, y_var, max_points=max_points,
         )
 
-    _plot_scatter_layer(
-        ax, x_data, y_data, label, color, alpha, size,
-        render_mode=render_mode,
-        density_threshold=density_threshold,
-        max_points=max_points,
-        hexbin_gridsize=hexbin_gridsize,
-    )
+    _plot_scatter_layer(ax, x_data, y_data, label, color, alpha, size, max_points=max_points)
 
     slopes_list = []
     intercepts_list = []
@@ -857,11 +757,7 @@ def plot_scatter_with_multi_fit(
         )
         if fit_mask_info["status"] == "invalid_definition":
             return plot_scatter_with_1fit(
-                ax, x_data, y_data, label, color, alpha, size, x_var, y_var,
-                render_mode=render_mode,
-                density_threshold=density_threshold,
-                max_points=max_points,
-                hexbin_gridsize=hexbin_gridsize,
+                ax, x_data, y_data, label, color, alpha, size, x_var, y_var, max_points=max_points,
             )
         if fit_mask_info["status"] == "missing_condition_channel":
             print(
