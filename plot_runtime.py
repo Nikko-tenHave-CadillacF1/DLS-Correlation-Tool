@@ -307,7 +307,7 @@ def ScatterPlot(
     x_channel: str,
     y_channel: str,
     axis_limits: Optional[list] = None,
-    best_fit: Union[int, list, None] = None,
+    best_fit: Union[int, list, None] = 0,
     gate: Union[tuple, list, None] = None,
     show_equations: bool = True,
     show_error: bool = True,
@@ -337,12 +337,14 @@ def PsdPlot(
     axis_limits: Optional[list] = None,
     log_scale: bool = True,
     nperseg: Optional[int] = None,
+    annotate_at=None,
 ) -> list:
     """Define a PSD plot.
 
     channel: str or list[str] for multi-channel overlay.
     axis_limits: [(f_min, f_max), (power_min, power_max)].
     nperseg: Welch window size; None for pipeline default.
+    annotate_at: frequency or tuple of frequencies to annotate PSD values at.
     """
     _require_str(name, "name")
     if isinstance(channel, (list, tuple)):
@@ -351,8 +353,10 @@ def PsdPlot(
     else:
         _require_str(channel, "channel")
     definition = [name, channel, axis_limits, log_scale]
-    if nperseg is not None:
-        definition.append(int(nperseg))
+    if nperseg is not None or annotate_at is not None:
+        definition.append(int(nperseg) if nperseg is not None else 512)
+    if annotate_at is not None:
+        definition.append(annotate_at)
     return definition
 
 

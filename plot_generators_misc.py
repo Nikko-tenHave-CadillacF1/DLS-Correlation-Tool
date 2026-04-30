@@ -29,10 +29,11 @@ class PsdHistMixin:
 
         plot_iter = plots if self.verbose else _tqdm(plots, desc="PSD", unit="plot", leave=True)
         for plot_def in plot_iter:
-            _d = list(plot_def) + [None] * (5 - len(plot_def))
+            _d = list(plot_def) + [None] * (6 - len(plot_def))
             plot_name, channel, axis_limits = _d[:3]
             log_scale = _d[3] if _d[3] is not None else True
             nperseg   = _d[4] if _d[4] is not None else 512
+            annotate_at = _d[5]
 
             # channel may be a single string or a list/tuple of strings
             channels_list = [channel] if isinstance(channel, str) else list(channel)
@@ -54,6 +55,7 @@ class PsdHistMixin:
 
             plotted_any = False
             multi = len(channels_list) > 1
+            psd_curves = []  # (run_color, freq_array, power_array) for annotate_at
             for run in self.runs:
                 run_name = run["name"].lower()
                 if run_name not in self.run_data:
@@ -97,6 +99,7 @@ class PsdHistMixin:
                         linewidth=1.8, color=run["color"],
                         linestyle=lstyle, alpha=0.9, label=lbl,
                     )
+                    psd_curves.append((run["color"], freq, power))
                     plotted_any = True
 
             if not plotted_any:
@@ -132,6 +135,54 @@ class PsdHistMixin:
             ax.spines["right"].set_visible(False)
 
             self._add_standard_legend(ax, loc="best")
+
+            # ── annotate_at: mark PSD values at specific frequencies ──────
+            if annotate_at is not None and psd_curves:
+                if isinstance(annotate_at, (list, tuple)):
+                    freq_targets = [float(v) for v in annotate_at]
+                else:
+                    freq_targets = [float(annotate_at)]
+
+                xl, xr = ax.get_xlim()
+                for f_at in freq_targets:
+                    if not (xl <= f_at <= xr):
+                        continue
+                    ax.axvline(f_at, color="#5E5E5E", linestyle="--", linewidth=1.2, alpha=0.7, zorder=2)
+
+                    # Collect annotation points at this frequency
+                    ann_items = []
+                    for (run_color, freq_arr, power_arr) in psd_curves:
+                        idx = np.argmin(np.abs(freq_arr - f_at))
+                        p_at = power_arr[idx]
+                        ann_items.append((p_at, run_color))
+
+                    if ann_items:
+                        ann_items.sort(key=lambda t: t[0])
+                        trans = ax.transData
+                        display_ys = [trans.transform((f_at, item[0]))[1] for item in ann_items]
+                        min_sep = 16
+                        adjusted_display_ys = list(display_ys)
+                        for i in range(1, len(adjusted_display_ys)):
+                            gap = adjusted_display_ys[i] - adjusted_display_ys[i - 1]
+                            if gap < min_sep:
+                                adjusted_display_ys[i] = adjusted_display_ys[i - 1] + min_sep
+
+                        for i, (p_at, color_e) in enumerate(ann_items):
+                            nudge_pts = adjusted_display_ys[i] - display_ys[i]
+                            y_offset = 8 + nudge_pts
+                            ax.scatter([f_at], [p_at], color=color_e, s=50, zorder=10,
+                                       edgecolors="white", linewidths=1.2)
+                            ax.annotate(
+                                f"{p_at:.3g}",
+                                xy=(f_at, p_at), xytext=(10, y_offset),
+                                textcoords="offset points",
+                                fontsize=9, fontweight="bold", color=color_e,
+                                zorder=11,
+                                arrowprops=dict(arrowstyle="-", color=color_e,
+                                                lw=0.8, alpha=0.6),
+                                bbox=dict(boxstyle="round,pad=0.22", facecolor="white",
+                                          alpha=0.92, edgecolor=color_e, linewidth=0.8),
+                            )
 
             plt.tight_layout(pad=0.25)
             fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.15, facecolor="white")

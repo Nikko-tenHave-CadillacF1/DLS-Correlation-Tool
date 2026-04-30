@@ -140,8 +140,8 @@ UNITS_MAP = {
     "EPlank_F": "kJ",
     "PPlank_F": "kW",
     "FzPlankF": "N",
-    "PMGUK_Deploy": "kW",
-    "PMGUK_Charge": "kW",
+    "PMGUK_Deploy (MJ)": "kW",
+    "PMGUK_Charge (MJ)": "kW",
     "dmInjector": "kg/hr",
     "dmInjector (kg/s)": "",
 }
@@ -217,8 +217,8 @@ CORRELATION_CALCULATED = {
     "PPUTotal":           lambda df: df["PMGUK"] + df["PEngine"],
     "nWheelAvg_R":        lambda df: (df["nWheelRL"] + df["nWheelRR"]) / 2,
     "dmInjector (kg/s)":  lambda df: df["dmInjector"] / 3600,
-    "PMGUK_Deploy":       lambda df: (df["PMGUK"] / 1000 * (df["PMGUK"] > 0).astype(float)).abs(),
-    "PMGUK_Charge":       lambda df: (df["PMGUK"] / 1000 * (df["PMGUK"] < 0).astype(float)).abs(),
+    "PMGUK_Deploy (MJ)":  lambda df: (df["PMGUK"] / 1000 * (df["PMGUK"] > 0).astype(float)).abs(),
+    "PMGUK_Charge (MJ)":  lambda df: (df["PMGUK"] / 1000 * (df["PMGUK"] < 0).astype(float)).abs(),
     # Plank wear
     "PPlank_F":           lambda df: 0.001 * np.maximum(0.1 * df["FzPlankF"] * (df["vCar"] / 3.6), 0),
     "EPlank_F":           lambda df: cumulative_trapezoid(df["PPlank_F"], dx=0.01, initial=0),

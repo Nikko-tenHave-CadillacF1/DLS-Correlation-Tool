@@ -630,9 +630,11 @@ def plot_scatter_with_multi_fit(
     eq_lines = []
     line_styles = ["-", "-", "-"]
 
-    def _format_bound(value, is_lower=True):
-        """Format range bounds compactly; open bounds shown as −∞ / +∞."""
+    def _format_bound(value, is_lower=True, fallback=None):
+        """Format range bounds compactly; use data min/max when bound is open."""
         if value is None or not np.isfinite(value):
+            if fallback is not None:
+                return f"{float(fallback):.4g}"
             return "$-\\infty$" if is_lower else "$+\\infty$"
         return f"{float(value):.4g}"
 
@@ -691,8 +693,23 @@ def plot_scatter_with_multi_fit(
             linestyle=line_styles[idx % len(line_styles)],
             linewidth=1.6,
         )
-        lo = _format_bound(min_bound, is_lower=True)
-        hi = _format_bound(max_bound, is_lower=False)
+        # Determine fallback bounds from data when min/max_bound is None
+        axis_key = fit_def[0].lower() if isinstance(fit_def[0], str) else ""
+        if axis_key == "x":
+            lo_fallback = float(np.nanmin(x_data[np.isfinite(x_data)])) if np.any(np.isfinite(x_data)) else None
+            hi_fallback = float(np.nanmax(x_data[np.isfinite(x_data)])) if np.any(np.isfinite(x_data)) else None
+        elif axis_key == "y":
+            lo_fallback = float(np.nanmin(y_data[np.isfinite(y_data)])) if np.any(np.isfinite(y_data)) else None
+            hi_fallback = float(np.nanmax(y_data[np.isfinite(y_data)])) if np.any(np.isfinite(y_data)) else None
+        elif fit_condition_data and fit_def[0] in fit_condition_data:
+            cond_arr = np.asarray(fit_condition_data[fit_def[0]], dtype=float)
+            lo_fallback = float(np.nanmin(cond_arr[np.isfinite(cond_arr)])) if np.any(np.isfinite(cond_arr)) else None
+            hi_fallback = float(np.nanmax(cond_arr[np.isfinite(cond_arr)])) if np.any(np.isfinite(cond_arr)) else None
+        else:
+            lo_fallback = None
+            hi_fallback = None
+        lo = _format_bound(min_bound, is_lower=True, fallback=lo_fallback)
+        hi = _format_bound(max_bound, is_lower=False, fallback=hi_fallback)
         eq_sign = "−" if interc < 0 else "+"
         eq_lines.append(
             f"{axis_name} $\\in$ [{lo}, {hi}]   y = {_fmt_g(slope)} x {eq_sign} {_fmt_g(abs(interc))}"

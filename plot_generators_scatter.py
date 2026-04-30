@@ -53,7 +53,7 @@ class ScatterMixin:
         """Adjust scatter style slightly for dense plots."""
         return _resolve_scatter_style(point_count, self.SCATTER_DOT_SIZE, self.SCATTER_TRANSPARENCY)
 
-    def _build_gradient_segment_labels(self, fit_defs, x_var=None, y_var=None):
+    def _build_gradient_segment_labels(self, fit_defs, x_var=None, y_var=None, data_bounds=None):
         """Create descriptive labels for segmented gradient error reporting."""
         if not isinstance(fit_defs, (list, tuple)):
             return None
@@ -67,14 +67,22 @@ class ScatterMixin:
             axis, min_val, max_val = fit_def
             axis_name = x_var if axis == "x" else y_var if axis == "y" else str(axis)
 
+            # Replace None bounds with actual data min/max when available
+            if data_bounds and axis_name in data_bounds:
+                lo_bound, hi_bound = data_bounds[axis_name]
+                if min_val is None:
+                    min_val = lo_bound
+                if max_val is None:
+                    max_val = hi_bound
+
             if min_val is None and max_val is None:
                 labels.append(f"{axis_name} $\\in$ ($-\\infty$, $+\\infty$)")
             elif min_val is None:
-                labels.append(f"{axis_name} $\\in$ ($-\\infty$, {max_val:g}]")
+                labels.append(f"{axis_name} $\\in$ ($-\\infty$, {max_val:.4g}]")
             elif max_val is None:
-                labels.append(f"{axis_name} $\\in$ [{min_val:g}, $+\\infty$)")
+                labels.append(f"{axis_name} $\\in$ [{min_val:.4g}, $+\\infty$)")
             else:
-                labels.append(f"{axis_name} $\\in$ [{min_val:g}, {max_val:g}]")
+                labels.append(f"{axis_name} $\\in$ [{min_val:.4g}, {max_val:.4g}]")
 
         return labels if labels else None
 
@@ -319,7 +327,7 @@ class ScatterMixin:
                     if show_error and not is_baseline and run_label in pct_errors:
                         pct = pct_errors[run_label]
                         pct_str = "n/a" if pct is None else f"{pct:+.1f}%"
-                        text += f"   \u0394m={pct_str}"
+                        text += f"   \u0394m = {pct_str}"
                     line_items.append((text, run_color))
                 elif show_error and not is_baseline:
                     pct = pct_errors.get(run_label)
@@ -532,6 +540,7 @@ class ScatterMixin:
 
             eq_list = []
             fit_line_params = {}  # run_label -> (slopes, intercepts) for annotate_fit_at
+            condition_data_bounds = {}  # axis_name -> (min, max) for segment labels
 
             for run in self.runs:
                 rn = run["name"].lower()
@@ -594,6 +603,17 @@ class ScatterMixin:
                     fit_condition_data = datafunctions.build_fit_condition_data(
                         df, xy_index, best_fit, plot_name=plot_name, run_name=rn,
                     )
+                    # Accumulate condition channel bounds for segment labels
+                    if fit_condition_data:
+                        for ch_name, ch_arr in fit_condition_data.items():
+                            finite_vals = ch_arr[np.isfinite(ch_arr)] if hasattr(ch_arr, '__len__') else np.array([])
+                            if len(finite_vals) > 0:
+                                ch_min, ch_max = float(np.min(finite_vals)), float(np.max(finite_vals))
+                                if ch_name in condition_data_bounds:
+                                    prev_min, prev_max = condition_data_bounds[ch_name]
+                                    condition_data_bounds[ch_name] = (min(prev_min, ch_min), max(prev_max, ch_max))
+                                else:
+                                    condition_data_bounds[ch_name] = (ch_min, ch_max)
                     ok, slopes, intercepts, eq_text, _ = datafunctions.plot_scatter_with_multi_fit(
                         ax, x_fit, y_fit,
                         run["name"].upper(), run["color"],
@@ -670,8 +690,16 @@ class ScatterMixin:
                     and best_fit
                     and isinstance(best_fit[0], (list, tuple))
                 ):
+                    # Build data_bounds for segment labels (replace inf with real range)
+                    data_bounds = dict(condition_data_bounds)
+                    all_x = np.concatenate([e[3] for e in eq_list if e[3] is not None])
+                    all_y = np.concatenate([e[4] for e in eq_list if e[4] is not None])
+                    if len(all_x) > 0:
+                        data_bounds[x_var] = (float(np.nanmin(all_x)), float(np.nanmax(all_x)))
+                    if len(all_y) > 0:
+                        data_bounds[y_var] = (float(np.nanmin(all_y)), float(np.nanmax(all_y)))
                     fit_labels = self._build_gradient_segment_labels(
-                        best_fit, x_var=x_var, y_var=y_var
+                        best_fit, x_var=x_var, y_var=y_var, data_bounds=data_bounds
                     )
                 anchor = self._display_fit_info(
                     ax, eq_list, show_equations, show_error, fit_labels=fit_labels
@@ -705,30 +733,78 @@ class ScatterMixin:
 
             # ── annotate_fit_at ───────────────────────────────────────────
             if annotate_fit_at is not None and fit_line_params:
-                x_at = float(annotate_fit_at)
+                # Support single value or tuple/list of values
+                if isinstance(annotate_fit_at, (list, tuple)):
+                    x_at_values = [float(v) for v in annotate_fit_at]
+                else:
+                    x_at_values = [float(annotate_fit_at)]
+
                 xl, xr = ax.get_xlim()
-                if xl <= x_at <= xr:
+                for x_at in x_at_values:
+                    if not (xl <= x_at <= xr):
+                        continue
                     ax.axvline(x_at, color="#5E5E5E", linestyle="--", linewidth=1.2, alpha=0.7, zorder=2)
+
+                    # Collect all annotation candidates first
+                    ann_items = []
                     for entry in eq_list:
                         label_name, _, color_e = entry[0], entry[1], entry[2]
                         if label_name not in fit_line_params:
                             continue
                         slopes_p, intercepts_p = fit_line_params[label_name]
+                        # Multi-segment fits: use the first valid segment
                         if isinstance(slopes_p, tuple):
-                            continue  # multi-fit: not well-defined at a single x
+                            found = False
+                            for s, ic in zip(slopes_p, intercepts_p):
+                                if s is not None and ic is not None:
+                                    slopes_p, intercepts_p = s, ic
+                                    found = True
+                                    break
+                            if not found:
+                                continue
                         if slopes_p is None or intercepts_p is None:
                             continue
                         y_at = slopes_p * x_at + intercepts_p
-                        ax.scatter([x_at], [y_at], color=color_e, s=50, zorder=10,
-                                   edgecolors="white", linewidths=1.2)
-                        ax.annotate(
-                            f"{y_at:.3g}",
-                            xy=(x_at, y_at), xytext=(8, 0),
-                            textcoords="offset points",
-                            fontsize=9, fontweight="bold", color=color_e,
-                            bbox=dict(boxstyle="round,pad=0.22", facecolor="white",
-                                      alpha=0.85, edgecolor=color_e, linewidth=0.8),
-                        )
+                        ann_items.append((y_at, color_e, label_name))
+
+                    if ann_items:
+                        # Sort by y-value so we can resolve collisions bottom-up
+                        ann_items.sort(key=lambda t: t[0])
+
+                        # Convert y data values to display points to detect overlap
+                        trans = ax.transData
+                        display_ys = [trans.transform((x_at, item[0]))[1] for item in ann_items]
+
+                        # Minimum separation between label centres (points)
+                        min_sep = 16
+                        # Push labels apart in display space when they collide
+                        adjusted_display_ys = list(display_ys)
+                        for i in range(1, len(adjusted_display_ys)):
+                            gap = adjusted_display_ys[i] - adjusted_display_ys[i - 1]
+                            if gap < min_sep:
+                                adjusted_display_ys[i] = adjusted_display_ys[i - 1] + min_sep
+
+                        # Render each annotation with collision-aware offset
+                        for i, (y_at, color_e, _) in enumerate(ann_items):
+                            base_display_y = display_ys[i]
+                            target_display_y = adjusted_display_ys[i]
+                            # Extra offset in points needed beyond the natural position
+                            nudge_pts = target_display_y - base_display_y
+                            y_offset = 8 + nudge_pts
+
+                            ax.scatter([x_at], [y_at], color=color_e, s=50, zorder=10,
+                                       edgecolors="white", linewidths=1.2)
+                            ax.annotate(
+                                f"{y_at:.3g}",
+                                xy=(x_at, y_at), xytext=(10, y_offset),
+                                textcoords="offset points",
+                                fontsize=9, fontweight="bold", color=color_e,
+                                zorder=11,
+                                arrowprops=dict(arrowstyle="-", color=color_e,
+                                                lw=0.8, alpha=0.6),
+                                bbox=dict(boxstyle="round,pad=0.22", facecolor="white",
+                                          alpha=0.92, edgecolor=color_e, linewidth=0.8),
+                            )
 
             plt.tight_layout(pad=0.25)
             fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.15, facecolor="white")

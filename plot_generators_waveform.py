@@ -392,7 +392,7 @@ class WaveformMixin:
                             xe = min(e, len(x_arr) - 1)
                             ax.axvspan(
                                 x_arr[s], x_arr[xe],
-                                alpha=0.25, color=shade_color, zorder=0, linewidth=0,
+                                alpha=0.15, color=shade_color, zorder=0, linewidth=0,
                             )
 
                 if idx < len(prepared_rows) - 1:

@@ -58,6 +58,7 @@ WAVEFORM_PLOT_DEFINITIONS = [
         axis_limits=(None, ((60, 400), (-1, 9)), (-160, 160), None, ((0, 105), (0, 1.3))),
         reference_lines=((-350, 0, 350), None, (0,), None, None),
         subplot_heights=(0.4, 0.8, 0.4, 0.4, 0.4),
+        # highlight_zones=('SM', '>', 0.5)
     ),
     WaveformPlot(
         name="Power Unit",
@@ -89,27 +90,21 @@ WAVEFORM_PLOT_DEFINITIONS = [
     ),
 
     # ── Demo: highlight_zones ──────────────────────────────────────────────────
-    # Shades x-regions where rThrottle < 20% (lift-off / braking zones) in red.
-    # rThrottle is always 0-100% so this condition reliably produces zones on
-    # any racing lap. Supply a 4th hex string to override the shading colour;
-    # omit it to use each run's own colour.
-    WaveformPlot(
-        name="[Demo] Highlight Zones",
-        channels=('vCar', 'pBrakeF', ('rThrottle', 'SM')),
-        axis_limits=(None, None, ((0, 105), (0, 1.3))),
-        reference_lines=(None, None, (20,)),
-        subplot_heights=(0.6, 0.4, 0.4),
-        highlight_zones=('rThrottle', '<', 20, '#FF4444'),
-    ),
+    # WaveformPlot(
+    #     name="[Demo] Highlight Zones",
+    #     channels=('vCar', 'pBrakeF', ('rThrottle', 'SM')),
+    #     axis_limits=(None, None, ((0, 105), (0, 1.3))),
+    #     reference_lines=(None, None, (20,)),
+    #     subplot_heights=(0.6, 0.4, 0.4),
+    #     highlight_zones=('rThrottle', '<', 20, '#FF4444'),
+    # ),
     # ── Demo: normalise ─────────────────────────────────────────────────────────
-    # Channels with very different scales (kW, km/h, %) shown on a shared [0,1]
-    # axis. Useful for comparing signal shapes directly.
-    WaveformPlot(
-        name="[Demo] Normalised",
-        channels=('PMGUK', 'vCar', 'pBrakeF', 'rThrottle'),
-        subplot_heights=(0.4, 0.4, 0.4, 0.4),
-        normalise=True,
-    ),
+    # WaveformPlot(
+    #     name="[Demo] Normalised",
+    #     channels=('PMGUK', 'vCar', 'pBrakeF', 'rThrottle'),
+    #     subplot_heights=(0.4, 0.4, 0.4, 0.4),
+    #     normalise=True,
+    # ),
 ]
 
 # ─── SCATTER PLOTS ────────────────────────────────────────────────────────────
@@ -154,8 +149,10 @@ SCATTER_PLOT_DEFINITIONS = [
                 best_fit=[('gLat_Abs', 0, 1)], gate=[('SM', '<', 1)]),
     ScatterPlot("Rear Pushrod vCar",       "vCar",          "FPRodAvgR",
                 best_fit=[('gLat_Abs', 0, 1)], gate=[('SM', '<', 1)]),
-    ScatterPlot("Front Ride vCar",         "vCar",          "hRideF",               best_fit=[('SM', 0, 0.5)]),
-    ScatterPlot("Rear Ride vCar",          "vCar",          "hRideR",               best_fit=[('SM', 0, 0.5)]),
+    ScatterPlot("Front Ride vCar",         "vCar",          "hRideF",               best_fit=[('SM', 0, 0.5)],
+                annotate_fit_at=(100,200,300)),
+    ScatterPlot("Rear Ride vCar",          "vCar",          "hRideR",               best_fit=[('SM', 0, 0.5)],
+                annotate_fit_at=(100,200,300)),
     ScatterPlot("Ride Height Compare",         "hRideF",    "hRideR",               best_fit=0),
     ScatterPlot("Ride Height Compare Gated",   "hRideF",    "hRideR",
                 best_fit=0, gate=('SM', '<', 1)),
@@ -164,16 +161,13 @@ SCATTER_PLOT_DEFINITIONS = [
                 best_fit=0, show_equations=False, show_error=False),
 
     # ── Demo: color_gate ────────────────────────────────────────────────────────
-    # Points where SM < 0.3 (simulator margin near minimum) are drawn in magenta
-    # so outlier/low-confidence regions are immediately visible against the run
-    # color. The fit line still uses all (pre-gate) data.
-    ScatterPlot(
-        name="[Demo] Color Gate",
-        x_channel="vCar",
-        y_channel="hRideF",
-        best_fit=[('SM', 0, 0.5)],
-        color_gate=('SM', '<', 0.3, '#FF00CC'),
-    ),
+    # ScatterPlot(
+    #     name="[Demo] Color Gate",
+    #     x_channel="vCar",
+    #     y_channel="hRideF",
+    #     best_fit=[('SM', 0, 0.5)],
+    #     color_gate=('SM', '<', 0.3, '#FF00CC'),
+    # ),
 
     # ── Demo: annotate_fit_at ───────────────────────────────────────────────────
     # Annotates the fit-line y-value for each run at vCar = 250 km/h with a
@@ -191,10 +185,10 @@ SCATTER_PLOT_DEFINITIONS = [
 
 # ─── PSD PLOTS ────────────────────────────────────────────────────────────────
 PSD_PLOT_DEFINITIONS = [
-    PsdPlot("Front Vertical Acceleration PSD", "gVertF",       axis_limits=[(0, 50), (1e-4, None)]),
-    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR",       axis_limits=[(0, 50), (1e-4, None)]),
-    PsdPlot("Front Ride PSD",                  "hRideF (raw)", axis_limits=[(0, 50), (1e-4, None)]),
-    PsdPlot("Rear Ride PSD",                   "hRideR (raw)", axis_limits=[(0, 50), (1e-4, None)]),
+    PsdPlot("Front Vertical Acceleration PSD", "gVertF",       axis_limits=[(0, 50), (1e-4, None)], annotate_at=(5, 30)),
+    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR",       axis_limits=[(0, 50), (1e-4, None)], annotate_at=(5, 30)),
+    PsdPlot("Front Ride PSD",                  "hRideF (raw)", axis_limits=[(0, 50), (1e-4, None)], annotate_at=(5, 30)),
+    PsdPlot("Rear Ride PSD",                   "hRideR (raw)", axis_limits=[(0, 50), (1e-4, None)], annotate_at=(5, 30)),
 
     # ── Demo: multi-channel PSD ─────────────────────────────────────────────────
     # Both front and rear ride channels overlaid on the same axes. Line style
@@ -216,7 +210,7 @@ HISTOGRAM_PLOT_DEFINITIONS = [
 # aggregations: "integral" "sum" "last" "mean" "max" "min"
 
 BAR_PLOT_DEFINITIONS = [
-    BarPlot("Cumulative Metrics", (("dmInjector (kg/s)", "integral"),)),
+    BarPlot("Cumulative Metrics", (("dmInjector (kg/s)", "integral"),("PMGUK_Deploy (MJ)", "integral"),("PMGUK_Charge (MJ)", "integral"))),
     BarPlot("Plank Energy",       (("EPlank_F",          "max"),)),
     BarPlot("Lap Time",           (("tLap_Calc",         "max"),)),
 
