@@ -24,7 +24,25 @@ python Run_BoxPlots.py
 python Run_Dampers.py
 ```
 
-Plots are saved to `Data/outputs/<workflow>/plots/`.
+Plots are saved to `Data/outputs/<workflow>/plots/`. The output folder opens automatically on completion.
+
+### CLI Options
+
+All three entry points support command-line arguments:
+
+```powershell
+python Run_Correlation.py --only "Front Heave" "Engine Efficiency"
+python Run_Correlation.py --types scatter bar
+python Run_Correlation.py --no-open
+```
+
+| Flag | Effect |
+|------|--------|
+| `--only NAME [NAME ...]` | Generate only plots whose name matches (case-insensitive) |
+| `--types TYPE [TYPE ...]` | Generate only these plot types (`waveform`, `scatter`, `psd`, `histogram`, `bar`, `box`) |
+| `--no-open` | Do not auto-open the output folder after completion |
+
+Flags can be combined: `--types scatter --only "Front Heave" --no-open`.
 
 ---
 
@@ -48,7 +66,7 @@ Plots are saved to `Data/outputs/<workflow>/plots/`.
 | `plot_generators_scatter.py` | Scatter plot generation |
 | `plot_generators_misc.py` | PSD and histogram plot generation |
 | `plot_generators_bar_box.py` | Bar and box plot generation |
-| `plot_runtime.py` | Plot constructors, runner helpers, and PowerPoint export |
+| `plot_runtime.py` | `PlotJobConfig`, CLI parser, plot constructors, job runner, and PowerPoint export |
 | `datafunctions.py` | Filtering, fitting, aggregation, and gating helpers |
 
 ---
@@ -90,6 +108,43 @@ RUNS = [
 ```
 
 `nrun=1` selects the lap with the lowest `nRun` value in the file; `nrun=2` selects the next lowest, etc.
+
+---
+
+## Job Configuration
+
+Each `Run_*.py` file uses a `PlotJobConfig` dataclass to bundle all parameters:
+
+```python
+from plot_runtime import PlotJobConfig, run_from_config, parse_plot_cli, build_plot_groups
+
+config = PlotJobConfig(
+    title="CORRELATION PLOT GENERATION",
+    root_folder=ROOT_FOLDER,
+    output_dir=CORRELATION_OUTPUT_DIR,
+    runs=RUNS,
+    plot_definitions=build_plot_groups(
+        waveforms=WAVEFORMS,
+        scatters=SCATTERS,
+        psds=PSDS,
+        histograms=HISTOGRAMS,
+        bars=BARS,
+    ),
+    channel_mappings=CHANNEL_MAPPINGS,
+    channel_transforms=CHANNEL_TRANSFORMS,
+    calculated_channels=CORRELATION_CALCULATED,
+    low_pass_filters=CORRELATION_FILTERS,
+    units_map=UNITS_MAP,
+    powerpoint_template=POWERPOINT_TEMPLATE,
+    powerpoint_output=POWERPOINT_OUTPUT,
+    export_map=POWERPOINT_EXPORT_MAP,
+)
+
+if __name__ == "__main__":
+    run_from_config(config, parse_plot_cli("Correlation plots"))
+```
+
+`build_plot_groups()` accepts keyword-only arguments: `waveforms`, `scatters`, `psds`, `histograms`, `bars`, `boxes`. Omitted categories default to empty.
 
 ---
 
@@ -230,7 +285,7 @@ This file contains all project-wide settings. Edit it to:
 
 ## Filtering Plots at Runtime
 
-`plot_data` accepts two optional filters:
+The CLI flags (`--only`, `--types`) are the primary interface. For programmatic use, `plot_data` accepts two optional filters:
 
 ```python
 plotter.plot_data(
@@ -239,7 +294,15 @@ plotter.plot_data(
 )
 ```
 
-Both can be combined. `run_plot_job` exposes the same options via `plot_types` and `plot_names`.
+---
+
+## Output
+
+- All output filenames are normalised to **lowercase** (e.g. `scatter_front_heave.png`).
+- A data-quality report is written to `data_quality_report.txt` in the plots folder.
+- A summary line is printed on completion: `Generated 47 plot(s) in 16.9s → <path>`.
+- The output folder opens automatically unless `--no-open` is passed.
+- Warnings (missing channels, empty gate results, etc.) always print regardless of verbose mode.
 
 ---
 
@@ -251,8 +314,8 @@ Set `EXPORT_TO_POWERPOINT = True` in `Run_Correlation.py` and place a `.pptx` te
 
 ```python
 POWERPOINT_EXPORT_MAP = {
-    4:  {"layout": "main_plot",   "images": ["waveform_Driver_Input.png"]},
-    6:  {"layout": "double_plot", "images": ["scatter_Gear_Ratios.png", "scatter_Engine_Power.png"]},
+    4:  {"layout": "main_plot",   "images": ["waveform_driver_input.png"]},
+    6:  {"layout": "double_plot", "images": ["scatter_gear_ratios.png", "scatter_engine_power.png"]},
 }
 ```
 
@@ -260,4 +323,4 @@ Layouts:
 - `"main_plot"` — single image, full-width on the slide
 - `"double_plot"` — two images side-by-side
 
-Image filenames follow the pattern `{plot_type}_{Plot_Name_with_spaces_replaced_by_underscores}.png`.
+Image filenames follow the pattern `{type}_{name_with_underscores}.png` (all lowercase). The plot figure size is automatically matched to the template slide aspect ratio.
