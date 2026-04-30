@@ -744,7 +744,7 @@ def plot_scatter_with_multi_fit(
     def _format_bound(value, is_lower=True):
         """Format range bounds compactly; open bounds shown as −∞ / +∞."""
         if value is None or not np.isfinite(value):
-            return "−∞" if is_lower else "+∞"
+            return "$-\\infty$" if is_lower else "$+\\infty$"
         return f"{float(value):.4g}"
 
     for idx, fit_def in enumerate(fit_defs):
@@ -801,7 +801,7 @@ def plot_scatter_with_multi_fit(
         hi = _format_bound(max_bound, is_lower=False)
         eq_sign = "−" if interc < 0 else "+"
         eq_lines.append(
-            f"{axis_name}: [{lo}, {hi}]   y = {slope:.3g}x {eq_sign} {abs(interc):.3g}"
+            f"{axis_name} $\\in$ [{lo}, {hi}]   y = {slope:.3g}x {eq_sign} {abs(interc):.3g}"
         )
         slopes_list.append(slope)
         intercepts_list.append(interc)
@@ -1194,7 +1194,7 @@ def format_gate_text(gate_spec):
         channel, operator, value = condition
         if operator == "between" and isinstance(value, (list, tuple)) and len(value) == 2:
             low, high = value
-            lines.append(f"{channel} in [{low}, {high}]")
+            lines.append(f"{channel} $\\in$ [{low}, {high}]")
         else:
             lines.append(f"{channel} {operator} {value}")
 

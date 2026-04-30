@@ -68,13 +68,13 @@ class ScatterMixin:
             axis_name = x_var if axis == "x" else y_var if axis == "y" else str(axis)
 
             if min_val is None and max_val is None:
-                labels.append(f"{axis_name}: full range")
+                labels.append(f"{axis_name} $\\in$ $\\boldsymbol{{\\mathbb{{R}}}}$")
             elif min_val is None:
-                labels.append(f"{axis_name}: [−∞, {max_val:g}]")
+                labels.append(f"{axis_name} $\\in$ [$-\\infty$, {max_val:g}]")
             elif max_val is None:
-                labels.append(f"{axis_name}: [{min_val:g}, +∞]")
+                labels.append(f"{axis_name} $\\in$ [{min_val:g}, $+\\infty$]")
             else:
-                labels.append(f"{axis_name}: [{min_val:g}, {max_val:g}]")
+                labels.append(f"{axis_name} $\\in$ [{min_val:g}, {max_val:g}]")
 
         return labels if labels else None
 
@@ -118,22 +118,22 @@ class ScatterMixin:
         return candidates[best]
 
     def _format_trendline_text(self, label, equation):
-        """Format trendline text: single line for one fit, grouped header for multi-segment."""
+        """Format trendline text: equation only (run identified by box color)."""
         raw_lines = [l.strip() for l in str(equation).splitlines() if l.strip()]
         if not raw_lines:
-            return f"{label}  fit unavailable"
+            return "fit unavailable"
         if len(raw_lines) == 1:
             line = raw_lines[0]
-            if not line.startswith(label):
-                line = f"{label}  {line}"
-            return line
-        # Multi-segment: label as header, each segment indented below
-        out = [label]
-        for line in raw_lines:
-            # Strip any existing label prefix (backward compatibility)
+            # Strip any legacy label prefix
             if line.upper().startswith(label.upper() + " "):
                 line = line[len(label):].lstrip(" :(")
-            out.append(f"  {line}")
+            return line
+        # Multi-segment: each segment on its own line, no run-label header
+        out = []
+        for line in raw_lines:
+            if line.upper().startswith(label.upper() + " "):
+                line = line[len(label):].lstrip(" :(")
+            out.append(line)
         return "\n".join(out)
 
     def _display_equations(self, ax, eq_list):
@@ -216,12 +216,12 @@ class ScatterMixin:
                         else None
                     )
                     lines.append(
-                        f"    {label.upper()}  \u2022  {fmt(percent_error(run_val, base_val))}"
+                        f"    {label.upper()} :  {fmt(percent_error(run_val, base_val))}"
                     )
         else:
             for label, _, _, _, _, run_slopes in comparison_entries:
                 lines.append(
-                    f"  {label.upper()}  \u2022  {fmt(percent_error(run_slopes, baseline_slopes))}"
+                    f"  {label.upper()} :  {fmt(percent_error(run_slopes, baseline_slopes))}"
                 )
 
         return "\n".join(lines)

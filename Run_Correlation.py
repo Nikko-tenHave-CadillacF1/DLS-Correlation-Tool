@@ -22,17 +22,17 @@ ROOT_FOLDER = _INPUT_DIR
 RUNS = [
     # {"name": "v37", "file": "...", "color": "#0051FF", "nrun": 1, "type": "OC"},
     {
-        "name": "DLS",
-        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3  Stint 1 stint 3_-Plank Stiffness Added_DLS.parquet",
-        "color": "#0099FF",
-        "nlap": 1,
-        "type": "DLS",
-    },
-    {
         "name": "CAR",
         "file": r"26R03SUZ_260328_MAC26-02_BOT_Q_R03_1.txt",
-        "color": "#FF9900",
+        "color": "#FF8C00",
         "type": "CAR",
+    },
+    {
+        "name": "DLS",
+        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3  Stint 1 stint 3_-Plank Stiffness Halved_DLS.parquet",
+        "color": "#0059FF",
+        "nlap": 1, #OC uses nrun, DLS uses nLap
+        "type": "DLS",
     },
 ]
 
@@ -123,7 +123,7 @@ SCATTER_PLOT_DEFINITIONS = [
                 show_equations=False),
     ScatterPlot("Engine Power",            "nEngine",       "PEngine",              best_fit=0),
     ScatterPlot("Engine Efficiency",       "dmInjector",       "PEngine",
-                best_fit=0, show_equations=False),
+                best_fit=1, show_equations=True, show_error=True),
     ScatterPlot("Long Acceleration",       "vCar",          "gLong"),
     ScatterPlot("Lat Acceleration",        "vCar",          "gLat_Abs",             best_fit=0),
     ScatterPlot("GG Plot",                 "gLat",          "gLong",                best_fit=0),
