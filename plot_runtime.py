@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import traceback
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 from datetime import datetime
 from zipfile import ZipFile
@@ -18,9 +20,127 @@ DEFAULT_FIG_SIZE = [(15.5, 6.4), (10, 8), (10, 8), (10, 8), (10, 6)]
 _ASPECT_RATIO_CACHE = {}
 
 
-def build_plot_groups(*groups):
-    """Normalize plot-definition groups into the tuple expected by DataPlotter."""
-    return tuple(group or [] for group in groups)
+# ================================================================
+# JOB CONFIGURATION
+# ================================================================
+
+@dataclass
+class PlotJobConfig:
+    """Bundle all parameters needed for a plotting job in one place."""
+
+    title: str
+    root_folder: Path
+    output_dir: Path
+    runs: list
+    plot_definitions: tuple
+
+    channel_mappings: Optional[dict] = None
+    channel_transforms: Optional[dict] = None
+    calculated_channels: Optional[dict] = None
+    low_pass_filters: Optional[dict] = None
+    units_map: Optional[dict] = None
+    fig_size: Optional[list] = None
+    scatter_max_points: int = 45000
+    bar_secondary_axis_ratio: float = 20.0
+    box_plot_settings: Optional[dict] = None
+    verbose: bool = False
+
+    # Plot method and filtering
+    plot_method: str = "plot_data"
+    generate_message: str = "Generating plots..."
+
+    # PowerPoint
+    powerpoint_template: Optional[Path] = None
+    powerpoint_output: Optional[Path] = None
+    export_map: Optional[dict] = None
+
+    # Output behaviour
+    open_output: bool = True
+
+
+def run_from_config(config: PlotJobConfig, cli_args=None):
+    """Build a plotter from a PlotJobConfig and run the job.
+
+    cli_args: optional argparse.Namespace with .only / .types / .no_open
+              overrides from parse_plot_cli().
+    """
+    plot_types = None
+    plot_names = None
+    open_output = config.open_output
+
+    if cli_args is not None:
+        if getattr(cli_args, "only", None):
+            plot_names = cli_args.only
+        if getattr(cli_args, "types", None):
+            plot_types = cli_args.types
+        if getattr(cli_args, "no_open", False):
+            open_output = False
+
+    plotter = build_plotter(
+        root_folder=config.root_folder,
+        runs=config.runs,
+        plot_definitions=config.plot_definitions,
+        channel_mappings=config.channel_mappings,
+        channel_transforms=config.channel_transforms,
+        calculated_channels=config.calculated_channels,
+        low_pass_filters=config.low_pass_filters,
+        units_map=config.units_map,
+        fig_size=config.fig_size,
+        scatter_max_points=config.scatter_max_points,
+        bar_secondary_axis_ratio=config.bar_secondary_axis_ratio,
+        box_plot_settings=config.box_plot_settings,
+        output_dir=config.output_dir,
+        verbose=config.verbose,
+        template_path=config.powerpoint_template,
+        export_map=config.export_map,
+    )
+
+    run_plot_job(
+        title=config.title,
+        plotter=plotter,
+        plot_method=config.plot_method,
+        generate_message=config.generate_message,
+        plot_types=plot_types,
+        plot_names=plot_names,
+        powerpoint_template=config.powerpoint_template,
+        powerpoint_output=config.powerpoint_output,
+        export_map=config.export_map,
+        open_output=open_output,
+    )
+
+
+def parse_plot_cli(description: str = "Run plotting job"):
+    """Minimal CLI parser for Run_*.py entry points."""
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument(
+        "--only", nargs="+", metavar="NAME",
+        help="Generate only plots whose name matches (case-insensitive).",
+    )
+    parser.add_argument(
+        "--types", nargs="+", metavar="TYPE",
+        help="Generate only these plot types (waveform, scatter, psd, histogram, bar, box).",
+    )
+    parser.add_argument(
+        "--no-open", action="store_true", default=False,
+        help="Do not auto-open the output folder after completion.",
+    )
+    return parser.parse_args()
+
+
+def build_plot_groups(
+    *,
+    waveforms=None,
+    scatters=None,
+    psds=None,
+    histograms=None,
+    bars=None,
+    boxes=None,
+):
+    """Build the 6-slot plot-definition tuple expected by DataPlotter.
+
+    All arguments are keyword-only; omitted slots default to [].
+    """
+    return tuple(group or [] for group in (waveforms, scatters, psds, histograms, bars, boxes))
 
 
 def build_plotter(
@@ -84,17 +204,33 @@ def run_plot_job(
     powerpoint_template=None,
     powerpoint_output=None,
     export_map=None,
+    open_output=True,
 ):
     """Run a plotting job with consistent console output and optional PPT export."""
+    import time as _time
+
     print("\n" + "=" * 80)
     print(f"{title:^80}")
     print("=" * 80 + "\n")
+
+    # Snapshot existing PNG modification times to count new/updated plots
+    pre_mtimes = {
+        p: p.stat().st_mtime for p in plotter.plots_dir.glob("*.png")
+    }
+    t0 = _time.perf_counter()
 
     print(f"\n{generate_message}")
     if (plot_types is not None or plot_names is not None) and plot_method in ("plot_all", "plot_data"):
         plotter.plot_data(plot_types=plot_types, plot_names=plot_names)
     else:
         getattr(plotter, plot_method)()
+
+    elapsed = _time.perf_counter() - t0
+    plot_count = sum(
+        1 for p in plotter.plots_dir.glob("*.png")
+        if p not in pre_mtimes or p.stat().st_mtime > pre_mtimes[p]
+    )
+    print(f"\nGenerated {plot_count} plot(s) in {elapsed:.1f}s  \u2192  {plotter.plots_dir}")
 
     if powerpoint_template and powerpoint_output and export_map:
         print("\nExporting to PowerPoint...")
@@ -115,6 +251,13 @@ def run_plot_job(
         except Exception as export_err:
             print(f"[ERROR] PowerPoint export failed: {export_err}")
             traceback.print_exc()
+
+    # Auto-open the output folder on Windows
+    if open_output:
+        try:
+            os.startfile(plotter.plots_dir)
+        except Exception:
+            pass
 
     print("\n" + "=" * 80)
     print(f"{'PROCESSING COMPLETE':^80}")
@@ -140,56 +283,15 @@ def WaveformPlot(
     highlight_zones=None,
     normalise: bool = False,
 ) -> list:
-    """Define a waveform (time-series) subplot figure.
+    """Define a waveform subplot figure.
 
-    Parameters
-    ----------
-    name : str
-        Plot title and output filename stem.
-    channels : tuple
-        One entry per subplot row.
-        ``'channel'`` — single y-axis row.
-        ``('left_channel', 'right_channel')`` — dual y-axis overlay row.
-    axis_limits : tuple | None
-        Per-row y-limits matching the length of ``channels``.
-        Single-axis row: ``(y_min, y_max)`` or ``None``.
-        Dual-axis row:  ``((y1_min, y1_max), (y2_min, y2_max))`` or ``None``.
-    reference_lines : tuple | None
-        Per-row horizontal reference line values.
-        Scalar, tuple of scalars, or ``None`` per row.
-    subplot_heights : tuple | None
-        Relative heights for each row. Default is equal heights.
-        Example: ``(0.4, 0.8, 0.4)`` makes the middle row twice as tall.
-    x_limits : tuple | None
-        ``(x_min, x_max)`` override for the shared x-axis. ``None`` to auto-scale.
-    x_channel : str
-        Channel to use as the x-axis. Defaults to ``'sLap'`` (distance-based).
-        Use ``'tLap'`` for elapsed lap time, or any other monotonic channel.
-    highlight_zones : tuple | list | None
-        Gate condition used to shade x-axis regions where the condition is true.
-        Each run is evaluated against its own data and shaded in a highly
-        transparent version of that run's own colour.
-        Single condition: ``('channel', 'operator', value)``
-        Multiple (all must match): ``[('ch1', '>', v1), ('ch2', '<', v2)]``
-        Operators: ``'>'``, ``'<'``, ``'>='``, ``'<='``, ``'=='``, ``'between'``
-    normalise : bool
-    --------
-    # Distance-based (default)
-    WaveformPlot(
-        name="Power Unit",
-        channels=('PMGUK', 'PEngine', ('vCar', 'NGear')),
-        axis_limits=(None, None, ((60, 400), (-1, 9))),
-        reference_lines=((-350, 0, 350), (0,), None),
-        subplot_heights=(0.4, 0.4, 0.6),
-    )
-
-    # Time-based x-axis
-    WaveformPlot(
-        name="Sector 1 Detail",
-        channels=('vCar', 'gLong'),
-        x_channel="tLap",
-        x_limits=(0, 30),
-    )
+    channels: one entry per row — 'ch' or ('left', 'right').
+    axis_limits: per-row (ymin, ymax) or ((y1_min, y1_max), (y2_min, y2_max)).
+    reference_lines: per-row scalar / tuple-of-scalars / None.
+    subplot_heights: relative row heights; default equal.
+    x_channel: 'sLap' (default) or 'tLap' etc.
+    highlight_zones: ('ch', 'op', val[, '#color']) — shade matching x-regions.
+    normalise: rescale all channels to [0, 1].
     """
     _require_str(name, "name")
     _require_nonempty(channels, "channels")
@@ -214,49 +316,10 @@ def ScatterPlot(
 ) -> list:
     """Define a scatter (XY correlation) plot.
 
-    Parameters
-    ----------
-    name : str
-        Plot title and output filename stem.
-    x_channel : str
-        Channel plotted on the x-axis.
-    y_channel : str
-        Channel plotted on the y-axis.
-    axis_limits : list | None
-        ``[(x_min, x_max), (y_min, y_max)]``. Use ``None`` for either pair to
-        auto-scale that axis.
-    best_fit : int | list | None
-        ``None`` or ``0`` — no trend line.
-        ``1`` — single fit line across all data.
-        ``list`` — segmented fits, each entry is ``(split_channel, low, high)``.
-        Example: ``[('NGear', 1.5, 2.5), ('NGear', 2.5, 3.5)]``
-    gate : tuple | list | None
-        Data filter applied before plotting.
-        Single condition: ``('vCar', '>', 120)``
-        Multiple (all must match): ``[('vCar', '>', 120), ('gLong', '<', 0)]``
-        Operators: ``'>'``, ``'<'``, ``'>='``, ``'<='``, ``'=='``, ``'between'``
-    show_equations : bool
-        Display trend-line equations on the plot.
-    show_error : bool
-        Display gradient error percentage box.
-
-    Examples
-    --------
-    ScatterPlot(
-        name="Front Ride vCar",
-        x_channel="vCar",
-        y_channel="hRideF",
-        best_fit=[('SM', 0, 0.5)],
-        gate=[('SM', '<', 1)],
-    )
-
-    ScatterPlot(
-        name="Braking Efficiency",
-        x_channel="pBrakeF",
-        y_channel="gLong",
-        best_fit=[('y', None, -0.2)],
-        gate=('gLong', '<', 0),
-    )
+    best_fit: 0/None=no fit, 1=single, list=segmented [('ch', lo, hi), ...].
+    gate: ('ch', 'op', val) or list thereof — pre-filter data.
+    color_gate: ('ch', 'op', val, '#hex') — colour matching points differently.
+    annotate_fit_at: x-value to mark on fit line with vertical dashed line.
     """
     _require_str(name, "name")
     _require_str(x_channel, "x_channel")
@@ -275,32 +338,11 @@ def PsdPlot(
     log_scale: bool = True,
     nperseg: Optional[int] = None,
 ) -> list:
-    """Define a Power Spectral Density (frequency-domain) plot.
+    """Define a PSD plot.
 
-    Parameters
-    ----------
-    name : str
-        Plot title and output filename stem.
-    channel : str | list[str]
-        Channel to compute PSD for. Pass a list to overlay multiple channels
-        on the same axes. Legend entries will read ``"RUN — channel"``.
-    axis_limits : list | None
-        ``[(f_min, f_max), (power_min, power_max)]``.
-        Example: ``[(0, 50), (1e-4, None)]``
-    log_scale : bool
-        Use logarithmic y-axis. Recommended for PSD plots.
-    nperseg : int | None
-        Welch window size in samples. Larger values give higher frequency
-        resolution but require more data. Default uses the pipeline default.
-
-    Examples
-    --------
-    PsdPlot(
-        name="Front Ride PSD",
-        channel="hRideF (raw)",
-        axis_limits=[(0, 50), (1e-4, None)],
-        log_scale=True,
-    )
+    channel: str or list[str] for multi-channel overlay.
+    axis_limits: [(f_min, f_max), (power_min, power_max)].
+    nperseg: Welch window size; None for pipeline default.
     """
     _require_str(name, "name")
     if isinstance(channel, (list, tuple)):
@@ -324,27 +366,7 @@ def HistogramPlot(
     axis_limits: Optional[list] = None,
     log_scale: bool = False,
 ) -> list:
-    """Define a histogram (value-distribution) plot.
-
-    Parameters
-    ----------
-    name : str
-        Plot title and output filename stem.
-    channel : str
-        Channel to build the histogram for.
-    axis_limits : list | None
-        ``[(x_min, x_max), (y_min, y_max)]``.
-    log_scale : bool
-        Use logarithmic y-axis.
-
-    Examples
-    --------
-    HistogramPlot(
-        name="Plank Power Distribution",
-        channel="PPlank_F",
-        axis_limits=[(1, 51), (None, None)],
-    )
-    """
+    """Define a histogram plot. axis_limits: [(x_min, x_max), (y_min, y_max)]."""
     _require_str(name, "name")
     _require_str(channel, "channel")
     return [name, channel, axis_limits, log_scale]
@@ -361,34 +383,10 @@ def BarPlot(
     axis_limits: Optional[tuple] = None,
     target_line=None,
 ) -> list:
-    """Define an aggregated bar chart.
+    """Define a bar chart.
 
-    Parameters
-    ----------
-    name : str
-        Plot title and output filename stem.
-    metrics : tuple
-        Channel names or ``(channel, aggregation)`` pairs.
-        Plain string entries use ``default_aggregation``.
-        Accepted aggregations: ``'integral'``, ``'sum'``, ``'last'``,
-        ``'mean'``, ``'max'``, ``'min'``.
-    default_aggregation : str
-        Aggregation applied to plain-string channel entries.
-    axis_limits : tuple | None
-        ``(y_min, y_max)`` y-axis override.
-
-    Examples
-    --------
-    BarPlot(
-        name="Cumulative Fuel",
-        metrics=(("dmInjector (kg/s)", "integral"),),
-    )
-
-    BarPlot(
-        name="Peak Values",
-        metrics=("PMGUK_Deploy", "PMGUK_Charge"),
-        default_aggregation="max",
-    )
+    metrics: ('ch',) or (('ch', 'agg'),). Aggregations: integral/sum/last/mean/max/min.
+    target_line: optional horizontal reference value.
     """
     _require_str(name, "name")
     _require_nonempty(metrics, "metrics")
@@ -412,34 +410,11 @@ def BoxPlot(
     gate: Union[tuple, list, None] = None,
     options: Optional[dict] = None,
 ) -> list:
-    """Define a box plot (statistical distribution).
+    """Define a box plot.
 
-    Parameters
-    ----------
-    name : str
-        Plot title and output filename stem.
-    channels : str | list
-        One or more channel names to plot distributions for.
-    aggregation_mode : str
-        ``'per_run'`` — one box per run per channel (shows run-to-run variation).
-        ``'aggregated'`` — all runs merged into one box per channel.
-    axis_limits : tuple | None
-        ``(y_min, y_max)`` y-axis override.
-    gate : tuple | list | None
-        Data filter. Same format as ``ScatterPlot.gate``.
-    options : dict | None
-        Override box plot visual settings.
-        Keys: ``show_points``, ``show_fliers``, ``box_width``, ``point_alpha``,
-        ``point_size``, ``jitter``, ``box_linewidth``, ``medianline_color``.
-
-    Examples
-    --------
-    BoxPlot(
-        name="Front Damper Distribution",
-        channels=["xDamperFL", "xDamperFR"],
-        gate=('vCar', '>', 100),
-        options={"show_points": True},
-    )
+    aggregation_mode: 'per_run' (one box per run) or 'aggregated' (all merged).
+    gate: same format as ScatterPlot.gate.
+    options: override visual settings (show_points, box_width, jitter, etc.).
     """
     _require_str(name, "name")
     if aggregation_mode not in {"per_run", "aggregated"}:
@@ -471,10 +446,6 @@ def _require_nonempty(value, param_name: str):
 
 # ================================================================
 # POWERPOINT EXPORT
-# ================================================================
-
-# ================================================================
-# CONSTANT LAYOUT DEFINITIONS
 # ================================================================
 
 MAIN_PLOT_BOX = {

@@ -29,17 +29,10 @@ class PsdHistMixin:
 
         plot_iter = plots if self.verbose else _tqdm(plots, desc="PSD", unit="plot", leave=True)
         for plot_def in plot_iter:
-            if len(plot_def) == 3:
-                plot_name, channel, axis_limits = plot_def
-                log_scale = True
-                nperseg = 512
-            elif len(plot_def) == 4:
-                plot_name, channel, axis_limits, log_scale = plot_def
-                nperseg = 512
-            elif len(plot_def) == 5:
-                plot_name, channel, axis_limits, log_scale, nperseg = plot_def
-            else:
-                raise ValueError("Invalid PSD plot definition")
+            _d = list(plot_def) + [None] * (5 - len(plot_def))
+            plot_name, channel, axis_limits = _d[:3]
+            log_scale = _d[3] if _d[3] is not None else True
+            nperseg   = _d[4] if _d[4] is not None else 512
 
             # channel may be a single string or a list/tuple of strings
             channels_list = [channel] if isinstance(channel, str) else list(channel)
@@ -64,40 +57,36 @@ class PsdHistMixin:
             for run in self.runs:
                 run_name = run["name"].lower()
                 if run_name not in self.run_data:
-                    if self.verbose:
-                        print(
-                            f"[WARNING][DataPlotter] PSD '{plot_name}': run '{run_name}' "
-                            "has no loaded dataframe. Skipping."
-                        )
+                    print(
+                        f"[WARNING][DataPlotter] PSD '{plot_name}': run '{run_name}' "
+                        "has no loaded dataframe. Skipping."
+                    )
                     continue
                 df = self.run_data[run_name]
 
                 for ch_idx, ch in enumerate(channels_list):
                     if ch not in df.columns:
-                        if self.verbose:
-                            print(
-                                f"[WARNING][DataPlotter] PSD '{plot_name}': channel '{ch}' "
-                                f"missing in run '{run_name}'. Skipping."
-                            )
+                        print(
+                            f"[WARNING][DataPlotter] PSD '{plot_name}': channel '{ch}' "
+                            f"missing in run '{run_name}'. Skipping."
+                        )
                         continue
 
                     signal = df[ch]
                     if isinstance(signal, tuple) or not hasattr(signal, "__iter__"):
-                        if self.verbose:
-                            print(
-                                f"[WARNING][DataPlotter] PSD '{plot_name}': channel '{ch}' "
-                                f"in run '{run_name}' has invalid type. Skipping."
-                            )
+                        print(
+                            f"[WARNING][DataPlotter] PSD '{plot_name}': channel '{ch}' "
+                            f"in run '{run_name}' has invalid type. Skipping."
+                        )
                         continue
 
                     signal = np.asarray(signal, dtype=float)
                     freq, power = datafunctions.calculate_psd(signal, self.FILTER_SAMPLE_RATE, nperseg=nperseg)
                     if freq is None:
-                        if self.verbose:
-                            print(
-                                f"[WARNING][DataPlotter] PSD '{plot_name}': not enough data "
-                                f"for '{ch}' in run '{run_name}'. Skipping."
-                            )
+                        print(
+                            f"[WARNING][DataPlotter] PSD '{plot_name}': not enough data "
+                            f"for '{ch}' in run '{run_name}'. Skipping."
+                        )
                         continue
 
                     lstyle = line_styles[ch_idx % len(line_styles)]
@@ -111,11 +100,10 @@ class PsdHistMixin:
                     plotted_any = True
 
             if not plotted_any:
-                if self.verbose:
-                    print(
-                        f"[WARNING][DataPlotter] PSD '{plot_name}': no valid data for "
-                        f"'{', '.join(channels_list)}'. Plot not saved."
-                    )
+                print(
+                    f"[WARNING][DataPlotter] PSD '{plot_name}': no valid data for "
+                    f"'{', '.join(channels_list)}'. Plot not saved."
+                )
                 plt.close(fig)
                 continue
 
@@ -191,11 +179,10 @@ class PsdHistMixin:
                     all_values.append(vals.values)
 
             if not all_values:
-                if self.verbose:
-                    print(
-                        f"[WARNING][DataPlotter] Histogram '{plot_name}': "
-                        f"no valid data for '{channel}'. Plot not saved."
-                    )
+                print(
+                    f"[WARNING][DataPlotter] Histogram '{plot_name}': "
+                    f"no valid data for '{channel}'. Plot not saved."
+                )
                 plt.close(fig)
                 continue
 

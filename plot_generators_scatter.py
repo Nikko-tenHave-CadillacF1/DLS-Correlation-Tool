@@ -68,18 +68,22 @@ class ScatterMixin:
             axis_name = x_var if axis == "x" else y_var if axis == "y" else str(axis)
 
             if min_val is None and max_val is None:
-                labels.append(f"{axis_name} $\\in$ $\\boldsymbol{{\\mathbb{{R}}}}$")
+                labels.append(f"{axis_name} $\\in$ ($-\\infty$, $+\\infty$)")
             elif min_val is None:
-                labels.append(f"{axis_name} $\\in$ [$-\\infty$, {max_val:g}]")
+                labels.append(f"{axis_name} $\\in$ ($-\\infty$, {max_val:g}]")
             elif max_val is None:
-                labels.append(f"{axis_name} $\\in$ [{min_val:g}, $+\\infty$]")
+                labels.append(f"{axis_name} $\\in$ [{min_val:g}, $+\\infty$)")
             else:
                 labels.append(f"{axis_name} $\\in$ [{min_val:g}, {max_val:g}]")
 
         return labels if labels else None
 
-    def _select_trendline_anchor(self, ax, equations_list):
-        """Place text in the least-crowded position (corners + mid-edges)."""
+    def _select_trendline_anchor(self, ax, equations_list, avoid_corner=None):
+        """Place text in the least-crowded position (corners + mid-edges).
+
+        avoid_corner: optional (halign, valign) tuple; that corner is excluded
+        so the fit box never lands on top of the legend.
+        """
         x0, x1 = ax.get_xlim()
         y0, y1 = ax.get_ylim()
         xs, ys = [], []
@@ -115,139 +119,323 @@ class ScatterMixin:
             return ((xs >= x_min) & (xs <= x_max) & (ys >= y_min) & (ys <= y_max)).sum()
 
         best = min(candidates.keys(), key=_count_pts)
+
+        # If the best candidate clashes with the legend corner, pick the next
+        # least-crowded one that doesn't clash.
+        if avoid_corner is not None:
+            avoid_hal, avoid_val = avoid_corner
+            ordered = sorted(candidates.keys(), key=_count_pts)
+            for key in ordered:
+                _, _, hal, val = candidates[key]
+                if not (hal == avoid_hal and val == avoid_val):
+                    best = key
+                    break
+
         return candidates[best]
 
-    def _format_trendline_text(self, label, equation):
-        """Format trendline text: equation only (run identified by box color)."""
-        raw_lines = [l.strip() for l in str(equation).splitlines() if l.strip()]
-        if not raw_lines:
-            return "fit unavailable"
-        if len(raw_lines) == 1:
-            line = raw_lines[0]
-            # Strip any legacy label prefix
-            if line.upper().startswith(label.upper() + " "):
-                line = line[len(label):].lstrip(" :(")
-            return line
-        # Multi-segment: each segment on its own line, no run-label header
-        out = []
-        for line in raw_lines:
-            if line.upper().startswith(label.upper() + " "):
-                line = line[len(label):].lstrip(" :(")
-            out.append(line)
-        return "\n".join(out)
+    # ------------------------------------------------------------------
+    # Fit info display — per-segment boxes (Proposal A)
+    # ------------------------------------------------------------------
 
-    def _display_equations(self, ax, eq_list):
-        """Render trendline equation callouts and return their anchor metadata."""
-        x_anchor, y_anchor, halign, valign = self._select_trendline_anchor(ax, eq_list)
-        fig_height = ax.get_figure().get_size_inches()[1]
-        line_height = 0.042 * 8.0 / max(fig_height, 4.0)
-        box_gap = 0.015
-        boxes = []
-        cursor = y_anchor
+    # Segments above this threshold use a single compact box instead of
+    # one box per segment, to avoid consuming too much of the plot area.
+    COMPACT_SEGMENT_THRESHOLD = 3
 
-        for label, equation, color, _, _, _ in eq_list:
-            text = self._format_trendline_text(label, equation)
-            line_count = max(1, len(text.splitlines()))
-            box_height = line_count * line_height
+    @staticmethod
+    def _fmt_coeff(v):
+        """Format a fit coefficient cleanly, preferring fixed-point for readable magnitudes."""
+        if v is None:
+            return "n/a"
+        if v == 0:
+            return "0"
+        raw = f"{v:.4g}"
+        if "e" in raw or "E" in raw:
+            abs_v = abs(v)
+            if 1 <= abs_v < 1_000_000:
+                sig = 4
+                decimals = max(0, sig - len(str(int(abs_v))))
+                formatted = f"{v:,.{decimals}f}"
+                if decimals > 0:
+                    formatted = formatted.rstrip("0").rstrip(".")
+                return formatted
+        return raw
 
-            if valign == "top":
-                ypos = cursor
-                cursor -= (box_height + box_gap)
-            else:
-                ypos = cursor
-                cursor += (box_height + box_gap)
+    def _parse_eq_list_to_segments(self, eq_list, fit_labels=None):
+        """Restructure eq_list (per-run) into per-segment dicts.
 
-            ax.text(
-                x_anchor, ypos, text,
-                transform=ax.transAxes,
-                fontsize=11,
-                verticalalignment=valign,
-                horizontalalignment=halign,
-                bbox=dict(
-                    boxstyle="round,pad=0.28",
-                    facecolor="white", alpha=0.9,
-                    edgecolor=color, linewidth=1.6,
-                ),
-                color=color, fontweight="bold", family="Montserrat",
-            )
-            boxes.append(ypos)
+        Each dict: {'condition': str, 'runs': [(label, color, eq_part, slope), ...]}
+        The eq lines from datafunctions use '   y = ' (3 spaces) as the
+        separator between the condition prefix and the equation.
+        """
+        if not eq_list:
+            return []
 
-        return x_anchor, halign, valign, boxes
-
-    def _format_gradient_error_text(
-        self, equations_list, x_var=None, y_var=None, fit_labels=None
-    ):
-        """Create baseline-relative gradient error text."""
-        if len(equations_list) < 2:
-            return None
-
-        baseline_target = self.runs[0]["name"].upper() if self.runs else None
-        baseline_entry = next(
-            (e for e in equations_list if e[0].upper() == baseline_target),
-            equations_list[0],
+        n_segments = max(
+            len([l for l in str(entry[1]).splitlines() if l.strip()]) if entry[1] else 1
+            for entry in eq_list
         )
-        baseline_label, _, _, _, _, baseline_slopes = baseline_entry
-        comparison_entries = [e for e in equations_list if e is not baseline_entry]
-        if not comparison_entries:
+
+        segments = []
+        for seg_idx in range(n_segments):
+            # Derive the condition label for this segment
+            if fit_labels and seg_idx < len(fit_labels):
+                condition = fit_labels[seg_idx]
+            else:
+                condition = ""
+                for _, eq_text, _, _, _, _ in eq_list:
+                    if not eq_text:
+                        continue
+                    lines = [l.strip() for l in str(eq_text).splitlines() if l.strip()]
+                    if seg_idx < len(lines):
+                        line = lines[seg_idx]
+                        if "   y = " in line:
+                            condition = line.split("   y = ")[0].strip()
+                        break
+
+            runs_in_seg = []
+            for run_label, eq_text, color, x_vals, y_vals, slopes in eq_list:
+                lines = (
+                    [l.strip() for l in str(eq_text).splitlines() if l.strip()]
+                    if eq_text else []
+                )
+                if not lines or seg_idx >= len(lines):
+                    continue
+                line = lines[seg_idx]
+                eq_part = (
+                    "y = " + line.split("   y = ")[1].strip()
+                    if "   y = " in line
+                    else line  # single-fit: line IS the equation
+                )
+                slope_val = (
+                    slopes[seg_idx]
+                    if isinstance(slopes, tuple) and seg_idx < len(slopes)
+                    else slopes
+                )
+                runs_in_seg.append((run_label, color, eq_part, slope_val))
+
+            segments.append({"condition": condition, "runs": runs_in_seg})
+
+        return segments
+
+    def _compute_segment_pct_errors(self, runs_in_seg, baseline_label):
+        """Compute % slope error for each non-baseline run in a segment."""
+        baseline_slope = next(
+            (s for lbl, _, _, s in runs_in_seg if lbl.upper() == baseline_label.upper()),
+            None,
+        )
+        errors = {}
+        for lbl, _, _, slope in runs_in_seg:
+            if lbl.upper() == baseline_label.upper():
+                continue
+            if slope is None or baseline_slope is None or baseline_slope == 0:
+                errors[lbl] = None
+            else:
+                errors[lbl] = ((slope - baseline_slope) / baseline_slope) * 100
+        return errors
+
+    def _display_fit_info(self, ax, eq_list, show_equations, show_error,
+                           fit_labels=None, avoid_corner=None):
+        """Unified renderer: per-segment boxes (≤ threshold segs) or compact box.
+
+        Returns anchor tuple (x, halign, valign, [y_positions]) for downstream
+        use by gate-info placement.
+        """
+        segments = self._parse_eq_list_to_segments(eq_list, fit_labels)
+        if not segments:
             return None
 
-        def percent_error(value, baseline):
-            if value is None or baseline is None or baseline == 0:
-                return None
-            return ((value - baseline) / baseline) * 100
+        baseline_label = (
+            self.runs[0]["name"].upper() if self.runs
+            else (eq_list[0][0] if eq_list else "")
+        )
+        x_anchor, y_anchor, halign, valign = self._select_trendline_anchor(
+            ax, eq_list, avoid_corner=avoid_corner
+        )
 
-        def fmt(value):
-            return "n/a" if value is None else f"{value:+.1f}%"
+        if len(segments) > self.COMPACT_SEGMENT_THRESHOLD:
+            return self._display_compact_fit_box(
+                ax, segments, show_equations, show_error, baseline_label,
+                x_anchor, y_anchor, halign, valign,
+            )
+        return self._display_segment_boxes(
+            ax, segments, show_equations, show_error, baseline_label,
+            x_anchor, y_anchor, halign, valign,
+        )
 
-        lines = [f"Gradient Error vs {baseline_label.upper()}"]
+    def _display_segment_boxes(
+        self, ax, segments, show_equations, show_error, baseline_label,
+        x_anchor, y_anchor, halign, valign,
+    ):
+        """One rounded box per segment. Each run equation in its run color.
 
-        if isinstance(baseline_slopes, tuple):
-            for idx in range(len(baseline_slopes)):
-                segment_name = (
-                    fit_labels[idx] if fit_labels and idx < len(fit_labels)
-                    else f"Segment {idx + 1}"
+        Uses AnnotationBbox + VPacker + TextArea so matplotlib sizes the box
+        exactly from the rendered text — no manual line-height estimates needed.
+        pad in AnnotationBbox is in points (DPI-independent).
+        """
+        from matplotlib.offsetbox import AnnotationBbox, TextArea, VPacker
+
+        fig_h = ax.get_figure().get_size_inches()[1]
+
+        # Adaptive fontsize
+        total_lines = 0
+        for seg in segments:
+            has_cond = bool(seg["condition"])
+            n_r = len(seg["runs"])
+            n_c = sum(1 for lbl, _, _, _ in seg["runs"] if lbl.upper() != baseline_label.upper())
+            total_lines += (1 if has_cond else 0) + (n_r if show_equations else n_c)
+
+        fontsize = 11 if total_lines <= 6 else (10 if total_lines <= 12 else 9)
+
+        # box_alignment: (left/right=0/1, bottom/top=0/1) — maps corner to xy anchor
+        _ha_map = {"left": 0.0, "center": 0.5, "right": 1.0}
+        _va_map = {"top": 1.0, "center": 0.5, "bottom": 0.0}
+        ha_val = _ha_map.get(halign, 0.0)
+        va_val = _va_map.get(valign, 1.0)
+
+        ab_pad   = 0    # padding handled by VPacker instead (points-based)
+        sep_pts  = 3    # separation between TextArea children in points
+        vpk_pad  = 8    # boundary padding inside VPacker, in points
+        box_gap_frac = 0.015
+
+        cursor = y_anchor
+        all_ypos = []
+
+        for seg in segments:
+            condition = seg["condition"]
+            runs_in_seg = seg["runs"]
+
+            pct_errors = {}
+            if show_error and len(runs_in_seg) > 1:
+                pct_errors = self._compute_segment_pct_errors(runs_in_seg, baseline_label)
+
+            line_items = []
+            if condition:
+                line_items.append((f"{condition}:", "#2A2A2A"))
+
+            for run_label, run_color, eq_part, _ in runs_in_seg:
+                is_baseline = run_label.upper() == baseline_label.upper()
+                if show_equations:
+                    text = eq_part
+                    if show_error and not is_baseline and run_label in pct_errors:
+                        pct = pct_errors[run_label]
+                        pct_str = "n/a" if pct is None else f"{pct:+.1f}%"
+                        text += f"   \u0394m={pct_str}"
+                    line_items.append((text, run_color))
+                elif show_error and not is_baseline:
+                    pct = pct_errors.get(run_label)
+                    pct_str = "n/a" if pct is None else f"{pct:+.1f}%"
+                    line_items.append((f"\u0394m = {pct_str}", run_color))
+
+            if not line_items:
+                continue
+
+            text_areas = [
+                TextArea(
+                    text,
+                    textprops=dict(
+                        color=color,
+                        fontsize=fontsize,
+                        fontweight="bold",
+                        family="Montserrat",
+                    ),
                 )
-                lines.append(f"  {segment_name}")
-                base_val = baseline_slopes[idx] if idx < len(baseline_slopes) else None
-                for label, _, _, _, _, run_slopes in comparison_entries:
-                    run_val = (
-                        run_slopes[idx]
-                        if isinstance(run_slopes, tuple) and idx < len(run_slopes)
-                        else None
-                    )
-                    lines.append(
-                        f"    {label.upper()} :  {fmt(percent_error(run_val, base_val))}"
-                    )
-        else:
-            for label, _, _, _, _, run_slopes in comparison_entries:
-                lines.append(
-                    f"  {label.upper()} :  {fmt(percent_error(run_slopes, baseline_slopes))}"
-                )
+                for text, color in line_items
+            ]
 
-        return "\n".join(lines)
+            vpacker = VPacker(children=text_areas, pad=vpk_pad, sep=sep_pts)
 
-    def _display_gradient_error(self, ax, text, anchor):
-        """Render slope-error callout below the equation boxes."""
-        if anchor is None:
-            return
+            ab = AnnotationBbox(
+                vpacker,
+                xy=(x_anchor, cursor),
+                xycoords="axes fraction",
+                box_alignment=(ha_val, va_val),
+                bboxprops=dict(
+                    boxstyle="round,pad=0",
+                    facecolor="white",
+                    alpha=0.92,
+                    edgecolor="#3C3C3C",
+                    linewidth=1.4,
+                ),
+                frameon=True,
+                pad=ab_pad,
+            )
+            ab.set_zorder(10)
+            ax.add_artist(ab)
+            all_ypos.append(cursor)
 
-        x_anchor, halign, valign, boxes = anchor
-        offset = 0.06
-        ypos = min(boxes) - offset if valign == "top" else max(boxes) + offset
+            # Estimate box height (in axes fraction) for cursor advancement.
+            # VPacker pad and sep are in points; fig_h * 72 converts inches → points.
+            # 1.3 accounts for typical line-height factor above raw fontsize.
+            n = len(line_items)
+            box_h_pts = n * fontsize * 1.3 + (n - 1) * sep_pts + 2 * vpk_pad
+            box_h_frac = box_h_pts / (fig_h * 72)
+            if valign == "top":
+                cursor -= box_h_frac + box_gap_frac
+            else:
+                cursor += box_h_frac + box_gap_frac
+
+        return (x_anchor, halign, valign, all_ypos) if all_ypos else None
+
+    def _display_compact_fit_box(
+        self, ax, segments, show_equations, show_error, baseline_label,
+        x_anchor, y_anchor, halign, valign,
+    ):
+        """Single compact box for plots with many segments (> COMPACT_SEGMENT_THRESHOLD).
+
+        One line per segment:
+          show_equations=True:   COND  RUN m=val  RUN m=val (Δ%)
+          show_equations=False:  COND  RUN Δ%  RUN Δ%
+        """
+        fontsize = 9
+        lines = []
+
+        for seg in segments:
+            condition = seg["condition"]
+            runs_in_seg = seg["runs"]
+
+            pct_errors = {}
+            if show_error and len(runs_in_seg) > 1:
+                pct_errors = self._compute_segment_pct_errors(runs_in_seg, baseline_label)
+
+            parts = [f"{condition}:"] if condition else []
+            for run_label, _, eq_part, slope in runs_in_seg:
+                is_baseline = run_label.upper() == baseline_label.upper()
+                if show_equations:
+                    part = f"{run_label} m={self._fmt_coeff(slope)}"
+                    if show_error and not is_baseline and run_label in pct_errors:
+                        pct = pct_errors[run_label]
+                        pct_str = "n/a" if pct is None else f"{pct:+.1f}%"
+                        part += f" ({pct_str})"
+                    parts.append(part)
+                elif show_error and not is_baseline:
+                    pct = pct_errors.get(run_label)
+                    pct_str = "n/a" if pct is None else f"{pct:+.1f}%"
+                    parts.append(f"{run_label} {pct_str}")
+
+            min_parts = 2 if condition else 1
+            if len(parts) >= min_parts:
+                lines.append("  ".join(parts))
+
+        if not lines:
+            return None
+
+        if not show_equations and show_error:
+            lines = [f"\u0394m vs {baseline_label}"] + [f"  {l}" for l in lines]
 
         ax.text(
-            x_anchor, ypos, text,
+            x_anchor, y_anchor, "\n".join(lines),
             transform=ax.transAxes,
-            fontsize=11,
+            fontsize=fontsize,
             verticalalignment=valign,
             horizontalalignment=halign,
             bbox=dict(
-                boxstyle="round,pad=0.26",
-                facecolor="#F7F7F7", alpha=0.9,
-                edgecolor="#6E6E6E", linewidth=1.2,
+                boxstyle="round,pad=0.25",
+                facecolor="white", alpha=0.92,
+                edgecolor="#3C3C3C", linewidth=1.4,
             ),
-            color="#3F3F3F", fontweight="bold", family="Montserrat",
+            color="#1A1A1A", fontweight="bold", family="Montserrat", zorder=10,
         )
+        return x_anchor, halign, valign, [y_anchor]
 
     # ------------------------------------------------------------------
     # Scatter generator
@@ -321,10 +509,9 @@ class ScatterMixin:
                 )
 
             if best_fit is None:
-                if self.verbose:
-                    print(
-                        f"[WARNING][DataPlotter] Scatter '{plot_name}': best_fit=None → 0 (no fit)."
-                    )
+                print(
+                    f"[WARNING][DataPlotter] Scatter '{plot_name}': best_fit=None → 0 (no fit)."
+                )
                 best_fit = 0
 
             if self.verbose:
@@ -356,20 +543,18 @@ class ScatterMixin:
                     continue
 
                 if x_var not in df.columns or y_var not in df.columns:
-                    if self.verbose:
-                        print(
-                            f"[WARNING][DataPlotter] Scatter '{plot_name}': "
-                            f"missing '{x_var}' or '{y_var}' in run '{rn}'. Skipping."
-                        )
+                    print(
+                        f"[WARNING][DataPlotter] Scatter '{plot_name}': "
+                        f"missing '{x_var}' or '{y_var}' in run '{rn}'. Skipping."
+                    )
                     continue
 
                 xy_index, x_values, y_values = self._prepare_scatter_xy(df, x_var, y_var)
                 if x_values is None:
-                    if self.verbose:
-                        print(
-                            f"[WARNING][DataPlotter] Scatter '{plot_name}': "
-                            f"no valid points in run '{rn}'. Skipping."
-                        )
+                    print(
+                        f"[WARNING][DataPlotter] Scatter '{plot_name}': "
+                        f"no valid points in run '{rn}'. Skipping."
+                    )
                     continue
 
                 point_size, point_alpha = self._resolve_scatter_plot_style(len(x_values))
@@ -436,11 +621,6 @@ class ScatterMixin:
                         )
 
                 elif best_fit in (1, 2):
-                    if best_fit == 2 and self.verbose:
-                        print(
-                            f"[WARNING][DataPlotter] Scatter '{plot_name}': "
-                            "best_fit=2 (removed behavior) — falling back to single fit."
-                        )
                     ok, slope, interc, eq_text, _ = datafunctions.plot_scatter_with_1fit(
                         ax, x_fit, y_fit,
                         run["name"].upper() if color_gate is None else "_nolegend_",
@@ -481,34 +661,24 @@ class ScatterMixin:
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
 
-            # Trend equations + error box
+            # Fit-info first so we know its corner, then legend avoids it
             anchor = None
-            if eq_list:
-                if show_equations:
-                    anchor = self._display_equations(ax, eq_list)
-
-                if show_error:
-                    fit_labels = None
-                    if (
-                        isinstance(best_fit, (list, tuple))
-                        and best_fit
-                        and isinstance(best_fit[0], (list, tuple))
-                    ):
-                        fit_labels = self._build_gradient_segment_labels(
-                            best_fit, x_var=x_var, y_var=y_var
-                        )
-                    txt = self._format_gradient_error_text(
-                        eq_list, x_var, y_var, fit_labels=fit_labels
+            if eq_list and (show_equations or show_error):
+                fit_labels = None
+                if (
+                    isinstance(best_fit, (list, tuple))
+                    and best_fit
+                    and isinstance(best_fit[0], (list, tuple))
+                ):
+                    fit_labels = self._build_gradient_segment_labels(
+                        best_fit, x_var=x_var, y_var=y_var
                     )
-                    if txt:
-                        if anchor is None:
-                            x_anchor, y_anchor, halign, valign = self._select_trendline_anchor(
-                                ax, eq_list
-                            )
-                            anchor = (x_anchor, halign, valign, [y_anchor])
-                        self._display_gradient_error(ax, txt, anchor)
+                anchor = self._display_fit_info(
+                    ax, eq_list, show_equations, show_error, fit_labels=fit_labels
+                )
 
-            legend = self._add_standard_legend(ax, loc="best")
+            fit_corner = (anchor[1], anchor[2]) if anchor else None
+            legend = self._add_standard_legend(ax, avoid_corner=fit_corner)
 
             if gate_spec is not None:
                 gate_text = datafunctions.format_gate_text(gate_spec)
@@ -522,11 +692,16 @@ class ScatterMixin:
                 patch = mpatches.Patch(color=color_gate[3], label=f"Gate: {cg_label}")
                 existing = legend.legend_handles if legend else []
                 existing_labels = [t.get_text() for t in legend.get_texts()] if legend else []
-                ax.legend(
+                rebuilt = ax.legend(
                     handles=list(existing) + [patch],
                     labels=existing_labels + [f"Gate: {cg_label}"],
-                    framealpha=0.9, fontsize=10,
+                    fancybox=True, framealpha=0.92,
+                    edgecolor="#3C3C3C", borderpad=0.55, handlelength=1.8,
+                    prop={"family": "Montserrat", "weight": "bold", "size": 12},
                 )
+                rebuilt.get_frame().set_linewidth(1.4)
+                rebuilt.set_zorder(10)
+                self._colorize_legend_labels(rebuilt)
 
             # ── annotate_fit_at ───────────────────────────────────────────
             if annotate_fit_at is not None and fit_line_params:

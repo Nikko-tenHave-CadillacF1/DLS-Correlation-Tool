@@ -40,8 +40,7 @@ class BarBoxMixin:
                 metric_specs_raw, default_aggregation=default_agg
             )
             if not metric_specs:
-                if self.verbose:
-                    print(f"[WARNING][DataPlotter] Bar plot '{plot_name}' has no valid metric specs. Skipping.")
+                print(f"[WARNING][DataPlotter] Bar plot '{plot_name}' has no valid metric specs. Skipping.")
                 continue
 
             if self.verbose:
@@ -54,8 +53,7 @@ class BarBoxMixin:
             x = np.arange(len(metric_specs))
             loaded_runs = [run for run in self.runs if run["name"].lower() in self.run_data]
             if not loaded_runs:
-                if self.verbose:
-                    print(f"[WARNING][DataPlotter] Bar plot '{plot_name}' has no loaded runs. Skipping.")
+                print(f"[WARNING][DataPlotter] Bar plot '{plot_name}' has no loaded runs. Skipping.")
                 plt.close(fig)
                 continue
 
@@ -71,10 +69,9 @@ class BarBoxMixin:
                 values = []
                 for channel, aggregation in metric_specs:
                     if channel not in df.columns:
-                        if self.verbose:
-                            print(
-                                f"[WARNING][DataPlotter] Bar plot '{plot_name}': "
-                                f"missing channel '{channel}' in run '{run_name.upper()}'."
+                        print(
+                            f"[WARNING][DataPlotter] Bar plot '{plot_name}': "
+                            f"missing channel '{channel}' in run '{run_name.upper()}'."
                             )
                         values.append(np.nan)
                         continue
@@ -154,6 +151,14 @@ class BarBoxMixin:
             ax.set_xticklabels(metric_labels, rotation=0, fontweight="bold")
             ax.tick_params(axis="x", labelsize=10)
             ax.tick_params(axis="y", labelsize=10)
+
+            # Y-axis label when a single metric is plotted
+            if len(metric_specs) == 1:
+                channel_name = metric_specs[0][0]
+                ax.set_ylabel(
+                    datafunctions.add_units_to_label(channel_name, self.units_map),
+                    fontweight="bold", fontsize=12,
+                )
 
             if isinstance(axis_limits, (list, tuple)) and len(axis_limits) == 2:
                 ymin, ymax = axis_limits
@@ -334,13 +339,11 @@ class BarBoxMixin:
                     self._parse_boxplot_definition(plot_def)
                 )
             except ValueError as exc:
-                if self.verbose:
-                    print(f"[WARNING][DataPlotter] {exc} Skipping box plot: {plot_def!r}")
+                print(f"[WARNING][DataPlotter] {exc} Skipping box plot: {plot_def!r}")
                 continue
 
             if not channels:
-                if self.verbose:
-                    print(f"[WARNING][DataPlotter] Box plot '{plot_name}': no channels. Skipping.")
+                print(f"[WARNING][DataPlotter] Box plot '{plot_name}': no channels. Skipping.")
                 continue
 
             if self.verbose:
@@ -362,11 +365,10 @@ class BarBoxMixin:
                     plot_name, channels, axis_limits, gate_spec, plot_options, figsize
                 )
             else:
-                if self.verbose:
-                    print(
-                        f"[WARNING][DataPlotter] Box plot '{plot_name}': "
-                        f"unknown aggregation_mode '{aggregation_mode}'. Skipping."
-                    )
+                print(
+                    f"[WARNING][DataPlotter] Box plot '{plot_name}': "
+                    f"unknown aggregation_mode '{aggregation_mode}'. Skipping."
+                )
 
     def _generate_boxplot_per_run(self, plot_name, channels, axis_limits, gate_spec, options, figsize):
         """Generate per-run box plots (one box per run per channel)."""
@@ -380,8 +382,7 @@ class BarBoxMixin:
             filtered_run_data=filtered_run_data,
         )
         if not agg_data:
-            if self.verbose:
-                print(f"[WARNING][DataPlotter] Box plot '{plot_name}': no data after aggregation.")
+            print(f"[WARNING][DataPlotter] Box plot '{plot_name}': no data after aggregation.")
             return
 
         run_names = [r["name"].lower() for r in self.runs if r["name"].lower() in agg_data]
@@ -409,7 +410,6 @@ class BarBoxMixin:
             )
             axes = list(np.atleast_1d(axes))
 
-        fig.suptitle(plot_name, fontsize=16, fontweight="bold")
         rng = np.random.default_rng(42)
 
         for ax, channel in zip(axes, channels):
@@ -427,8 +427,7 @@ class BarBoxMixin:
                     overlay_series.append((run_name.upper(), run_colors.get(run_name, "#3498DB"), values))
 
             if not data_list:
-                if self.verbose:
-                    print(f"[WARNING][DataPlotter] Box plot '{plot_name}' channel '{channel}': no data.")
+                print(f"[WARNING][DataPlotter] Box plot '{plot_name}' channel '{channel}': no data.")
                 continue
 
             bp = ax.boxplot(
@@ -444,7 +443,6 @@ class BarBoxMixin:
                 datafunctions.add_units_to_label(channel, self.units_map),
                 fontweight="bold", fontsize=12,
             )
-            ax.set_title(channel, fontweight="bold", fontsize=12)
 
             if isinstance(axis_limits, (list, tuple)) and len(axis_limits) == 2:
                 ymin, ymax = axis_limits
@@ -470,7 +468,7 @@ class BarBoxMixin:
         if gate_text:
             self._display_gate_info(axes[0], gate_text)
 
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        plt.tight_layout(pad=0.25)
         filename = self._sanitize_plot_filename("box", plot_name)
         fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.15, facecolor="white")
         plt.close(fig)
@@ -489,8 +487,7 @@ class BarBoxMixin:
             filtered_run_data=filtered_run_data,
         )
         if not agg_data:
-            if self.verbose:
-                print(f"[WARNING][DataPlotter] Box plot '{plot_name}': no aggregated data.")
+            print(f"[WARNING][DataPlotter] Box plot '{plot_name}': no aggregated data.")
             return
 
         show_points = bool(box_settings.get("show_points", False))
@@ -515,15 +512,13 @@ class BarBoxMixin:
             )
             axes = list(np.atleast_1d(axes))
 
-        fig.suptitle(plot_name, fontsize=16, fontweight="bold")
         rng = np.random.default_rng(42)
         legend_handles, legend_labels = [], []
 
         for ax, channel in zip(axes, channels):
             data = agg_data.get(channel, [])
             if not len(data):
-                if self.verbose:
-                    print(f"[WARNING][DataPlotter] Box plot '{plot_name}' channel '{channel}': no data.")
+                print(f"[WARNING][DataPlotter] Box plot '{plot_name}' channel '{channel}': no data.")
                 continue
 
             bp = ax.boxplot([data], labels=[channel], patch_artist=True,
@@ -534,7 +529,6 @@ class BarBoxMixin:
                 datafunctions.add_units_to_label(channel, self.units_map),
                 fontweight="bold", fontsize=12,
             )
-            ax.set_title(channel, fontweight="bold", fontsize=12)
 
             if isinstance(axis_limits, (list, tuple)) and len(axis_limits) == 2:
                 ymin, ymax = axis_limits
@@ -572,7 +566,7 @@ class BarBoxMixin:
             legend_obj = axes[0].get_legend() if show_points and legend_handles else None
             self._display_gate_info(axes[0], gate_text, legend=legend_obj)
 
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        plt.tight_layout(pad=0.25)
         filename = self._sanitize_plot_filename("box", plot_name)
         fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.15, facecolor="white")
         plt.close(fig)

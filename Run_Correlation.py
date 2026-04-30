@@ -1,8 +1,10 @@
 """Correlation workflow — edit RUNS and plot definitions to configure your analysis."""
 
 from channel_config import CORRELATION_INPUT_DIR as _INPUT_DIR, CORRELATION_OUTPUT_DIR, resolve_template_path
-from plot_runtime import build_plot_groups, build_plotter as _build_plotter, run_plot_job
-from plot_runtime import WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot, BarPlot, BoxPlot
+from plot_runtime import (
+    build_plot_groups, PlotJobConfig, run_from_config, parse_plot_cli,
+    WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot, BarPlot, BoxPlot,
+)
 from channel_config import (
     CHANNEL_MAPPINGS, UNITS_MAP, CHANNEL_TRANSFORMS,
     CORRELATION_CALCULATED, CORRELATION_FILTERS,
@@ -236,54 +238,54 @@ BOX_PLOT_DEFINITIONS = []
 # Layouts: "main_plot" (full-width) | "double_plot" (two side-by-side images)
 
 POWERPOINT_EXPORT_MAP = {
-    4:  {"layout": "main_plot",   "images": ["waveform_Driver_Input.png"]},
-    5:  {"layout": "main_plot",   "images": ["waveform_Power_Unit.png"]},
-    6:  {"layout": "double_plot", "images": ["scatter_Gear_Ratios.png",              "scatter_Engine_Power.png"]},
-    7:  {"layout": "double_plot", "images": ["bar_Cumulative_Metrics.png",           "scatter_engine_efficiency.png"]},
-    8:  {"layout": "double_plot", "images": ["scatter_Long_Acceleration.png",        "scatter_Lat_Acceleration.png"]},
-    9:  {"layout": "double_plot", "images": ["scatter_GG_Plot.png",                  "scatter_Understeer_Plot.png"]},
-    10: {"layout": "double_plot", "images": ["scatter_Yaw_Rate_Response.png",        "scatter_Lateral_Acceleration_Response.png"]},
-    11: {"layout": "double_plot", "images": ["scatter_Braking_Efficiency.png",       "scatter_Steering_Moment.png"]},
-    12: {"layout": "double_plot", "images": ["scatter_Damper_gLat_front.png",        "scatter_Damper_gLat_rear.png"]},
-    13: {"layout": "double_plot", "images": ["scatter_Pushrod_gLat_front.png",       "scatter_Pushrod_gLat_rear.png"]},
-    14: {"layout": "double_plot", "images": ["scatter_Front_Heave.png",              "scatter_Rear_Heave.png"]},
-    15: {"layout": "double_plot", "images": ["scatter_Front_Roll.png",               "scatter_Rear_Roll.png"]},
-    16: {"layout": "double_plot", "images": ["scatter_Front_Pushrod_vCar.png",       "scatter_Rear_Pushrod_vCar.png"]},
-    17: {"layout": "double_plot", "images": ["scatter_Front_Ride_vCar.png",          "scatter_Rear_Ride_vCar.png"]},
-    18: {"layout": "double_plot", "images": ["scatter_Ride_Height_Compare.png",      "scatter_Roll_angle_gLat.png"]},
-    19: {"layout": "double_plot", "images": ["psd_Front_Vertical_Acceleration_PSD.png", "psd_Rear_Vertical_Acceleration_PSD.png"]},
-    20: {"layout": "double_plot", "images": ["psd_Front_Ride_PSD.png",               "psd_Rear_Ride_PSD.png"]},
-    21: {"layout": "main_plot",   "images": ["waveform_Plank_Wear.png"]},
-    22: {"layout": "double_plot", "images": ["scatter_Plank_power_acceleration.png", "histogram_Plank_Power_Distribution.png"]},
+    4:  {"layout": "main_plot",   "images": ["waveform_driver_input.png"]},
+    5:  {"layout": "main_plot",   "images": ["waveform_power_unit.png"]},
+    6:  {"layout": "double_plot", "images": ["scatter_gear_ratios.png",              "scatter_engine_power.png"]},
+    7:  {"layout": "double_plot", "images": ["bar_cumulative_metrics.png",           "scatter_engine_efficiency.png"]},
+    8:  {"layout": "double_plot", "images": ["scatter_long_acceleration.png",        "scatter_lat_acceleration.png"]},
+    9:  {"layout": "double_plot", "images": ["scatter_gg_plot.png",                  "scatter_understeer_plot.png"]},
+    10: {"layout": "double_plot", "images": ["scatter_yaw_rate_response.png",        "scatter_lateral_acceleration_response.png"]},
+    11: {"layout": "double_plot", "images": ["scatter_braking_efficiency.png",       "scatter_steering_moment.png"]},
+    12: {"layout": "double_plot", "images": ["scatter_damper_glat_front.png",        "scatter_damper_glat_rear.png"]},
+    13: {"layout": "double_plot", "images": ["scatter_pushrod_glat_front.png",       "scatter_pushrod_glat_rear.png"]},
+    14: {"layout": "double_plot", "images": ["scatter_front_heave.png",              "scatter_rear_heave.png"]},
+    15: {"layout": "double_plot", "images": ["scatter_front_roll.png",               "scatter_rear_roll.png"]},
+    16: {"layout": "double_plot", "images": ["scatter_front_pushrod_vcar.png",       "scatter_rear_pushrod_vcar.png"]},
+    17: {"layout": "double_plot", "images": ["scatter_front_ride_vcar.png",          "scatter_rear_ride_vcar.png"]},
+    18: {"layout": "double_plot", "images": ["scatter_ride_height_compare.png",      "scatter_roll_angle_glat.png"]},
+    19: {"layout": "double_plot", "images": ["psd_front_vertical_acceleration_psd.png", "psd_rear_vertical_acceleration_psd.png"]},
+    20: {"layout": "double_plot", "images": ["psd_front_ride_psd.png",               "psd_rear_ride_psd.png"]},
+    21: {"layout": "main_plot",   "images": ["waveform_plank_wear.png"]},
+    22: {"layout": "double_plot", "images": ["scatter_plank_power_acceleration.png", "histogram_plank_power_distribution.png"]},
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
 
 PLOT_DEFINITIONS = build_plot_groups(
-    WAVEFORM_PLOT_DEFINITIONS, SCATTER_PLOT_DEFINITIONS,
-    PSD_PLOT_DEFINITIONS, HISTOGRAM_PLOT_DEFINITIONS,
-    BAR_PLOT_DEFINITIONS, BOX_PLOT_DEFINITIONS,
+    waveforms=WAVEFORM_PLOT_DEFINITIONS,
+    scatters=SCATTER_PLOT_DEFINITIONS,
+    psds=PSD_PLOT_DEFINITIONS,
+    histograms=HISTOGRAM_PLOT_DEFINITIONS,
+    bars=BAR_PLOT_DEFINITIONS,
+    boxes=BOX_PLOT_DEFINITIONS,
 )
 
 if __name__ == "__main__":
-    run_plot_job(
+    _cfg = PlotJobConfig(
         title="CORRELATION PLOT GENERATION",
-        plotter=_build_plotter(
-            root_folder=ROOT_FOLDER,
-            output_dir=CORRELATION_OUTPUT_DIR,
-            runs=RUNS,
-            plot_definitions=PLOT_DEFINITIONS,
-            channel_mappings=CHANNEL_MAPPINGS,
-            channel_transforms=CHANNEL_TRANSFORMS,
-            calculated_channels=CORRELATION_CALCULATED,
-            low_pass_filters=CORRELATION_FILTERS,
-            units_map=UNITS_MAP,
-            template_path=POWERPOINT_TEMPLATE,
-            export_map=POWERPOINT_EXPORT_MAP,
-            scatter_max_points=SCATTER_MAX_POINTS,
-            bar_secondary_axis_ratio=BAR_SECONDARY_AXIS_RATIO,
-        ),
+        root_folder=ROOT_FOLDER,
+        output_dir=CORRELATION_OUTPUT_DIR,
+        runs=RUNS,
+        plot_definitions=PLOT_DEFINITIONS,
+        channel_mappings=CHANNEL_MAPPINGS,
+        channel_transforms=CHANNEL_TRANSFORMS,
+        calculated_channels=CORRELATION_CALCULATED,
+        low_pass_filters=CORRELATION_FILTERS,
+        units_map=UNITS_MAP,
+        scatter_max_points=SCATTER_MAX_POINTS,
+        bar_secondary_axis_ratio=BAR_SECONDARY_AXIS_RATIO,
         powerpoint_template=POWERPOINT_TEMPLATE if EXPORT_TO_POWERPOINT else None,
         powerpoint_output=POWERPOINT_OUTPUT if EXPORT_TO_POWERPOINT else None,
         export_map=POWERPOINT_EXPORT_MAP if EXPORT_TO_POWERPOINT else None,
     )
+    run_from_config(_cfg, parse_plot_cli("Correlation plot generation"))

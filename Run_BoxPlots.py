@@ -1,7 +1,7 @@
 """Box plot workflow — edit RUNS and BOX_PLOT_DEFINITIONS to configure your analysis."""
 
 from channel_config import BOXPLOT_INPUT_DIR as _INPUT_DIR, BOXPLOT_OUTPUT_DIR
-from plot_runtime import build_plot_groups, build_plotter as _build_plotter, run_plot_job
+from plot_runtime import build_plot_groups, PlotJobConfig, run_from_config, parse_plot_cli
 from plot_runtime import BoxPlot
 from channel_config import (
     CHANNEL_MAPPINGS, UNITS_MAP, CHANNEL_TRANSFORMS,
@@ -34,23 +34,22 @@ BOX_PLOT_DEFINITIONS = [
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-PLOT_DEFINITIONS = build_plot_groups([], [], [], [], [], BOX_PLOT_DEFINITIONS)
+PLOT_DEFINITIONS = build_plot_groups(boxes=BOX_PLOT_DEFINITIONS)
 
 if __name__ == "__main__":
-    run_plot_job(
+    _cfg = PlotJobConfig(
         title="BOX PLOT ANALYSIS",
-        plotter=_build_plotter(
-            root_folder=ROOT_FOLDER,
-            output_dir=BOXPLOT_OUTPUT_DIR,
-            runs=RUNS,
-            plot_definitions=PLOT_DEFINITIONS,
-            channel_mappings=CHANNEL_MAPPINGS,
-            channel_transforms=CHANNEL_TRANSFORMS,
-            calculated_channels=BOXPLOT_CALCULATED,
-            low_pass_filters=BOXPLOT_FILTERS,
-            units_map=UNITS_MAP,
-            box_plot_settings=BOX_PLOT_SETTINGS,
-        ),
+        root_folder=ROOT_FOLDER,
+        output_dir=BOXPLOT_OUTPUT_DIR,
+        runs=RUNS,
+        plot_definitions=PLOT_DEFINITIONS,
+        channel_mappings=CHANNEL_MAPPINGS,
+        channel_transforms=CHANNEL_TRANSFORMS,
+        calculated_channels=BOXPLOT_CALCULATED,
+        low_pass_filters=BOXPLOT_FILTERS,
+        units_map=UNITS_MAP,
+        box_plot_settings=BOX_PLOT_SETTINGS,
         plot_method="generate_box_plots",
         generate_message="Generating box plots...",
     )
+    run_from_config(_cfg, parse_plot_cli("Box plot analysis"))

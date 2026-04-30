@@ -16,7 +16,6 @@ import importlib.util
 import datafunctions
 from collections import Counter, deque
 from matplotlib.patches import Patch
-from matplotlib.lines import Line2D
 
 from plot_generators_waveform import WaveformMixin
 from plot_generators_scatter import ScatterMixin
@@ -49,26 +48,6 @@ def make_unique(names):
         else:
             unique_names.append(name)
     return unique_names
-
-
-def _get_run_label(run_name: str, file_path=None) -> str:
-    if run_name:
-        return run_name.upper()
-    if file_path:
-        return file_path.name if hasattr(file_path, "name") else str(file_path)
-    return "unknown"
-
-
-def _log_info(run_name: str, msg: str, file_path=None):
-    print(f"[INFO][DataPlotter] Run '{_get_run_label(run_name, file_path)}' {msg}")
-
-
-def _log_warning(run_name: str, msg: str, file_path=None):
-    print(f"[WARNING][DataPlotter] Run '{_get_run_label(run_name, file_path)}' {msg}")
-
-
-def _log_error(run_name: str, msg: str, file_path=None):
-    print(f"[ERROR][DataPlotter] Run '{_get_run_label(run_name, file_path)}' {msg}")
 
 
 def _extract_calculated_dependencies(func):
@@ -949,9 +928,10 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         return self.PLOT_DEFINITIONS[index] or []
 
     def _sanitize_plot_filename(self, prefix, plot_name, suffix=""):
-        """Create a filesystem-safe PNG name from a plot title."""
+        """Create a filesystem-safe, lowercase PNG name from a plot title."""
         safe = (
-            plot_name.replace(" ", "_")
+            plot_name.lower()
+            .replace(" ", "_")
             .replace("(", "").replace(")", "")
             .replace("/", "_").replace("\\", "_")
         )
@@ -1124,21 +1104,70 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
             if color is not None:
                 text.set_color(color)
 
+    def _legend_corner(self, legend):
+        """Return the (halign, valign) corner string of a placed legend, or None."""
+        if legend is None:
+            return None
+        loc_map = {
+            "upper right":  ("right",  "top"),
+            "upper left":   ("left",   "top"),
+            "lower right":  ("right",  "bottom"),
+            "lower left":   ("left",   "bottom"),
+            "upper center": ("center", "top"),
+            "lower center": ("center", "bottom"),
+        }
+        try:
+            loc_str = legend._loc_real if hasattr(legend, "_loc_real") else None
+            # matplotlib stores the numeric code; map it via _loc
+            if loc_str is None:
+                for name, code in legend.codes.items():
+                    if code == legend._loc:
+                        loc_str = name
+                        break
+        except Exception:
+            return None
+        return loc_map.get(loc_str)
+
+    # Ordered preference lists for legend corner when another corner is taken.
+    _LEGEND_CORNER_PREFS = {
+        ("left",   "top"):    ["upper right", "lower right", "lower center", "lower left",  "upper center", "upper left"],
+        ("right",  "top"):    ["upper left",  "lower left",  "lower center", "lower right", "upper center", "upper right"],
+        ("left",   "bottom"): ["lower right", "upper right", "upper center", "upper left",  "lower center", "lower left"],
+        ("right",  "bottom"): ["lower left",  "upper left",  "upper center", "upper right", "lower center", "lower right"],
+        ("center", "top"):    ["upper right", "upper left",  "lower right",  "lower left",  "lower center", "upper center"],
+        ("center", "bottom"): ["lower right",  "lower left", "upper right",  "upper left",  "upper center", "lower center"],
+    }
+
     def _add_standard_legend(self, ax, handles=None, labels=None, loc="best",
-                              bbox_to_anchor=None, ncol=1):
-        """Add a consistently styled axis legend and colorize labels."""
+                              bbox_to_anchor=None, ncol=1, avoid_corner=None):
+        """Add a consistently styled axis legend and colorize labels.
+
+        avoid_corner: optional (halign, valign) tuple from the fit-info anchor;
+        the legend is placed in the first non-conflicting corner instead.
+        """
         if handles is None or labels is None:
             handles, labels = ax.get_legend_handles_labels()
         if not handles:
             return None
 
+        if avoid_corner is not None and bbox_to_anchor is None:
+            prefs = self._LEGEND_CORNER_PREFS.get(avoid_corner)
+            loc = prefs[0] if prefs else loc
+
         legend = ax.legend(
             handles, labels,
-            fontsize=10, framealpha=0.93, edgecolor="#CCCCCC", loc=loc,
+            loc=loc,
             bbox_to_anchor=bbox_to_anchor,
-            borderpad=0.35, handlelength=1.8, ncol=ncol,
+            fancybox=True,
+            framealpha=0.92,
+            edgecolor="#3C3C3C",
+            borderpad=0.55,
+            handlelength=1.8,
+            ncol=ncol,
             prop={"family": "Montserrat", "weight": "bold", "size": 12},
         )
+        legend.get_frame().set_linewidth(1.4)
+        legend.set_zorder(10)
         self._colorize_legend_labels(legend)
         return legend
 
@@ -1148,65 +1177,131 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
             return None
         legend = fig.legend(
             handles, labels,
-            loc="upper center", bbox_to_anchor=(0.5, 0.995),
+            loc="upper center", bbox_to_anchor=(0.5, 1.0),
             ncol=max(1, min(len(handles), 5)),
-            framealpha=0.93, edgecolor="#CCCCCC", borderpad=0.35, handlelength=1.8,
+            fancybox=True, framealpha=0.92, edgecolor="#3C3C3C",
+            borderpad=0.3, handlelength=1.8,
             prop={"family": "Montserrat", "weight": "bold", "size": 11},
         )
+        legend.get_frame().set_linewidth(1.4)
+        legend.set_zorder(10)
         self._colorize_legend_labels(legend)
         return legend
 
     def _display_gate_info(self, ax, text, legend=None, trend_anchor=None):
-        """Render gate condition callout while avoiding legend/trendline overlap."""
-        candidates = [
-            (0.03, 0.97, "left", "top"),
-            (0.97, 0.97, "right", "top"),
-            (0.03, 0.03, "left", "bottom"),
-            (0.97, 0.03, "right", "bottom"),
+        """Place gate-info callout in a free corner, avoiding fit box and legend."""
+        from matplotlib.offsetbox import AnnotationBbox as _AnnotationBbox
+
+        all_positions = [
+            (0.03, 0.97, "left",   "top"),
+            (0.97, 0.97, "right",  "top"),
+            (0.03, 0.03, "left",   "bottom"),
+            (0.97, 0.03, "right",  "bottom"),
+            (0.50, 0.97, "center", "top"),
+            (0.50, 0.03, "center", "bottom"),
         ]
 
+        # --- Step 1: exclude known-occupied positions deterministically --------
+        occupied = set()
+
+        # Fit-info box corner
         if trend_anchor is not None:
             _, trend_halign, trend_valign, _ = trend_anchor
-            candidates = [
-                c for c in candidates if not (c[2] == trend_halign and c[3] == trend_valign)
-            ] or candidates
+            occupied.add((trend_halign, trend_valign))
 
-        fig = ax.figure
-        fig.canvas.draw()
-        renderer = fig.canvas.get_renderer()
-        legend_bbox = legend.get_window_extent(renderer) if legend is not None else None
+        # Legend corner  — _legend_corner() reads the actual loc code, not a pixel probe
+        legend_corner = self._legend_corner(legend)
+        if legend_corner is not None:
+            occupied.add(legend_corner)
 
-        def _overlaps_legend(candidate):
-            if legend_bbox is None:
-                return False
-            xa, ya, hal, val = candidate
-            probe = ax.text(
-                xa, ya, text,
-                transform=ax.transAxes, fontsize=9.5,
-                verticalalignment=val, horizontalalignment=hal,
-                bbox=dict(boxstyle="round,pad=0.26"), visible=False,
-            )
-            bbox = probe.get_window_extent(renderer)
-            probe.remove()
-            return bbox.overlaps(legend_bbox)
+        free = [c for c in all_positions if (c[2], c[3]) not in occupied]
 
-        chosen = candidates[0]
-        for candidate in candidates:
-            if not _overlaps_legend(candidate):
-                chosen = candidate
-                break
+        # --- Step 2: among free corners, pick the least data-dense one ----------
+        if free:
+            x0, x1 = ax.get_xlim()
+            y0, y1 = ax.get_ylim()
+            xs, ys = [], []
+            for line in ax.lines:
+                xs.extend(line.get_xdata())
+                ys.extend(line.get_ydata())
+            for coll in ax.collections:
+                try:
+                    offsets = coll.get_offsets()
+                    xs.extend(offsets[:, 0])
+                    ys.extend(offsets[:, 1])
+                except Exception:
+                    pass
+            xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
+
+            def _data_density(c):
+                cx, cy, hal, val = c
+                w = (x1 - x0) * 0.22
+                h = (y1 - y0) * 0.28
+                x_abs = x0 + cx * (x1 - x0)
+                x_min = x_abs if hal == "left" else (x_abs - w if hal == "right" else x_abs - w / 2)
+                x_max = x_min + w
+                y_abs = y0 + cy * (y1 - y0)
+                y_min = y_abs - h if val == "top" else y_abs
+                y_max = y_min + h
+                if xs.size == 0:
+                    return 0
+                return int(((xs >= x_min) & (xs <= x_max) & (ys >= y_min) & (ys <= y_max)).sum())
+
+            chosen = min(free, key=_data_density)
+
+        else:
+            # --- Step 3: all corners occupied — pixel-overlap fallback ----------
+            fig = ax.figure
+            fig.canvas.draw()
+            renderer = fig.canvas.get_renderer()
+
+            avoid_bboxes = []
+            if legend is not None:
+                try:
+                    avoid_bboxes.append(legend.get_window_extent(renderer))
+                except Exception:
+                    pass
+            for artist in ax.get_children():
+                if isinstance(artist, _AnnotationBbox):
+                    try:
+                        avoid_bboxes.append(artist.get_window_extent(renderer))
+                    except Exception:
+                        pass
+
+            def _pixel_overlap(candidate):
+                if not avoid_bboxes:
+                    return 0
+                xa, ya, hal, val = candidate
+                probe = ax.text(
+                    xa, ya, text,
+                    transform=ax.transAxes, fontsize=9.5,
+                    verticalalignment=val, horizontalalignment=hal,
+                    bbox=dict(boxstyle="round,pad=0.45"), visible=False,
+                )
+                pb = probe.get_window_extent(renderer)
+                probe.remove()
+                total = 0
+                for ab in avoid_bboxes:
+                    ix0 = max(pb.x0, ab.x0); iy0 = max(pb.y0, ab.y0)
+                    ix1 = min(pb.x1, ab.x1); iy1 = min(pb.y1, ab.y1)
+                    if ix1 > ix0 and iy1 > iy0:
+                        total += (ix1 - ix0) * (iy1 - iy0)
+                return total
+
+            chosen = min(all_positions, key=_pixel_overlap)
 
         x_anchor, y_anchor, halign, valign = chosen
         ax.text(
             x_anchor, y_anchor, text,
             transform=ax.transAxes, fontsize=9.5,
             verticalalignment=valign, horizontalalignment=halign,
+            zorder=10,
             bbox=dict(
-                boxstyle="round,pad=0.26",
+                boxstyle="round,pad=0.45",
                 facecolor="white", alpha=0.92,
-                edgecolor="#5E5E5E", linewidth=1.1,
+                edgecolor="#3C3C3C", linewidth=1.4,
             ),
-            color="#333333", fontweight="bold", family="Montserrat",
+            color="#1A1A1A", fontweight="bold", family="Montserrat",
         )
 
     # ------------------------------------------------------------------
@@ -1214,21 +1309,10 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
     # ------------------------------------------------------------------
 
     def plot_data(self, plot_types=None, plot_names=None):
-        """Run all (or a filtered subset of) plot generators.
+        """Run all (or filtered) plot generators.
 
-        Parameters
-        ----------
-        plot_types : list[str] | None
-            Restrict output to specific plot types. Accepted values:
-            "waveform", "scatter", "psd", "histogram", "bar", "box".
-            Pass None (default) to generate all types.
-        plot_names : list[str] | None
-            Restrict output to plots whose names match (case-insensitive).
-            Pass None (default) to generate all plots within the selected types.
-
-        Example
-        -------
-        plotter.plot_data(plot_types=["scatter"], plot_names=["Speed vs Throttle"])
+        plot_types: list of 'waveform','scatter','psd','histogram','bar','box' or None.
+        plot_names: list of plot name strings (case-insensitive) or None.
         """
         self._ensure_preprocessed()
 

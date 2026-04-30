@@ -4,8 +4,25 @@ import pandas as pd
 import numpy as np
 from scipy.stats import linregress
 from scipy.signal import butter, filtfilt, welch
-from matplotlib import colors as mcolors
 from matplotlib import patheffects as pe
+
+
+def _fmt_g(v, sig=3):
+    """Format v to `sig` significant figures, using compact fixed-point when possible."""
+    if v == 0:
+        return "0"
+    raw = f"{v:.{sig}g}"
+    # If Python chose scientific notation but the value is in a readable range,
+    # switch to fixed-point with thousands separators.
+    if "e" in raw or "E" in raw:
+        abs_v = abs(v)
+        if 1 <= abs_v < 1_000_000:
+            decimals = max(0, sig - len(str(int(abs_v))))
+            formatted = f"{v:,.{decimals}f}"
+            if decimals > 0:
+                formatted = formatted.rstrip("0").rstrip(".")
+            return formatted
+    return raw
 
 
 # ================================================================
@@ -81,19 +98,7 @@ def sanitize_numeric_series(series: pd.Series) -> pd.Series:
 # ================================================================
 
 def apply_channel_mappings(df: pd.DataFrame, channel_mappings, source_type: str):
-    """
-    Rename channels according to channel_mappings[source_type].
-
-    mapping format:
-        {
-            "src_name": "target_name",
-            ...
-        }
-
-    Only rename when:
-        - src exists in df
-        - target does NOT already exist (avoid overwrites)
-    """
+    """Rename channels per channel_mappings[source_type]. Skip if target already exists."""
     mapping = _safe_get_config(channel_mappings, source_type, "channel mappings")
 
     if not mapping:
@@ -113,19 +118,7 @@ def apply_channel_mappings(df: pd.DataFrame, channel_mappings, source_type: str)
 
 
 def apply_transformations(df: pd.DataFrame, source_type: str, channel_transforms):
-    """
-    Apply per-channel transformation functions.
-
-    channel_transforms format:
-    {
-        "dls": { "FProdFL": lambda x: -x, ... },
-        "car": { ... },
-        "all": { ... }
-    }
-
-    - 'all': applies to ALL channels of this source.
-    - other channel keys apply only to those channels.
-    """
+    """Apply per-channel numeric transforms (sign flips, unit conversions). 'all' applies globally."""
     transforms = _safe_get_config(channel_transforms, source_type, "channel transformations")
 
     if not transforms:
@@ -161,13 +154,7 @@ def apply_transformations(df: pd.DataFrame, source_type: str, channel_transforms
 # ================================================================
 
 def apply_calculated_channels(df: pd.DataFrame, source_type: str, calculated_channels):
-    """
-    Apply lambda-based computed channels.
-
-    calculated_channels may be:
-        - a shared dict: { "NewCol": lambda df: ... }
-        - a per-source dict: { "dls": {...}, "car": {...} }
-    """
+    """Compute derived channels from lambda(df) definitions."""
     if calculated_channels is None:
         return df
 
@@ -199,18 +186,7 @@ def apply_calculated_channels(df: pd.DataFrame, source_type: str, calculated_cha
 # ================================================================
 
 def _apply_butterworth_filter_to_data(data, cutoff: float, order: int, sample_rate: float) -> tuple:
-    """
-    Apply Butterworth low-pass filter to data array.
-    
-    Args:
-        data: numpy array of signal values
-        cutoff: cutoff frequency in Hz
-        order: filter order
-        sample_rate: sampling rate in Hz
-    
-    Returns:
-        (filtered_data, success_flag) where success_flag is True if filtering succeeded
-    """
+    """Apply Butterworth low-pass filter. Returns (filtered_data, success_flag)."""
     if len(data) <= order * 3 or np.all(np.isnan(data)):
         return None, False
 
@@ -235,22 +211,7 @@ def _apply_butterworth_filter_to_data(data, cutoff: float, order: int, sample_ra
 
 
 def apply_lowpass_filters(df: pd.DataFrame, low_pass_filters, sample_rate: float, source_type: str):
-    """
-    Apply Butterworth low-pass filters to channels.
-
-    low_pass_filters format:
-        {
-            "FzPlankF": {"cutoff": 4, "order": 2},
-            "all": {"cutoff": 5, "order": 2}
-        }
-
-    A channel may have source-specific settings:
-        {"cutoff": 5, "order": 2}
-        OR
-        {"dls": {"cutoff": ...}, "track": {"cutoff": ...}}
-
-    Any non-numeric or too-short series is skipped safely.
-    """
+    """Apply Butterworth low-pass filters. Per-channel configs override the 'all' fallback."""
     if not low_pass_filters:
         return df
 
@@ -536,60 +497,6 @@ def aggregate_channel_for_bar(series, aggregation="last", sample_rate=100.0, tim
 # SCATTER PLOTTING HELPERS
 # ================================================================
 
-def find_best_text_position(ax):
-    """
-    Detect which corner of a scatter plot has the fewest data points.
-    Returns:
-        (x_pos, y_pos, horizontal_alignment, vertical_alignment)
-    """
-    xs = []
-    ys = []
-
-    for coll in ax.collections:
-        offs = coll.get_offsets()
-        if len(offs) > 0:
-            xs.extend(offs[:, 0])
-            ys.extend(offs[:, 1])
-
-    if not xs:
-        return 0.95, 0.95, "right", "top"
-
-    xs = np.asarray(xs)
-    ys = np.asarray(ys)
-
-    (xmin, xmax) = ax.get_xlim()
-    (ymin, ymax) = ax.get_ylim()
-
-    # normalize 0-1
-    x_norm = (xs - xmin) / (xmax - xmin)
-    y_norm = (ys - ymin) / (ymax - ymin)
-
-    corners = {"tl": 0, "tr": 0, "bl": 0, "br": 0}
-    threshold = 0.4
-
-    for x, y in zip(x_norm, y_norm):
-        if y > (1 - threshold):  # top
-            if x < threshold:
-                corners["tl"] += 1
-            elif x > (1 - threshold):
-                corners["tr"] += 1
-        elif y < threshold:  # bottom
-            if x < threshold:
-                corners["bl"] += 1
-            elif x > (1 - threshold):
-                corners["br"] += 1
-
-    best = min(corners, key=corners.get)
-
-    pos = {
-        "tl": (0.05, 0.95, "left", "top"),
-        "tr": (0.95, 0.95, "right", "top"),
-        "bl": (0.05, 0.05, "left", "bottom"),
-        "br": (0.95, 0.05, "right", "bottom"),
-    }
-
-    return pos[best]
-
 
 def _decimate_xy(x_data, y_data, max_points):
     """Downsample evenly when data volume is large to keep plots responsive."""
@@ -684,27 +591,9 @@ def plot_scatter_with_1fit(
     _plot_scatter_fit_line(ax, xr, yr, color=color, linestyle="-", linewidth=1.6)
 
     sign = "−" if interc < 0 else "+"
-    equation = f"y = {slope:.3g}x {sign} {abs(interc):.3g}"
+    equation = f"y = {_fmt_g(slope)} x {sign} {_fmt_g(abs(interc))}"
     return True, slope, interc, equation, color
 
-
-def plot_scatter_with_double_fit(
-    ax, x_data, y_data, label, color, alpha, size,
-    x_var="", y_var="", fit_split=None, max_points=45000,
-):
-    """Legacy wrapper: fit_split is removed; falls back to single linear fit."""
-    if len(x_data) == 0:
-        print(f"[WARNING][datafunctions] No data for double fit: {label} ({x_var} vs {y_var}).")
-        return False, None, None, None, None
-
-    if fit_split is not None:
-        print(
-            f"[WARNING][datafunctions] plot_scatter_with_double_fit: fit_split is deprecated and ignored for {label}."
-        )
-
-    return plot_scatter_with_1fit(
-        ax, x_data, y_data, label, color, alpha, size, x_var, y_var, max_points=max_points
-    )
 
 def plot_scatter_with_multi_fit(
     ax,
@@ -784,8 +673,13 @@ def plot_scatter_with_multi_fit(
         try:
             slope, interc, _, _, _ = linregress(xb, yb)
         except ValueError:
-            print(f"[WARNING][datafunctions] Not enough data for fit: {label} ({x_var} vs {y_var}).")
-            return False, None, None, None, None
+            print(
+                f"[WARNING][datafunctions] Not enough data for fit segment {idx + 1} "
+                f"of '{label}' ({x_var} vs {y_var}). Skipping segment."
+            )
+            slopes_list.append(None)
+            intercepts_list.append(None)
+            continue
 
         xr = np.linspace(np.min(xb), np.max(xb), 50)
         yr = slope * xr + interc
@@ -801,7 +695,7 @@ def plot_scatter_with_multi_fit(
         hi = _format_bound(max_bound, is_lower=False)
         eq_sign = "−" if interc < 0 else "+"
         eq_lines.append(
-            f"{axis_name} $\\in$ [{lo}, {hi}]   y = {slope:.3g}x {eq_sign} {abs(interc):.3g}"
+            f"{axis_name} $\\in$ [{lo}, {hi}]   y = {_fmt_g(slope)} x {eq_sign} {_fmt_g(abs(interc))}"
         )
         slopes_list.append(slope)
         intercepts_list.append(interc)
@@ -855,16 +749,7 @@ def build_fit_condition_data(df, index, fit_defs, plot_name="", run_name=""):
 # ================================================================
 
 def apply_gate_to_dataframe(df, gate_spec):
-    """
-    Apply gate conditions to a dataframe, returning a filtered copy.
-    
-    Args:
-        df: Input dataframe
-        gate_spec: Gate specification (single condition, list of conditions, or None)
-    
-    Returns:
-        Filtered dataframe (original if gate_spec is None)
-    """
+    """Filter a dataframe by gate condition(s). Returns filtered copy."""
     if gate_spec is None:
         return df.copy()
     
@@ -930,23 +815,7 @@ def aggregate_channel_for_boxplot(
     gate_spec=None,
     filtered_run_data=None,
 ):
-    """
-    Aggregate channel data from multiple runs for box plotting.
-    
-    Args:
-        run_data_dict: Dict of {run_name: dataframe}
-        channels: Single channel (str) or tuple of channels to extract
-        aggregation_mode: 'per_run' (dict of dicts) or 'aggregated' (dict of arrays)
-        gate_spec: Optional filter condition
-    
-    Returns:
-        For 'per_run':
-            {run_name: {channel: array, ...}, ...}
-        
-        For 'aggregated':
-            {channel: aggregated_array, ...}
-    """
-    # Normalize channels to list
+    """Aggregate channel data for box plotting. Returns per-run or aggregated dicts."""
     if isinstance(channels, str):
         channels = [channels]
     else:
@@ -1126,58 +995,6 @@ def collect_gate_channels(gate_spec):
         ):
             channels.add(condition[0])
     return channels
-
-
-def apply_scatter_gate(df, x, y, gate_spec, plot_name="", run_name=""):
-    """Apply optional gate condition(s) to aligned scatter x/y series."""
-    if gate_spec is None:
-        return x, y
-
-    conditions = _normalize_gate_conditions(gate_spec)
-    mask = pd.Series(True, index=x.index)
-
-    for gate_channel, operator, gate_value in conditions:
-        if gate_channel not in df.columns:
-            print(
-                f"[WARNING][datafunctions] Scatter plot '{plot_name}': gate channel '{gate_channel}' missing in run '{run_name}'. Skipping run."
-            )
-            return x.iloc[0:0], y.iloc[0:0]
-
-        gate_series = pd.to_numeric(df[gate_channel], errors="coerce").reindex(x.index)
-
-        if operator == ">":
-            gate_mask = gate_series > gate_value
-        elif operator == ">=":
-            gate_mask = gate_series >= gate_value
-        elif operator == "<":
-            gate_mask = gate_series < gate_value
-        elif operator == "<=":
-            gate_mask = gate_series <= gate_value
-        elif operator == "==":
-            gate_mask = gate_series == gate_value
-        elif operator == "!=":
-            gate_mask = gate_series != gate_value
-        elif operator == "between":
-            if not isinstance(gate_value, (list, tuple)) or len(gate_value) != 2:
-                print(
-                    f"[WARNING][datafunctions] Scatter plot '{plot_name}': invalid 'between' gate for '{gate_channel}'. Skipping run."
-                )
-                return x.iloc[0:0], y.iloc[0:0]
-            low, high = gate_value
-            gate_mask = pd.Series(True, index=gate_series.index)
-            if low is not None:
-                gate_mask &= gate_series >= low
-            if high is not None:
-                gate_mask &= gate_series <= high
-        else:
-            print(
-                f"[WARNING][datafunctions] Scatter plot '{plot_name}': unsupported gate operator '{operator}'. Skipping run."
-            )
-            return x.iloc[0:0], y.iloc[0:0]
-
-        mask &= gate_mask.fillna(False)
-
-    return x[mask], y[mask]
 
 
 def format_gate_text(gate_spec):

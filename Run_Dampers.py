@@ -1,7 +1,7 @@
 """Damper workflow — edit RUNS and plot definitions to configure your analysis."""
 
 from channel_config import DAMPER_INPUT_DIR as _INPUT_DIR, DAMPER_PLOTS_DIR
-from plot_runtime import build_plot_groups, build_plotter as _build_plotter, run_plot_job
+from plot_runtime import build_plot_groups, PlotJobConfig, run_from_config, parse_plot_cli
 from plot_runtime import WaveformPlot, ScatterPlot
 from channel_config import (
     CHANNEL_MAPPINGS, UNITS_MAP, CHANNEL_TRANSFORMS,
@@ -63,24 +63,23 @@ SCATTER_PLOT_DEFINITIONS = [
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-PLOT_DEFINITIONS = build_plot_groups(WAVEFORM_PLOT_DEFINITIONS, SCATTER_PLOT_DEFINITIONS, [], [], [], [])
+PLOT_DEFINITIONS = build_plot_groups(waveforms=WAVEFORM_PLOT_DEFINITIONS, scatters=SCATTER_PLOT_DEFINITIONS)
 
 _FIG_SIZE = [(9.5, 8), (10, 8), (10, 8), (10, 8), (10, 6)]
 
 if __name__ == "__main__":
-    run_plot_job(
+    _cfg = PlotJobConfig(
         title="DAMPER PLOT ANALYSIS",
-        plotter=_build_plotter(
-            root_folder=ROOT_FOLDER,
-            output_dir=DAMPER_PLOTS_DIR,
-            runs=RUNS,
-            plot_definitions=PLOT_DEFINITIONS,
-            channel_mappings=CHANNEL_MAPPINGS,
-            channel_transforms=CHANNEL_TRANSFORMS,
-            calculated_channels=DAMPER_CALCULATED,
-            low_pass_filters=DAMPER_FILTERS,
-            units_map=UNITS_MAP,
-            fig_size=_FIG_SIZE,
-        ),
+        root_folder=ROOT_FOLDER,
+        output_dir=DAMPER_PLOTS_DIR,
+        runs=RUNS,
+        plot_definitions=PLOT_DEFINITIONS,
+        channel_mappings=CHANNEL_MAPPINGS,
+        channel_transforms=CHANNEL_TRANSFORMS,
+        calculated_channels=DAMPER_CALCULATED,
+        low_pass_filters=DAMPER_FILTERS,
+        units_map=UNITS_MAP,
+        fig_size=_FIG_SIZE,
         generate_message="Generating damper plots...",
     )
+    run_from_config(_cfg, parse_plot_cli("Damper plot analysis"))

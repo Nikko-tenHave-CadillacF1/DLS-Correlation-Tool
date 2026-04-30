@@ -4,7 +4,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 from matplotlib.lines import Line2D
-from matplotlib.transforms import blended_transform_factory
 import datafunctions
 
 try:
@@ -91,21 +90,19 @@ class WaveformMixin:
                 missing_name = (
                     f"'{primary}' and '{secondary}'" if secondary is not None else f"'{primary}'"
                 )
-                if self.verbose:
-                    print(f"[WARNING][DataPlotter] Waveform row {missing_name} missing from all runs. Skipping row.")
+                print(f"[WARNING][DataPlotter] Waveform row {missing_name} missing from all runs. Skipping row.")
                 continue
 
             if p_count == 0 and secondary is not None and s_count > 0:
-                if self.verbose:
-                    print(
-                        f"[WARNING][DataPlotter] Waveform row primary channel '{primary}' missing in all runs; "
-                        f"using '{secondary}' as single-channel row."
-                    )
+                print(
+                    f"[WARNING][DataPlotter] Waveform row primary channel '{primary}' missing in all runs; "
+                    f"using '{secondary}' as single-channel row."
+                )
                 primary, secondary = secondary, None
                 p_count = s_count
                 s_count = 0
 
-            if p_count < len(self.runs) and self.verbose:
+            if p_count < len(self.runs):
                 print(
                     f"[WARNING][DataPlotter] Waveform channel '{primary}' present in "
                     f"{p_count}/{len(self.runs)} runs. Plotting available runs only."
@@ -113,13 +110,12 @@ class WaveformMixin:
 
             if secondary is not None:
                 if s_count == 0:
-                    if self.verbose:
-                        print(
-                            f"[WARNING][DataPlotter] Waveform secondary channel '{secondary}' "
-                            "missing from all runs; rendering row as single-channel."
-                        )
+                    print(
+                        f"[WARNING][DataPlotter] Waveform secondary channel '{secondary}' "
+                        "missing from all runs; rendering row as single-channel."
+                    )
                     secondary = None
-                elif s_count < len(self.runs) and self.verbose:
+                elif s_count < len(self.runs):
                     print(
                         f"[WARNING][DataPlotter] Waveform secondary channel '{secondary}' present in "
                         f"{s_count}/{len(self.runs)} runs. Plotting available runs only."
@@ -165,44 +161,14 @@ class WaveformMixin:
 
         plot_iter = plots if self.verbose else _tqdm(plots, desc="Waveform", unit="plot", leave=True)
         for plot_def in plot_iter:
-            x_limits = None
-
-            if len(plot_def) == 4:
-                plot_name, channels, axis_limits, ref_lines = plot_def
-                subplot_heights = None
-                x_limits = None
-                x_channel = "sLap"
-                highlight_zones = None
-                normalise = False
-            elif len(plot_def) == 5:
-                plot_name, channels, axis_limits, ref_lines, subplot_heights = plot_def
-                x_limits = None
-                x_channel = "sLap"
-                highlight_zones = None
-                normalise = False
-            elif len(plot_def) == 6:
-                plot_name, channels, axis_limits, ref_lines, subplot_heights, x_limits = plot_def
-                x_channel = "sLap"
-                highlight_zones = None
-                normalise = False
-            elif len(plot_def) == 7:
-                plot_name, channels, axis_limits, ref_lines, subplot_heights, x_limits, x_channel = plot_def
-                if not isinstance(x_channel, str) or not x_channel.strip():
-                    x_channel = "sLap"
-                highlight_zones = None
-                normalise = False
-            elif len(plot_def) == 8:
-                plot_name, channels, axis_limits, ref_lines, subplot_heights, x_limits, x_channel, highlight_zones = plot_def
-                if not isinstance(x_channel, str) or not x_channel.strip():
-                    x_channel = "sLap"
-                normalise = False
-            elif len(plot_def) >= 9:
-                plot_name, channels, axis_limits, ref_lines, subplot_heights, x_limits, x_channel, highlight_zones, normalise = plot_def[:9]
-                if not isinstance(x_channel, str) or not x_channel.strip():
-                    x_channel = "sLap"
-                normalise = bool(normalise)
-            else:
-                raise ValueError("Waveform plot definition malformed")
+            # Unpack with defaults for optional trailing items
+            _d = list(plot_def) + [None] * (9 - len(plot_def))
+            plot_name, channels, axis_limits, ref_lines = _d[:4]
+            subplot_heights = _d[4]
+            x_limits        = _d[5]
+            x_channel       = _d[6] if isinstance(_d[6], str) and _d[6].strip() else "sLap"
+            highlight_zones = _d[7]
+            normalise       = bool(_d[8]) if _d[8] else False
 
             if self.verbose:
                 print(f"Creating waveform plot: {plot_name}")
@@ -212,8 +178,7 @@ class WaveformMixin:
             )
 
             if not prepared_rows:
-                if self.verbose:
-                    print(f"  No valid channels for '{plot_name}' — skipping.")
+                print(f"[WARNING][DataPlotter] No valid channels for '{plot_name}' — skipping.")
                 continue
 
             filename = self._sanitize_plot_filename("waveform", plot_name)
@@ -239,19 +204,17 @@ class WaveformMixin:
             if not x_channel_available:
                 fallback = "sLap" if x_channel != "sLap" else None
                 if fallback and all(fallback in self.run_data[rn].columns for rn in loaded_run_names):
-                    if self.verbose:
-                        print(
-                            f"[WARNING][DataPlotter] Waveform '{plot_name}': x_channel '{x_channel}' "
-                            f"not available in all runs. Falling back to 'sLap'."
-                        )
+                    print(
+                        f"[WARNING][DataPlotter] Waveform '{plot_name}': x_channel '{x_channel}' "
+                        f"not available in all runs. Falling back to 'sLap'."
+                    )
                     x_channel = "sLap"
                     x_channel_available = True
                 else:
-                    if self.verbose:
-                        print(
-                            f"[WARNING][DataPlotter] Waveform '{plot_name}': x_channel '{x_channel}' "
-                            f"not available. Using row index."
-                        )
+                    print(
+                        f"[WARNING][DataPlotter] Waveform '{plot_name}': x_channel '{x_channel}' "
+                        f"not available. Using row index."
+                    )
                     x_channel = None
 
             # Build xlabel using units_map if available
@@ -363,7 +326,7 @@ class WaveformMixin:
                 if not normalise and row["y1_refs"] is not None:
                     vals = [row["y1_refs"]] if np.isscalar(row["y1_refs"]) else row["y1_refs"]
                     for vv in vals:
-                        ax.axhline(vv, linestyle="--", color="gray", alpha=0.4)
+                        ax.axhline(vv, linestyle="--", linewidth=0.8, color="#4A4A4A", alpha=0.65, zorder=1)
 
                 if ax_right is not None:
                     ax_right.set_ylabel(
@@ -387,7 +350,7 @@ class WaveformMixin:
                     if row["y2_refs"] is not None:
                         vals2 = [row["y2_refs"]] if np.isscalar(row["y2_refs"]) else row["y2_refs"]
                         for vv2 in vals2:
-                            ax_right.axhline(vv2, linestyle=":", color="gray", alpha=0.36)
+                            ax_right.axhline(vv2, linestyle="--", linewidth=0.8, color="#4A4A4A", alpha=0.55, zorder=1)
 
                 # ── highlight_zones ───────────────────────────────────────
                 # Gate spec: ('ch', 'op', val) or ('ch', 'op', val, '#hexcolor')
