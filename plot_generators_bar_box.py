@@ -179,7 +179,7 @@ class BarBoxMixin:
                     padding = 0.02 * y_range
                     y_pos = value + (padding if value >= 0 else -padding)
                     va = "bottom" if value >= 0 else "top"
-                    axis.text(offset, y_pos, f"{value:.3g}",
+                    axis.text(offset, y_pos, datafunctions._fmt_g(value, sig=5),
                               ha="center", va=va, fontsize=10, fontweight="bold", color="black")
 
             for axis in ([ax2, ax] if ax2 is not None else [ax]):

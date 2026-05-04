@@ -160,7 +160,6 @@ CHANNEL_TRANSFORMS = {
         "gVert":   lambda x: x - 1,
     },
     "CAR": {
-        "PMGUK": lambda x: x / 1000,   # W → kW
         "sLap":  lambda x: x - 15,     # GPS alignment shift
     },
 }

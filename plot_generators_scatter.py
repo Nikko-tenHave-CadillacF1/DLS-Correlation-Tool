@@ -226,7 +226,12 @@ class ScatterMixin:
         return segments
 
     def _compute_segment_pct_errors(self, runs_in_seg, baseline_label):
-        """Compute % slope error for each non-baseline run in a segment."""
+        """Compute % correction needed on each run's slope to match baseline.
+
+        Returns the percentage increase/decrease that must be applied to the
+        run's gradient to obtain the baseline gradient:
+            δm = (m_baseline - m_run) / m_run × 100%
+        """
         baseline_slope = next(
             (s for lbl, _, _, s in runs_in_seg if lbl.upper() == baseline_label.upper()),
             None,
@@ -235,10 +240,10 @@ class ScatterMixin:
         for lbl, _, _, slope in runs_in_seg:
             if lbl.upper() == baseline_label.upper():
                 continue
-            if slope is None or baseline_slope is None or baseline_slope == 0:
+            if slope is None or baseline_slope is None or slope == 0:
                 errors[lbl] = None
             else:
-                errors[lbl] = ((slope - baseline_slope) / baseline_slope) * 100
+                errors[lbl] = ((baseline_slope - slope) / slope) * 100
         return errors
 
     def _display_fit_info(self, ax, eq_list, show_equations, show_error,
@@ -327,12 +332,12 @@ class ScatterMixin:
                     if show_error and not is_baseline and run_label in pct_errors:
                         pct = pct_errors[run_label]
                         pct_str = "n/a" if pct is None else f"{pct:+.1f}%"
-                        text += f"   \u0394m = {pct_str}"
+                        text += f" $\\rightarrow$ $\\delta$ = {pct_str}"
                     line_items.append((text, run_color))
                 elif show_error and not is_baseline:
                     pct = pct_errors.get(run_label)
                     pct_str = "n/a" if pct is None else f"{pct:+.1f}%"
-                    line_items.append((f"\u0394m = {pct_str}", run_color))
+                    line_items.append((f"$\\delta$ = {pct_str}", run_color))
 
             if not line_items:
                 continue
@@ -428,7 +433,7 @@ class ScatterMixin:
             return None
 
         if not show_equations and show_error:
-            lines = [f"\u0394m vs {baseline_label}"] + [f"  {l}" for l in lines]
+            lines = [f"$\\delta$m vs {baseline_label}"] + [f"  {l}" for l in lines]
 
         ax.text(
             x_anchor, y_anchor, "\n".join(lines),
