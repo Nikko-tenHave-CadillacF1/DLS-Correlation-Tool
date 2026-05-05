@@ -25,14 +25,15 @@ RUNS = [
     # {"name": "v37", "file": "...", "color": "#0051FF", "nrun": 1, "type": "OC"},
     {
         "name": "CAR",
-        "file": r"26R04MIA_260501_MAC26-02_BOT_P1_R03PARTIAL.txt",
-        "color": "#FF6A00",
+        "file": r"26R04MIA_260502_MAC26-01_PER_Q_R03_1.txt",
+        "color": "#00B615",
+        # "nrun": 1, # selects the run with the lowest nRun value (best lap) for each plot type
         "type": "CAR",
     },  
     {
         "name": "DLS",
-        "file": r"26R04MIA  77  FP1  Run 3 P1R3 Qsim  Stint 1 Stint 1_DLS.parquet",
-        "color": "#0000FF",
+        "file": r"26R04MIA  BOT Q1R3_LTS_Iteration_3.parquet",
+        "color": "#003CFF",
         "nlap": 1, #OC uses nrun, DLS uses nLap
         "type": "DLS",
     },
@@ -139,7 +140,7 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("Pushrod gLat front",      "gLat",          "FPRodDeltaF",          best_fit=[('x', None, None)]),
     ScatterPlot("Pushrod gLat rear",       "gLat",          "FPRodDeltaR",          best_fit=[('x', None, None)]),
     ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF",
-                best_fit=[('y', None, 6000), ('y', 6000, None)]),
+                best_fit=[('y', -6000, None), ('y', None, -6000)]),
     ScatterPlot("Front Roll",              "xDamperDeltaF", "FPRodDeltaF",          best_fit=[('x', None, None)]),
     ScatterPlot("Rear Heave",              "xDamperAvgR",   "FPRodAvgR",
                 best_fit=[('y', None, None)]),
@@ -192,7 +193,8 @@ PSD_PLOT_DEFINITIONS = [
     PsdPlot("Rear Vertical Acceleration PSD",  "gVertR",       axis_limits=[(0, 50), (1e-4, None)], annotate_at=(5, 30)),
     PsdPlot("Front Ride PSD",                  "hRideF (raw)", axis_limits=[(0, 50), (1e-4, None)], annotate_at=(5, 30)),
     PsdPlot("Rear Ride PSD",                   "hRideR (raw)", axis_limits=[(0, 50), (1e-4, None)], annotate_at=(5, 30)),
-
+    PsdPlot("Front Heave PSD",                 ["FPRodAvgF", "FPRodAvgR"],    axis_limits=[(0, 50), (1e-4, None)], annotate_at=(5, 30)),
+    PsdPlot("Front Roll PSD",                  ["FPRodDeltaF", "FPRodDeltaR"],  axis_limits=[(0, 50), (1e-4, None)], annotate_at=(5, 30)),
     # ── Demo: multi-channel PSD ─────────────────────────────────────────────────
     # Both front and rear ride channels overlaid on the same axes. Line style
     # cycles (solid → dashed) per channel; legend shows "RUN — channel".

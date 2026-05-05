@@ -51,10 +51,10 @@ CHANNEL_MAPPINGS = {
     },
     "DIL": {
         "BSLMActiveCan": "SM",
-        "FPushrodFL": "FPRodFL",
-        "FPushrodFR": "FPRodFR",
-        "FPushrodRL": "FPRodRL",
-        "FPushrodRR": "FPRodRR",
+        # "FPushrodFL": "FPRodFL",
+        # "FPushrodFR": "FPRodFR",
+        # "FPushrodRL": "FPRodRL",
+        # "FPushrodRR": "FPRodRR",
         "FPlankVertF": "FzPlankF",
         "EPlankWearLapF": "EPlankF",
         "PPlankWearF": "PPlankF",
@@ -63,10 +63,10 @@ CHANNEL_MAPPINGS = {
     },
     "DLS": {
         "aRollCarTrack": "aRoll",
-        "FPushrodFL": "FPRodFL",
-        "FPushrodFR": "FPRodFR",
-        "FPushrodRL": "FPRodRL",
-        "FPushrodRR": "FPRodRR",
+        # "FPushrodFL": "FPRodFL",
+        # "FPushrodFR": "FPRodFR",
+        # "FPushrodRL": "FPRodRL",
+        # "FPushrodRR": "FPRodRR",
         "aUndersteer_aSlip": "aUndersteerFromSlip",
         "BAeroModeXDriver": "SM",
         "rThrottlePedal": "rThrottle",
@@ -152,10 +152,10 @@ UNITS_MAP = {
 
 CHANNEL_TRANSFORMS = {
     "DLS": {
-        "FPRodFL": lambda x: -x,
-        "FPRodFR": lambda x: -x,
-        "FPRodRL": lambda x: -x,
-        "FPRodRR": lambda x: -x,
+        # "FPRodFL": lambda x: -x,
+        # "FPRodFR": lambda x: -x,
+        # "FPRodRL": lambda x: -x,
+        # "FPRodRR": lambda x: -x,
         "aRoll":   lambda x: -x,
         "gVert":   lambda x: x - 1,
     },
@@ -197,10 +197,10 @@ BOX_PLOT_SETTINGS = {
 
 CORRELATION_CALCULATED = {
     # Pushrod load differentials and averages
-    "FPRodDeltaF":        lambda df: df["FPRodFL"] - df["FPRodFR"],
-    "FPRodDeltaR":        lambda df: df["FPRodRL"] - df["FPRodRR"],
-    "FPRodAvgF":          lambda df: (df["FPRodFL"] + df["FPRodFR"]) / 2,
-    "FPRodAvgR":          lambda df: (df["FPRodRL"] + df["FPRodRR"]) / 2,
+    "FPRodDeltaF":        lambda df: df["FPushrodFL"] - df["FPushrodFR"],
+    "FPRodDeltaR":        lambda df: df["FPushrodRL"] - df["FPushrodRR"],
+    "FPRodAvgF":          lambda df: (df["FPushrodFL"] + df["FPushrodFR"]) / 2,
+    "FPRodAvgR":          lambda df: (df["FPushrodRL"] + df["FPushrodRR"]) / 2,
     # Damper travel differentials and averages
     "xDamperDeltaF":      lambda df: df["xDamperFL"] - df["xDamperFR"],
     "xDamperDeltaR":      lambda df: df["xDamperRL"] - df["xDamperRR"],
