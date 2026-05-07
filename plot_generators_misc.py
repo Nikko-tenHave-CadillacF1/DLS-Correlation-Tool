@@ -68,9 +68,11 @@ class PsdHistMixin:
 
                 for ch_idx, ch in enumerate(channels_list):
                     if ch not in df.columns:
+                        hint = self._format_missing_channel_hint(run_name, ch)
                         print(
                             f"[WARNING][DataPlotter] PSD '{plot_name}': channel '{ch}' "
                             f"missing in run '{run_name}'. Skipping."
+                            + (f"\n{hint}" if hint else "")
                         )
                         continue
 
@@ -128,9 +130,7 @@ class PsdHistMixin:
                 x_pad_ratio=(0 if has_x_limits else 0.02),
                 y_pad_ratio=(0 if has_y_limits else default_y_pad),
             )
-            ax.grid(True, which="major", alpha=0.3)
-            ax.grid(True, which="minor", alpha=0.22)
-            ax.set_axisbelow(True)
+            self._apply_grid(ax, which="both")
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
 
@@ -185,7 +185,7 @@ class PsdHistMixin:
                             )
 
             plt.tight_layout(pad=0.25)
-            fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.15, facecolor="white")
+            fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white")
             plt.close(fig)
             if self.verbose:
                 print(f"  Saved: {filename}")
@@ -287,8 +287,8 @@ class PsdHistMixin:
                 )
                 if len(bins) <= 31:
                     ax.set_xticks(bins, minor=True)
-                    ax.grid(True, which="minor", axis="x", alpha=0.12, linewidth=0.3)
-                ax.grid(True, which="major", axis="x", alpha=0.22, linewidth=0.45)
+                    ax.grid(True, which="minor", axis="x", **self.GRID_STYLE["minor"])
+                ax.grid(True, which="major", axis="x", **self.GRID_STYLE["major"])
 
             has_x_limits = bool(
                 axis_limits and (axis_limits[0][0] is not None or axis_limits[0][1] is not None)
@@ -301,8 +301,7 @@ class PsdHistMixin:
                 x_pad_ratio=(0 if has_x_limits else 0.02),
                 y_pad_ratio=(0 if has_y_limits else 0.03),
             )
-            ax.grid(True, axis="y", alpha=0.3)
-            ax.set_axisbelow(True)
+            self._apply_grid(ax, which="major", axis="y")
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
 
@@ -313,7 +312,7 @@ class PsdHistMixin:
             self._add_standard_legend(ax, loc="best")
 
             plt.tight_layout(pad=0.25)
-            fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.05, facecolor="white")
+            fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.05, facecolor="white")
             plt.close(fig)
             if self.verbose:
                 print(f"  Saved: {filename}")

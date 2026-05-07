@@ -90,7 +90,20 @@ class WaveformMixin:
                 missing_name = (
                     f"'{primary}' and '{secondary}'" if secondary is not None else f"'{primary}'"
                 )
-                print(f"[WARNING][DataPlotter] Waveform row {missing_name} missing from all runs. Skipping row.")
+                # Show suggestions from the first available run
+                hints = []
+                for r in self.runs:
+                    rn = r["name"].lower()
+                    if rn in self.run_data:
+                        for ch in ([primary] + ([secondary] if secondary else [])):
+                            h = self._format_missing_channel_hint(rn, ch)
+                            if h:
+                                hints.append(h)
+                        break
+                print(
+                    f"[WARNING][DataPlotter] Waveform row {missing_name} missing from all runs. Skipping row."
+                    + (f"\n{''.join(hints)}" if hints else "")
+                )
                 continue
 
             if p_count == 0 and secondary is not None and s_count > 0:
@@ -314,7 +327,7 @@ class WaveformMixin:
                         fontsize=9.5, fontweight="bold", rotation=0, ha="right", va="center",
                     )
                 ax.yaxis.set_label_coords(-0.035, 0.5)
-                ax.grid(True, axis="y", alpha=0.28, linewidth=0.45)
+                self._apply_grid(ax, which="major", axis="y")
 
                 if not normalise and row["y1_lim"] is not None:
                     yl, yh = row["y1_lim"]
@@ -421,8 +434,7 @@ class WaveformMixin:
                         ticker.MaxNLocator(nbins=8, min_n_ticks=5, steps=[1, 2, 2.5, 5, 10])
                     )
                     ax.xaxis.set_minor_locator(ticker.AutoMinorLocator(5))
-                    ax.grid(True, which="major", axis="x", alpha=0.45, linewidth=0.5)
-                    ax.grid(True, which="minor", axis="x", alpha=0.225, linewidth=0.3)
+                    self._apply_grid(ax, which="both", axis="x")
 
             # Legend above subplots
             run_handles = [
@@ -436,7 +448,7 @@ class WaveformMixin:
             self._add_waveform_figure_legend(fig, run_handles, run_labels)
 
             plt.tight_layout(pad=0.3, h_pad=0.0, rect=(0, 0, 1, 0.95))
-            fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.15, facecolor="white", bbox_inches="tight")
+            fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")
             plt.close(fig)
             if self.verbose:
                 print(f"  Saved: {filename}")

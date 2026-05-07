@@ -56,6 +56,89 @@ class PlotJobConfig:
 
     # Output behaviour
     open_output: bool = True
+    output_dpi: int = 200
+
+
+# ================================================================
+# PRE-FLIGHT VALIDATION
+# ================================================================
+
+_VALID_RUN_TYPES = {"OC", "CAR", "DLS", "DIL"}
+
+
+def validate_config(config: PlotJobConfig) -> list[str]:
+    """Pre-flight validation of a PlotJobConfig. Returns list of error strings (empty = OK)."""
+    issues: list[str] = []
+
+    # --- Validate RUNS ---
+    if not config.runs:
+        issues.append("RUNS list is empty — nothing to plot.")
+    for i, run in enumerate(config.runs):
+        label = run.get("name", f"<unnamed run[{i}]>")
+        if not run.get("name"):
+            issues.append(f"Run[{i}]: missing 'name' key.")
+        if not run.get("file"):
+            issues.append(f"Run '{label}': missing 'file' key.")
+        else:
+            file_path = config.root_folder / run["file"]
+            if not file_path.exists():
+                issues.append(f"Run '{label}': file not found → {file_path}")
+        if not run.get("color"):
+            issues.append(f"Run '{label}': missing 'color' key.")
+        run_type = run.get("type")
+        if run_type and run_type not in _VALID_RUN_TYPES:
+            issues.append(
+                f"Run '{label}': unknown type '{run_type}'. "
+                f"Expected one of: {', '.join(sorted(_VALID_RUN_TYPES))}"
+            )
+
+    # --- Validate PowerPoint template ---
+    if config.powerpoint_template and not config.powerpoint_template.exists():
+        issues.append(f"PowerPoint template not found: {config.powerpoint_template}")
+
+    return issues
+
+
+def validate_export_map(plot_definitions: tuple, export_map: Optional[dict]) -> list[str]:
+    """Check for generated plots not referenced in the export map. Returns warnings."""
+    if not export_map or not plot_definitions:
+        return []
+
+    # Collect all filenames that will be generated
+    type_prefixes = ["waveform", "scatter", "psd", "histogram", "bar", "box"]
+    generated_names: set[str] = set()
+
+    for group_idx, group in enumerate(plot_definitions):
+        if not group:
+            continue
+        prefix = type_prefixes[group_idx] if group_idx < len(type_prefixes) else "plot"
+        for plot_def in group:
+            if not plot_def or len(plot_def) < 1:
+                continue
+            plot_name = plot_def[0]
+            safe = (
+                plot_name.lower()
+                .replace(" ", "_")
+                .replace("(", "").replace(")", "")
+                .replace("/", "_").replace("\\", "_")
+            )
+            generated_names.add(f"{prefix}_{safe}.png")
+
+    # Collect all filenames referenced in the export map
+    mapped_names: set[str] = set()
+    for slide_config in export_map.values():
+        for img in slide_config.get("images", []):
+            mapped_names.add(img)
+
+    orphans = generated_names - mapped_names
+    warnings = []
+    if orphans:
+        warnings.append(
+            f"[WARNING] {len(orphans)} plot(s) generated but NOT in POWERPOINT_EXPORT_MAP:"
+        )
+        for img in sorted(orphans):
+            warnings.append(f"  • {img}")
+    return warnings
 
 
 def run_from_config(config: PlotJobConfig, cli_args=None):
@@ -64,6 +147,21 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
     cli_args: optional argparse.Namespace with .only / .types / .no_open
               overrides from parse_plot_cli().
     """
+    # --- Pre-flight validation ---
+    issues = validate_config(config)
+    if issues:
+        print("\n[ERROR] Configuration validation failed:")
+        for issue in issues:
+            print(f"  ✗ {issue}")
+        raise SystemExit(1)
+
+    if config.export_map:
+        orphan_warnings = validate_export_map(config.plot_definitions, config.export_map)
+        if orphan_warnings:
+            for line in orphan_warnings:
+                print(line)
+            print()
+
     plot_types = None
     plot_names = None
     open_output = config.open_output
@@ -93,6 +191,7 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
         verbose=config.verbose,
         template_path=config.powerpoint_template,
         export_map=config.export_map,
+        output_dpi=config.output_dpi,
     )
 
     run_plot_job(
@@ -161,6 +260,7 @@ def build_plotter(
     box_plot_settings=None,
     output_dir=None,
     verbose=False,
+    output_dpi=200,
 ):
     """Build a DataPlotter with optional PowerPoint aspect-ratio hints."""
     plot_aspect_ratios = {}
@@ -190,6 +290,7 @@ def build_plotter(
         box_plot_settings=box_plot_settings,
         output_dir=output_dir,
         verbose=verbose,
+        output_dpi=output_dpi,
     )
 
 

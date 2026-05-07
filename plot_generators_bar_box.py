@@ -69,10 +69,12 @@ class BarBoxMixin:
                 values = []
                 for channel, aggregation in metric_specs:
                     if channel not in df.columns:
+                        hint = self._format_missing_channel_hint(run_name, channel)
                         print(
                             f"[WARNING][DataPlotter] Bar plot '{plot_name}': "
                             f"missing channel '{channel}' in run '{run_name.upper()}'."
-                            )
+                            + (f"\n{hint}" if hint else "")
+                        )
                         values.append(np.nan)
                         continue
                     values.append(datafunctions.aggregate_channel_for_bar(
@@ -187,12 +189,11 @@ class BarBoxMixin:
                 if y0 <= 0 <= y1:
                     axis.axhline(0, color="#4F4F4F", linestyle="-", linewidth=1.0, alpha=0.9, zorder=1)
 
-            ax.grid(True, axis="y", alpha=0.3)
-            ax.set_axisbelow(True)
+            self._apply_grid(ax, which="major", axis="y")
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
             if ax2 is not None:
-                ax2.grid(True, axis="y", alpha=0.2)
+                ax2.grid(True, axis="y", alpha=self.GRID_STYLE["minor"]["alpha"])
                 ax2.set_axisbelow(True)
 
             handles, labels = [], []
@@ -226,7 +227,7 @@ class BarBoxMixin:
                 )
 
             plt.tight_layout(pad=0.25)
-            fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.15, facecolor="white")
+            fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white")
             plt.close(fig)
             if self.verbose:
                 print(f"  Saved: {filename}")
@@ -449,8 +450,7 @@ class BarBoxMixin:
                 if ymin is not None or ymax is not None:
                     ax.set_ylim(bottom=ymin, top=ymax)
 
-            ax.grid(True, axis="y", alpha=0.3)
-            ax.set_axisbelow(True)
+            self._apply_grid(ax, which="major", axis="y")
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
 
@@ -470,7 +470,7 @@ class BarBoxMixin:
 
         plt.tight_layout(pad=0.25)
         filename = self._sanitize_plot_filename("box", plot_name)
-        fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.15, facecolor="white")
+        fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white")
         plt.close(fig)
         if self.verbose:
             print(f"  Saved: {filename}")
@@ -535,8 +535,7 @@ class BarBoxMixin:
                 if ymin is not None or ymax is not None:
                     ax.set_ylim(bottom=ymin, top=ymax)
 
-            ax.grid(True, axis="y", alpha=0.3)
-            ax.set_axisbelow(True)
+            self._apply_grid(ax, which="major", axis="y")
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
 
@@ -568,7 +567,7 @@ class BarBoxMixin:
 
         plt.tight_layout(pad=0.25)
         filename = self._sanitize_plot_filename("box", plot_name)
-        fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.15, facecolor="white")
+        fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white")
         plt.close(fig)
         if self.verbose:
             print(f"  Saved: {filename}")

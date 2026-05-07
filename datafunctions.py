@@ -766,9 +766,9 @@ def build_fit_condition_data(df, index, fit_defs, plot_name="", run_name=""):
 # ================================================================
 
 def apply_gate_to_dataframe(df, gate_spec):
-    """Filter a dataframe by gate condition(s). Returns filtered copy."""
+    """Filter a dataframe by gate condition(s). Returns filtered copy (or view if no gate)."""
     if gate_spec is None:
-        return df.copy()
+        return df
     
     conditions = _normalize_gate_conditions(gate_spec)
     mask = pd.Series(True, index=df.index)

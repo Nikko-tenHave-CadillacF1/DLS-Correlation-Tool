@@ -557,10 +557,16 @@ class ScatterMixin:
                     continue
 
                 if x_var not in df.columns or y_var not in df.columns:
-                    print(
+                    missing = [ch for ch in (x_var, y_var) if ch not in df.columns]
+                    msg = (
                         f"[WARNING][DataPlotter] Scatter '{plot_name}': "
-                        f"missing '{x_var}' or '{y_var}' in run '{rn}'. Skipping."
+                        f"missing {missing} in run '{rn}'. Skipping."
                     )
+                    for ch in missing:
+                        hint = self._format_missing_channel_hint(rn, ch)
+                        if hint:
+                            msg += f"\n{hint}"
+                    print(msg)
                     continue
 
                 xy_index, x_values, y_values = self._prepare_scatter_xy(df, x_var, y_var)
@@ -681,8 +687,7 @@ class ScatterMixin:
             if xl <= 0 <= xr:
                 ax.axvline(0, color="#5E5E5E", linewidth=1, alpha=0.8)
 
-            ax.grid(True, alpha=0.35, linewidth=0.6)
-            ax.set_axisbelow(True)
+            self._apply_grid(ax, which="major")
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
 
@@ -812,7 +817,7 @@ class ScatterMixin:
                             )
 
             plt.tight_layout(pad=0.25)
-            fig.savefig(self.plots_dir / filename, dpi=300, pad_inches=0.15, facecolor="white")
+            fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white")
             plt.close(fig)
             if self.verbose:
                 print(f"  Saved: {filename}")

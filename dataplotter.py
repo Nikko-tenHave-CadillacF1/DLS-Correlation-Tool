@@ -324,6 +324,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         box_plot_settings=None,
         output_dir=None,
         verbose=False,
+        output_dpi=200,
     ):
         """Build a plotter instance and run the preprocessing pipeline."""
         if fig_size is None:
@@ -333,6 +334,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         output_dir = Path(output_dir) if output_dir is not None else root_folder
         self.runs = runs
         self.verbose = verbose
+        self.output_dpi = output_dpi
         self._configure_plot_style()
         self.BAR_SECONDARY_AXIS_RATIO = float(bar_secondary_axis_ratio)
 
@@ -364,6 +366,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         self._calculated_dependency_cache = {}
         self._gated_data_cache = {}
         self._reverse_mappings = {}
+        self._parquet_alias_cache = {}
         self._loaded = False
         self._preprocessed = False
 
@@ -386,24 +389,56 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
     # Style
     # ------------------------------------------------------------------
 
+    # Centralized style constants — used by all generators for consistency.
+    PLOT_FONT = {
+        "family": "Montserrat",
+        "fallback": ["DejaVu Sans", "Arial", "sans-serif"],
+        "title_size": 14,
+        "label_size": 11,
+        "tick_size": 10,
+        "legend_size": 11,
+        "figure_title_size": 16,
+    }
+
+    GRID_STYLE = {
+        "major": {"alpha": 0.30, "linewidth": 0.6},
+        "minor": {"alpha": 0.15, "linewidth": 0.3},
+    }
+
     def _configure_plot_style(self):
         """Apply a consistent font and baseline styling to all plots."""
         available_fonts = {font.name for font in font_manager.fontManager.ttflist}
-        preferred_font = "Montserrat" if "Montserrat" in available_fonts else "DejaVu Sans"
+        preferred_font = (
+            self.PLOT_FONT["family"]
+            if self.PLOT_FONT["family"] in available_fonts
+            else self.PLOT_FONT["fallback"][0]
+        )
 
         plt.rcParams.update({
             "font.family": preferred_font,
-            "font.sans-serif": ["Montserrat", "DejaVu Sans", "Arial", "sans-serif"],
-            "axes.titlesize": 14,
+            "font.sans-serif": [self.PLOT_FONT["family"]] + self.PLOT_FONT["fallback"],
+            "axes.titlesize": self.PLOT_FONT["title_size"],
             "axes.titleweight": "bold",
-            "axes.labelsize": 11,
+            "axes.labelsize": self.PLOT_FONT["label_size"],
             "axes.labelweight": "bold",
-            "xtick.labelsize": 10,
-            "ytick.labelsize": 10,
-            "legend.fontsize": 10,
-            "figure.titlesize": 16,
+            "xtick.labelsize": self.PLOT_FONT["tick_size"],
+            "ytick.labelsize": self.PLOT_FONT["tick_size"],
+            "legend.fontsize": self.PLOT_FONT["legend_size"],
+            "figure.titlesize": self.PLOT_FONT["figure_title_size"],
             "figure.titleweight": "bold",
         })
+
+    def _apply_grid(self, ax, which="major", axis="both"):
+        """Apply consistent grid styling to an axis.
+
+        which: 'major', 'minor', or 'both'.
+        axis: 'both', 'x', or 'y'.
+        """
+        if which in ("major", "both"):
+            ax.grid(True, which="major", axis=axis, **self.GRID_STYLE["major"])
+        if which in ("minor", "both"):
+            ax.grid(True, which="minor", axis=axis, **self.GRID_STYLE["minor"])
+        ax.set_axisbelow(True)
 
     # ------------------------------------------------------------------
     # Required columns resolution
@@ -582,15 +617,19 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         raw_set = set(schema_cols)
         raw_lower = {c.lower(): c for c in schema_cols}
 
-        # Build canonical → raw mapping based on alias normalization
-        canonical_to_raw = {}
-        for raw in schema_cols:
-            if raw.startswith("_") and len(raw) > 1 and raw[1].isalpha():
-                canonical = raw[1].upper() + raw[2:]
-            else:
-                canonical = raw
-            canonical_to_raw.setdefault(canonical, raw)
-            canonical_to_raw.setdefault(raw, raw)
+        # Build canonical → raw mapping (cached per unique schema)
+        schema_key = tuple(schema_cols)
+        canonical_to_raw = self._parquet_alias_cache.get(schema_key)
+        if canonical_to_raw is None:
+            canonical_to_raw = {}
+            for raw in schema_cols:
+                if raw.startswith("_") and len(raw) > 1 and raw[1].isalpha():
+                    canonical = raw[1].upper() + raw[2:]
+                else:
+                    canonical = raw
+                canonical_to_raw.setdefault(canonical, raw)
+                canonical_to_raw.setdefault(raw, raw)
+            self._parquet_alias_cache[schema_key] = canonical_to_raw
 
         needed = set()
 
@@ -921,6 +960,40 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
     # Plot utilities
     # ------------------------------------------------------------------
 
+    def _suggest_similar_channels(self, run_name, missing_channel, max_suggestions=5):
+        """Return a list of available channel names similar to `missing_channel`."""
+        df = self.run_data.get(run_name)
+        if df is None:
+            return []
+        target = missing_channel.lower()
+        available = list(df.columns)
+
+        def _similarity(name):
+            """Simple substring + prefix similarity score."""
+            nl = name.lower()
+            if target in nl or nl in target:
+                return 0.9
+            # Common-prefix length ratio
+            prefix_len = 0
+            for a, b in zip(nl, target):
+                if a == b:
+                    prefix_len += 1
+                else:
+                    break
+            max_len = max(len(nl), len(target), 1)
+            return prefix_len / max_len
+
+        scored = [(col, _similarity(col)) for col in available]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [col for col, score in scored[:max_suggestions] if score > 0.3]
+
+    def _format_missing_channel_hint(self, run_name, missing_channel):
+        """Build a hint string showing similar available channels for a missing one."""
+        suggestions = self._suggest_similar_channels(run_name, missing_channel)
+        if suggestions:
+            return f"  Similar available: {', '.join(suggestions)}"
+        return ""
+
     def _get_plot_group(self, index):
         """Return one plot-definition group by index or an empty list."""
         if not self.PLOT_DEFINITIONS or len(self.PLOT_DEFINITIONS) <= index:
@@ -1164,7 +1237,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
             borderpad=0.55,
             handlelength=1.8,
             ncol=ncol,
-            prop={"family": "Montserrat", "weight": "bold", "size": 12},
+            prop={"family": self.PLOT_FONT["family"], "weight": "bold", "size": self.PLOT_FONT["legend_size"]},
         )
         legend.get_frame().set_linewidth(1.4)
         legend.set_zorder(10)
@@ -1181,7 +1254,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
             ncol=max(1, min(len(handles), 5)),
             fancybox=True, framealpha=0.92, edgecolor="#3C3C3C",
             borderpad=0.3, handlelength=1.8,
-            prop={"family": "Montserrat", "weight": "bold", "size": 11},
+            prop={"family": self.PLOT_FONT["family"], "weight": "bold", "size": self.PLOT_FONT["legend_size"]},
         )
         legend.get_frame().set_linewidth(1.4)
         legend.set_zorder(10)
@@ -1190,8 +1263,6 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
 
     def _display_gate_info(self, ax, text, legend=None, trend_anchor=None):
         """Place gate-info callout in a free corner, avoiding fit box and legend."""
-        from matplotlib.offsetbox import AnnotationBbox as _AnnotationBbox
-
         all_positions = [
             (0.03, 0.97, "left",   "top"),
             (0.97, 0.97, "right",  "top"),
@@ -1209,86 +1280,49 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
             _, trend_halign, trend_valign, _ = trend_anchor
             occupied.add((trend_halign, trend_valign))
 
-        # Legend corner  — _legend_corner() reads the actual loc code, not a pixel probe
+        # Legend corner
         legend_corner = self._legend_corner(legend)
         if legend_corner is not None:
             occupied.add(legend_corner)
 
         free = [c for c in all_positions if (c[2], c[3]) not in occupied]
+        candidates = free if free else all_positions
 
-        # --- Step 2: among free corners, pick the least data-dense one ----------
-        if free:
-            x0, x1 = ax.get_xlim()
-            y0, y1 = ax.get_ylim()
-            xs, ys = [], []
-            for line in ax.lines:
-                xs.extend(line.get_xdata())
-                ys.extend(line.get_ydata())
-            for coll in ax.collections:
-                try:
-                    offsets = coll.get_offsets()
-                    xs.extend(offsets[:, 0])
-                    ys.extend(offsets[:, 1])
-                except Exception:
-                    pass
-            xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
+        # --- Step 2: pick the least data-dense corner (sampled) ----------------
+        x0, x1 = ax.get_xlim()
+        y0, y1 = ax.get_ylim()
+        xs, ys = [], []
+        for line in ax.lines:
+            xd, yd = line.get_xdata(), line.get_ydata()
+            # Sample every Nth point for performance on large datasets
+            step = max(1, len(xd) // 500)
+            xs.extend(xd[::step])
+            ys.extend(yd[::step])
+        for coll in ax.collections:
+            try:
+                offsets = coll.get_offsets()
+                step = max(1, len(offsets) // 500)
+                xs.extend(offsets[::step, 0])
+                ys.extend(offsets[::step, 1])
+            except Exception:
+                pass
+        xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
 
-            def _data_density(c):
-                cx, cy, hal, val = c
-                w = (x1 - x0) * 0.22
-                h = (y1 - y0) * 0.28
-                x_abs = x0 + cx * (x1 - x0)
-                x_min = x_abs if hal == "left" else (x_abs - w if hal == "right" else x_abs - w / 2)
-                x_max = x_min + w
-                y_abs = y0 + cy * (y1 - y0)
-                y_min = y_abs - h if val == "top" else y_abs
-                y_max = y_min + h
-                if xs.size == 0:
-                    return 0
-                return int(((xs >= x_min) & (xs <= x_max) & (ys >= y_min) & (ys <= y_max)).sum())
+        def _data_density(c):
+            cx, cy, hal, val = c
+            w = (x1 - x0) * 0.22
+            h = (y1 - y0) * 0.28
+            x_abs = x0 + cx * (x1 - x0)
+            x_min = x_abs if hal == "left" else (x_abs - w if hal == "right" else x_abs - w / 2)
+            x_max = x_min + w
+            y_abs = y0 + cy * (y1 - y0)
+            y_min = y_abs - h if val == "top" else y_abs
+            y_max = y_min + h
+            if xs.size == 0:
+                return 0
+            return int(((xs >= x_min) & (xs <= x_max) & (ys >= y_min) & (ys <= y_max)).sum())
 
-            chosen = min(free, key=_data_density)
-
-        else:
-            # --- Step 3: all corners occupied — pixel-overlap fallback ----------
-            fig = ax.figure
-            fig.canvas.draw()
-            renderer = fig.canvas.get_renderer()
-
-            avoid_bboxes = []
-            if legend is not None:
-                try:
-                    avoid_bboxes.append(legend.get_window_extent(renderer))
-                except Exception:
-                    pass
-            for artist in ax.get_children():
-                if isinstance(artist, _AnnotationBbox):
-                    try:
-                        avoid_bboxes.append(artist.get_window_extent(renderer))
-                    except Exception:
-                        pass
-
-            def _pixel_overlap(candidate):
-                if not avoid_bboxes:
-                    return 0
-                xa, ya, hal, val = candidate
-                probe = ax.text(
-                    xa, ya, text,
-                    transform=ax.transAxes, fontsize=9.5,
-                    verticalalignment=val, horizontalalignment=hal,
-                    bbox=dict(boxstyle="round,pad=0.45"), visible=False,
-                )
-                pb = probe.get_window_extent(renderer)
-                probe.remove()
-                total = 0
-                for ab in avoid_bboxes:
-                    ix0 = max(pb.x0, ab.x0); iy0 = max(pb.y0, ab.y0)
-                    ix1 = min(pb.x1, ab.x1); iy1 = min(pb.y1, ab.y1)
-                    if ix1 > ix0 and iy1 > iy0:
-                        total += (ix1 - ix0) * (iy1 - iy0)
-                return total
-
-            chosen = min(all_positions, key=_pixel_overlap)
+        chosen = min(candidates, key=_data_density)
 
         x_anchor, y_anchor, halign, valign = chosen
         ax.text(
@@ -1301,7 +1335,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
                 facecolor="white", alpha=0.92,
                 edgecolor="#3C3C3C", linewidth=1.4,
             ),
-            color="#1A1A1A", fontweight="bold", family="Montserrat",
+            color="#1A1A1A", fontweight="bold", family=self.PLOT_FONT["family"],
         )
 
     # ------------------------------------------------------------------

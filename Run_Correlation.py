@@ -25,15 +25,15 @@ RUNS = [
     # {"name": "v37", "file": "...", "color": "#0051FF", "nrun": 1, "type": "OC"},
     {
         "name": "CAR",
-        "file": r"26R04MIA_260502_MAC26-01_PER_Q_R03_1.txt",
-        "color": "#00B615",
+        "file": r"26R04MIA_260503_MAC26-02_BOT_GP_R02.txt",
+        "color": "#FF7700",
         # "nrun": 1, # selects the run with the lowest nRun value (best lap) for each plot type
         "type": "CAR",
     },  
     {
         "name": "DLS",
-        "file": r"26R04MIA  BOT Q1R3_LTS_Iteration_3.parquet",
-        "color": "#003CFF",
+        "file": r"26R04MIA  77  BOT R_DLS_1.parquet",
+        "color": "#0066FF",
         "nlap": 1, #OC uses nrun, DLS uses nLap
         "type": "DLS",
     },
@@ -84,9 +84,9 @@ WAVEFORM_PLOT_DEFINITIONS = [
     ),
     WaveformPlot(
         name="OC SM Check",
-        channels=('PMGUK', ('vCar', 'NGear'), 'Grip Sens.', 'pBrakeF', ('rThrottle', 'SM')),
+        channels=('PMGUK', ('vCar', 'NGear'), "aUndersteerFromSlip", 'pBrakeF', ('rThrottle', 'SM')),
         axis_limits=(None, ((60, 400), (-1, 9)), None, None, ((0, 105), (0, 1.3))),
-        reference_lines=((-350, 0, 350), None, None, None, None),
+        reference_lines=((-350, 0, 350), None, (0,), None, None),
         subplot_heights=(0.4, 0.8, 0.4, 0.4, 0.4),
     ),
 
@@ -127,8 +127,7 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("GG Plot",                 "gLat",          "gLong",                best_fit=0),
     ScatterPlot("Braking Efficiency",      "pBrakeF",       "gLong",
                 best_fit=[('y', None, -0.2)],  gate=('gLong', '<', 0)),
-    ScatterPlot("Understeer Plot",         "vCar",          "aUndersteerFromSlip",
-                gate=("rThrottle", '<', 95)),
+    ScatterPlot("Understeer Plot",         "vCar",          "aUndersteerFromSlip",   best_fit=0),
     ScatterPlot("Yaw Rate Response",       "aSteerWheel",   "nYaw",
                 axis_limits=[(-160, 160), (None, None)],    best_fit=[('x', -20, 20)]),
     ScatterPlot("Lateral Acceleration Response", "aSteerWheel", "gLat",
@@ -215,7 +214,7 @@ HISTOGRAM_PLOT_DEFINITIONS = [
 # aggregations: "integral" "sum" "last" "mean" "max" "min"
 
 BAR_PLOT_DEFINITIONS = [
-    BarPlot("Cumulative Metrics", (("dmInjector (kg/s)", "integral"),("PMGUK_Deploy (MJ)", "integral"),("PMGUK_Charge (MJ)", "integral"))),
+    BarPlot("Cumulative Metrics", (("dmInjector (kg/s)", "integral"), ("PMGUK_Deploy (MJ)", "integral"), ("PMGUK_Charge (MJ)", "integral"))),
     BarPlot("Plank Energy",       (("EPlank_F",          "max"),)),
     BarPlot("Lap Time",           (("tLap_Calc",         "max"),)),
 
