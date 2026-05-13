@@ -86,11 +86,14 @@ class ScatterMixin:
 
         return labels if labels else None
 
-    def _select_trendline_anchor(self, ax, equations_list, avoid_corner=None):
+    def _select_trendline_anchor(self, ax, equations_list, avoid_corner=None,
+                                   n_text_lines=0):
         """Place text in the least-crowded position (corners + mid-edges).
 
         avoid_corner: optional (halign, valign) tuple; that corner is excluded
         so the fit box never lands on top of the legend.
+        n_text_lines: estimated number of text lines in the box — used to scale
+        the exclusion zone height proportionally (more lines → taller box).
         """
         x0, x1 = ax.get_xlim()
         y0, y1 = ax.get_ylim()
@@ -101,19 +104,33 @@ class ScatterMixin:
         xs = np.array(xs)
         ys = np.array(ys)
 
+        # Expanded candidate set: 4 corners + 2 top/bottom center + 2 mid-edges
         candidates = {
             "tl": (0.03, 0.97, "left",   "top"),
             "tr": (0.97, 0.97, "right",  "top"),
-            "bl": (0.03, 0.03, "left",   "bottom"),
-            "br": (0.97, 0.03, "right",  "bottom"),
+            "bl": (0.03, 0.07, "left",   "bottom"),
+            "br": (0.97, 0.07, "right",  "bottom"),
             "tc": (0.50, 0.97, "center", "top"),
-            "bc": (0.50, 0.03, "center", "bottom"),
+            "bc": (0.50, 0.07, "center", "bottom"),
+            "ml": (0.03, 0.50, "left",   "center"),
+            "mr": (0.97, 0.50, "right",  "center"),
         }
+
+        # Scale exclusion zone based on content size
+        base_w_frac = 0.22
+        base_h_frac = 0.28
+        if n_text_lines > 4:
+            # Taller box for many lines — scale height up to 50% more
+            h_scale = min(1.5, 1.0 + (n_text_lines - 4) * 0.06)
+            base_h_frac *= h_scale
+        # Wider zone for equations (long text)
+        w_frac = min(0.35, base_w_frac + max(0, n_text_lines - 2) * 0.015)
+        h_frac = base_h_frac
 
         def _count_pts(key):
             xa, ya, hal, val = candidates[key]
-            w = (x1 - x0) * 0.22
-            h = (y1 - y0) * 0.28
+            w = (x1 - x0) * w_frac
+            h = (y1 - y0) * h_frac
             x_abs = x0 + xa * (x1 - x0)
             if hal == "left":
                 x_min = x_abs
@@ -122,8 +139,15 @@ class ScatterMixin:
             else:  # center
                 x_min = x_abs - w / 2
             x_max = x_min + w
-            y_min = y0 + ya * (y1 - y0) - h if val == "top" else y0 + ya * (y1 - y0)
-            y_max = y_min + h
+            if val == "top":
+                y_min = y0 + ya * (y1 - y0) - h
+                y_max = y0 + ya * (y1 - y0)
+            elif val == "bottom":
+                y_min = y0 + ya * (y1 - y0)
+                y_max = y0 + ya * (y1 - y0) + h
+            else:  # center (mid-edge)
+                y_min = y0 + ya * (y1 - y0) - h / 2
+                y_max = y0 + ya * (y1 - y0) + h / 2
             return ((xs >= x_min) & (xs <= x_max) & (ys >= y_min) & (ys <= y_max)).sum()
 
         best = min(candidates.keys(), key=_count_pts)
@@ -261,8 +285,17 @@ class ScatterMixin:
             self.runs[0]["name"].upper() if self.runs
             else (eq_list[0][0] if eq_list else "")
         )
+
+        # Estimate total text lines for sizing the exclusion zone
+        n_text_lines = 0
+        for seg in segments:
+            has_cond = bool(seg["condition"])
+            n_r = len(seg["runs"])
+            n_c = sum(1 for lbl, _, _, _ in seg["runs"] if lbl.upper() != baseline_label.upper())
+            n_text_lines += (1 if has_cond else 0) + (n_r if show_equations else n_c)
+
         x_anchor, y_anchor, halign, valign = self._select_trendline_anchor(
-            ax, eq_list, avoid_corner=avoid_corner
+            ax, eq_list, avoid_corner=avoid_corner, n_text_lines=n_text_lines
         )
 
         if len(segments) > self.COMPACT_SEGMENT_THRESHOLD:
@@ -284,10 +317,14 @@ class ScatterMixin:
         Uses AnnotationBbox + VPacker + TextArea so matplotlib sizes the box
         exactly from the rendered text — no manual line-height estimates needed.
         pad in AnnotationBbox is in points (DPI-independent).
+
+        After initial placement, a renderer-measured pass detects overlaps and
+        repositions boxes precisely, eliminating line-height estimation drift.
         """
         from matplotlib.offsetbox import AnnotationBbox, TextArea, VPacker
 
-        fig_h = ax.get_figure().get_size_inches()[1]
+        fig = ax.get_figure()
+        fig_h = fig.get_size_inches()[1]
 
         # Adaptive fontsize
         total_lines = 0
@@ -312,6 +349,7 @@ class ScatterMixin:
 
         cursor = y_anchor
         all_ypos = []
+        annotation_boxes = []
 
         for seg in segments:
             condition = seg["condition"]
@@ -375,10 +413,9 @@ class ScatterMixin:
             ab.set_zorder(10)
             ax.add_artist(ab)
             all_ypos.append(cursor)
+            annotation_boxes.append(ab)
 
-            # Estimate box height (in axes fraction) for cursor advancement.
-            # VPacker pad and sep are in points; fig_h * 72 converts inches → points.
-            # 1.3 accounts for typical line-height factor above raw fontsize.
+            # Initial estimate for cursor advancement (refined below with renderer)
             n = len(line_items)
             box_h_pts = n * fontsize * 1.3 + (n - 1) * sep_pts + 2 * vpk_pad
             box_h_frac = box_h_pts / (fig_h * 72)
@@ -386,6 +423,49 @@ class ScatterMixin:
                 cursor -= box_h_frac + box_gap_frac
             else:
                 cursor += box_h_frac + box_gap_frac
+
+        # ── Renderer-measured repositioning pass ──────────────────────────
+        # Draw once to compute actual extents, then fix any overlap.
+        if len(annotation_boxes) > 1:
+            try:
+                fig.canvas.draw()
+                renderer = fig.canvas.get_renderer()
+                ax_bbox = ax.get_window_extent(renderer)
+                ax_height = ax_bbox.height  # display pixels
+
+                # Get actual box extents in display coords
+                extents = []
+                for ab in annotation_boxes:
+                    bb = ab.get_window_extent(renderer)
+                    extents.append(bb)
+
+                # Reposition boxes to eliminate overlap
+                gap_px = box_gap_frac * ax_height
+                new_positions = [y_anchor]
+
+                for i in range(1, len(extents)):
+                    prev_bb = extents[i - 1]
+                    curr_bb = extents[i]
+                    # Actual box heights in axes fraction
+                    prev_h_frac = prev_bb.height / ax_height
+                    curr_h_frac = curr_bb.height / ax_height
+                    gap_frac = gap_px / ax_height
+
+                    if valign == "top":
+                        new_pos = new_positions[i - 1] - prev_h_frac - gap_frac
+                    else:
+                        new_pos = new_positions[i - 1] + prev_h_frac + gap_frac
+                    new_positions.append(new_pos)
+
+                # Update positions
+                for ab, new_y in zip(annotation_boxes, new_positions):
+                    ab.xy = (x_anchor, new_y)
+                    ab.xybox = (x_anchor, new_y)
+
+                all_ypos = new_positions
+            except Exception:
+                # Fallback: keep initial estimated positions
+                pass
 
         return (x_anchor, halign, valign, all_ypos) if all_ypos else None
 
@@ -786,13 +866,19 @@ class ScatterMixin:
                         display_ys = [trans.transform((x_at, item[0]))[1] for item in ann_items]
 
                         # Minimum separation between label centres (points)
-                        min_sep = 16
+                        min_sep = 18
                         # Push labels apart in display space when they collide
                         adjusted_display_ys = list(display_ys)
                         for i in range(1, len(adjusted_display_ys)):
                             gap = adjusted_display_ys[i] - adjusted_display_ys[i - 1]
                             if gap < min_sep:
                                 adjusted_display_ys[i] = adjusted_display_ys[i - 1] + min_sep
+
+                        # Determine label side: flip to left when x_at is in
+                        # the right 20% of the axis range, or alternate sides
+                        # when multiple x_at values are close together.
+                        x_frac = (x_at - xl) / (xr - xl) if (xr - xl) > 0 else 0.5
+                        place_left = x_frac > 0.80
 
                         # Render each annotation with collision-aware offset
                         for i, (y_at, color_e, _) in enumerate(ann_items):
@@ -802,13 +888,22 @@ class ScatterMixin:
                             nudge_pts = target_display_y - base_display_y
                             y_offset = 8 + nudge_pts
 
+                            # Alternate sides for stacked labels to reduce overlap
+                            if place_left or (len(ann_items) > 2 and i % 2 == 1):
+                                x_text_offset = -10
+                                ha = "right"
+                            else:
+                                x_text_offset = 10
+                                ha = "left"
+
                             ax.scatter([x_at], [y_at], color=color_e, s=50, zorder=10,
                                        edgecolors="white", linewidths=1.2)
                             ax.annotate(
                                 f"{y_at:.3g}",
-                                xy=(x_at, y_at), xytext=(10, y_offset),
+                                xy=(x_at, y_at), xytext=(x_text_offset, y_offset),
                                 textcoords="offset points",
                                 fontsize=9, fontweight="bold", color=color_e,
+                                ha=ha,
                                 zorder=11,
                                 arrowprops=dict(arrowstyle="-", color=color_e,
                                                 lw=0.8, alpha=0.6),

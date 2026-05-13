@@ -312,7 +312,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         channel_mappings=None,
         channel_transforms=None,
         calculated_channels=None,
-        low_pass_filters=None,
+        filters=None,
         fig_size=None,
         units_map=None,
         plot_aspect_ratios=None,
@@ -344,7 +344,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         self.CHANNEL_TRANSFORMS = channel_transforms
         self.units_map = units_map
         self.FILTER_SAMPLE_RATE = sample_rate
-        self.LOW_PASS_FILTERS = low_pass_filters
+        self.FILTERS = filters
 
         self.SCATTER_DOT_SIZE = scatter_dot_size
         self.SCATTER_TRANSPARENCY = scatter_transparency
@@ -939,13 +939,13 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
                     self.run_data[name], name, self.CALCULATED_CHANNELS
                 )
 
-    def apply_lowpass_filters(self):
-        """Apply low-pass filtering to each run using shared settings."""
+    def apply_filters(self):
+        """Apply Butterworth filtering to each run using shared settings."""
         for run in self.runs:
             name = run["name"].lower()
             if name in self.run_data:
-                self.run_data[name] = datafunctions.apply_lowpass_filters(
-                    self.run_data[name], self.LOW_PASS_FILTERS,
+                self.run_data[name] = datafunctions.apply_filters(
+                    self.run_data[name], self.FILTERS,
                     self.FILTER_SAMPLE_RATE, name,
                 )
 
@@ -1142,7 +1142,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         self.apply_transformations()
         self.clean_data()
         self.apply_calculated_channels()
-        self.apply_lowpass_filters()
+        self.apply_filters()
         self.run_data_quality_checks()
         self._preprocessed = True
         return self.run_data
@@ -1209,14 +1209,70 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         ("right",  "bottom"): ["lower left",  "upper left",  "upper center", "upper right", "lower center", "lower right"],
         ("center", "top"):    ["upper right", "upper left",  "lower right",  "lower left",  "lower center", "upper center"],
         ("center", "bottom"): ["lower right",  "lower left", "upper right",  "upper left",  "upper center", "lower center"],
+        ("left",   "center"): ["upper right", "lower right", "upper left",   "lower left",  "upper center", "lower center"],
+        ("right",  "center"): ["upper left",  "lower left",  "upper right",  "lower right", "upper center", "lower center"],
     }
+
+    # Map matplotlib loc strings to (halign, valign) for density scoring
+    _LOC_TO_CORNER = {
+        "upper right":  ("right",  "top"),
+        "upper left":   ("left",   "top"),
+        "lower right":  ("right",  "bottom"),
+        "lower left":   ("left",   "bottom"),
+        "upper center": ("center", "top"),
+        "lower center": ("center", "bottom"),
+    }
+
+    def _score_legend_position(self, ax, loc_str):
+        """Score a legend position by data density — lower is better."""
+        corner = self._LOC_TO_CORNER.get(loc_str)
+        if corner is None:
+            return 0
+        halign, valign = corner
+        x0, x1 = ax.get_xlim()
+        y0, y1 = ax.get_ylim()
+
+        # Collect scatter data points (sampled for performance)
+        xs, ys = [], []
+        for coll in ax.collections:
+            try:
+                offsets = coll.get_offsets()
+                step = max(1, len(offsets) // 500)
+                xs.extend(offsets[::step, 0])
+                ys.extend(offsets[::step, 1])
+            except Exception:
+                pass
+        for line in ax.lines:
+            xd, yd = line.get_xdata(), line.get_ydata()
+            step = max(1, len(xd) // 500)
+            xs.extend(xd[::step])
+            ys.extend(yd[::step])
+
+        if not xs:
+            return 0
+        xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
+
+        # Legend occupies ~18% width, ~20% height of axes
+        w = (x1 - x0) * 0.18
+        h = (y1 - y0) * 0.20
+        xa = 0.97 if halign == "right" else (0.50 if halign == "center" else 0.03)
+        ya = 0.97 if valign == "top" else 0.03
+
+        x_abs = x0 + xa * (x1 - x0)
+        x_min = x_abs if halign == "left" else (x_abs - w if halign == "right" else x_abs - w / 2)
+        x_max = x_min + w
+        y_abs = y0 + ya * (y1 - y0)
+        y_min = y_abs - h if valign == "top" else y_abs
+        y_max = y_min + h
+
+        return int(((xs >= x_min) & (xs <= x_max) & (ys >= y_min) & (ys <= y_max)).sum())
 
     def _add_standard_legend(self, ax, handles=None, labels=None, loc="best",
                               bbox_to_anchor=None, ncol=1, avoid_corner=None):
         """Add a consistently styled axis legend and colorize labels.
 
         avoid_corner: optional (halign, valign) tuple from the fit-info anchor;
-        the legend is placed in the first non-conflicting corner instead.
+        the legend is placed in the least data-dense non-conflicting corner.
         """
         if handles is None or labels is None:
             handles, labels = ax.get_legend_handles_labels()
@@ -1225,7 +1281,11 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
 
         if avoid_corner is not None and bbox_to_anchor is None:
             prefs = self._LEGEND_CORNER_PREFS.get(avoid_corner)
-            loc = prefs[0] if prefs else loc
+            if prefs:
+                # Pick the least data-dense position from the preference list
+                loc = min(prefs, key=lambda p: self._score_legend_position(ax, p))
+            else:
+                loc = "best"
 
         legend = ax.legend(
             handles, labels,
@@ -1262,14 +1322,20 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         return legend
 
     def _display_gate_info(self, ax, text, legend=None, trend_anchor=None):
-        """Place gate-info callout in a free corner, avoiding fit box and legend."""
+        """Place gate-info callout in a free corner, avoiding fit box and legend.
+
+        Bottom positions use y=0.07 to provide clearance from tick labels and
+        the x-axis label. Mid-edge positions are included for additional options.
+        """
         all_positions = [
             (0.03, 0.97, "left",   "top"),
             (0.97, 0.97, "right",  "top"),
-            (0.03, 0.03, "left",   "bottom"),
-            (0.97, 0.03, "right",  "bottom"),
+            (0.03, 0.07, "left",   "bottom"),
+            (0.97, 0.07, "right",  "bottom"),
             (0.50, 0.97, "center", "top"),
-            (0.50, 0.03, "center", "bottom"),
+            (0.50, 0.07, "center", "bottom"),
+            (0.03, 0.50, "left",   "center"),
+            (0.97, 0.50, "right",  "center"),
         ]
 
         # --- Step 1: exclude known-occupied positions deterministically --------
@@ -1316,8 +1382,15 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
             x_min = x_abs if hal == "left" else (x_abs - w if hal == "right" else x_abs - w / 2)
             x_max = x_min + w
             y_abs = y0 + cy * (y1 - y0)
-            y_min = y_abs - h if val == "top" else y_abs
-            y_max = y_min + h
+            if val == "top":
+                y_min = y_abs - h
+                y_max = y_abs
+            elif val == "bottom":
+                y_min = y_abs
+                y_max = y_abs + h
+            else:  # center (mid-edge)
+                y_min = y_abs - h / 2
+                y_max = y_abs + h / 2
             if xs.size == 0:
                 return 0
             return int(((xs >= x_min) & (xs <= x_max) & (ys >= y_min) & (ys <= y_max)).sum())

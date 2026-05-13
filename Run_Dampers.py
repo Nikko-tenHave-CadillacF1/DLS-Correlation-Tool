@@ -77,7 +77,7 @@ if __name__ == "__main__":
         channel_mappings=CHANNEL_MAPPINGS,
         channel_transforms=CHANNEL_TRANSFORMS,
         calculated_channels=DAMPER_CALCULATED,
-        low_pass_filters=DAMPER_FILTERS,
+        filters=DAMPER_FILTERS,
         units_map=UNITS_MAP,
         fig_size=_FIG_SIZE,
         generate_message="Generating damper plots...",

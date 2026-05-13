@@ -37,7 +37,7 @@ class PlotJobConfig:
     channel_mappings: Optional[dict] = None
     channel_transforms: Optional[dict] = None
     calculated_channels: Optional[dict] = None
-    low_pass_filters: Optional[dict] = None
+    filters: Optional[dict] = None
     units_map: Optional[dict] = None
     fig_size: Optional[list] = None
     scatter_max_points: int = 45000
@@ -181,7 +181,7 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
         channel_mappings=config.channel_mappings,
         channel_transforms=config.channel_transforms,
         calculated_channels=config.calculated_channels,
-        low_pass_filters=config.low_pass_filters,
+        filters=config.filters,
         units_map=config.units_map,
         fig_size=config.fig_size,
         scatter_max_points=config.scatter_max_points,
@@ -250,7 +250,7 @@ def build_plotter(
     channel_mappings=None,
     channel_transforms=None,
     calculated_channels=None,
-    low_pass_filters=None,
+    filters=None,
     units_map=None,
     template_path=None,
     export_map=None,
@@ -281,7 +281,7 @@ def build_plotter(
         channel_mappings=channel_mappings,
         channel_transforms=channel_transforms,
         calculated_channels=calculated_channels,
-        low_pass_filters=low_pass_filters,
+        filters=filters,
         fig_size=fig_size or DEFAULT_FIG_SIZE,
         units_map=units_map,
         plot_aspect_ratios=plot_aspect_ratios,

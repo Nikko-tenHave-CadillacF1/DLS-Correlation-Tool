@@ -212,6 +212,10 @@ CORRELATION_CALCULATED = {
     # Ride height (unfiltered copies)
     "hRideF (raw)":       lambda df: df["hRideF"],
     "hRideR (raw)":       lambda df: df["hRideR"],
+    # Ride height (copies for high-pass filtering)
+    "hRideF (high)":      lambda df: df["hRideF"],
+    "hRideR (high)":      lambda df: df["hRideR"],
+
     # Power unit
     "PPUTotal":           lambda df: df["PMGUK"] + df["PEngine"],
     "nWheelAvg_R":        lambda df: (df["nWheelRL"] + df["nWheelRR"]) / 2,
@@ -238,9 +242,11 @@ DAMPER_CALCULATED = {
 }
 
 
-# ─── LOW-PASS FILTERS ────────────────────────────────────────────────────────
+# ─── FILTERS ──────────────────────────────────────────────────────────────────
 # cutoff=0 disables filtering for that channel.
 # "all" is a fallback applied to any channel not explicitly listed.
+# Optional "type" key: "low" (default), "high", or "bandpass".
+# For bandpass, cutoff is a two-element list [low_hz, high_hz].
 
 CORRELATION_FILTERS = {
     "gVertF":        {"cutoff": 0,  "order": 2},
@@ -258,6 +264,8 @@ CORRELATION_FILTERS = {
     "gLong (raw)":   {"cutoff": 0,  "order": 2},
     "hRideF (raw)":  {"cutoff": 0,  "order": 2},
     "hRideR (raw)":  {"cutoff": 0,  "order": 2},
+    "hRideF (high)": {"cutoff": 0.5,  "order": 4, "type": "high"},
+    "hRideR (high)": {"cutoff": 0.5,  "order": 4, "type": "high"},
     "dmInjector":    {"cutoff": 0,  "order": 2},
     "PPUTotal":      {"cutoff": 0,  "order": 2},
     "vCar":          {"cutoff": 0,  "order": 2},

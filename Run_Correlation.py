@@ -25,17 +25,24 @@ RUNS = [
     # {"name": "v37", "file": "...", "color": "#0051FF", "nrun": 1, "type": "OC"},
     {
         "name": "CAR",
-        "file": r"26R04MIA_260503_MAC26-02_BOT_GP_R02.txt",
-        "color": "#FF7700",
-        # "nrun": 1, # selects the run with the lowest nRun value (best lap) for each plot type
+        "file": r"26R04MIA_260502_MAC26-02_BOT_Q_R03.txt",
+        "color": "#D86100",
+        # "nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
         "type": "CAR",
     },  
     {
-        "name": "DLS",
-        "file": r"26R04MIA  77  BOT R_DLS_1.parquet",
-        "color": "#0066FF",
-        "nlap": 1, #OC uses nrun, DLS uses nLap
-        "type": "DLS",
+        "name": "OC - 0.85 mu",
+        "file": r"20260512-OC-VPG - 26R04MIA - Post Event Cor- v1-MIA - 0p85 MU.parquet",
+        "color": "#00C74C",
+        # "nlap": 1, #OC uses nrun, DLS uses nLap
+        "type": "OC",
+    },
+    {
+        "name": "OC - 0.95 mu",
+        "file": r"20260512-OC-VPG - 26R04MIA - Post Event Cor- v1-MIA - 0p95 MU.parquet",
+        "color": "#9300A1",
+        # "nlap": 1, #OC uses nrun, DLS uses nLap
+        "type": "OC",
     },
 ]
 
@@ -56,7 +63,7 @@ WAVEFORM_PLOT_DEFINITIONS = [
     WaveformPlot(
         name="Driver Input",
         channels=('PMGUK', ('vCar', 'NGear'), 'aSteerWheel', 'pBrakeF', ('rThrottle', 'SM')),
-        axis_limits=(None, ((60, 400), (-1, 9)), (-160, 160), None, ((0, 105), (0, 1.3))),
+        axis_limits=(None, ((60, 400), (-1, 9)), (-180, 180), None, ((0, 105), (0, 1.3))),
         reference_lines=((-350, 0, 350), None, (0,), None, None),
         subplot_heights=(0.4, 0.8, 0.4, 0.4, 0.4),
         # highlight_zones=('SM', '>', 0.5)
@@ -64,7 +71,7 @@ WAVEFORM_PLOT_DEFINITIONS = [
     WaveformPlot(
         name="Power Unit",
         channels=('PMGUK', 'PEngine', ('vCar', 'NGear'), 'nEngine', 'dmInjector', ('rThrottle', 'SM')),
-        axis_limits=(None, None, ((60, 400), (-1, 9)), None, None, ((0, 105), (0, 1.3))),
+        axis_limits=(None, None, ((50, 400), (-1, 9)), None, None, ((0, 105), (0, 1.3))),
         reference_lines=((-350, 0, 350), (0,), None, (10000,), None, None),
         subplot_heights=(0.4, 0.4, 0.6, 0.4, 0.4, 0.4),
     ),
@@ -78,7 +85,7 @@ WAVEFORM_PLOT_DEFINITIONS = [
     WaveformPlot(
         name="DIL TELEM",
         channels=('SM', 'gVert', 'PMGUK', ('vCar', 'NGear'), 'aSteerWheel', ('rThrottle', 'pBrakeF')),
-        axis_limits=((-0.2, 1.2), (-3, 3), (-360, 360), ((60, 400), (-1, 9)), (-160, 160), ((None, None), (None, None))),
+        axis_limits=((-0.2, 1.2), (-3, 3), (-360, 360), ((60, 400), (-1, 9)), (-180, 180), ((None, None), (None, None))),
         reference_lines=(None, None, (-350, 0, 350), None, (0,), None),
         subplot_heights=(0.15, 0.2, 0.3, 0.5, 0.3, 0.3),
     ),
@@ -155,8 +162,7 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("Rear Ride vCar",          "vCar",          "hRideR",               best_fit=[('SM', 0, 0.5)],
                 axis_limits=[(None, None), (None, 75)],
                 annotate_fit_at=(100,200,300)),
-    ScatterPlot("Ride Height Compare",         "hRideF",    "hRideR",               best_fit=0,
-                axis_limits=[(None, 40), (None, 75)]),
+    ScatterPlot("Ride Height Compare",         "hRideF",    "hRideR",               best_fit=0),
     ScatterPlot("Ride Height Compare Gated",   "hRideF",    "hRideR",
                 best_fit=0, gate=('SM', '<', 1)),
     ScatterPlot("Plank power acceleration",    "gLong (raw)", "PPlank_F",           best_fit=0),
@@ -188,20 +194,20 @@ SCATTER_PLOT_DEFINITIONS = [
 
 # ─── PSD PLOTS ────────────────────────────────────────────────────────────────
 PSD_PLOT_DEFINITIONS = [
-    PsdPlot("Front Vertical Acceleration PSD", "gVertF",       axis_limits=[(0, 50), (1e-4, None)], annotate_at=(5, 30)),
-    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR",       axis_limits=[(0, 50), (1e-4, None)], annotate_at=(5, 30)),
-    PsdPlot("Front Ride PSD",                  "hRideF (raw)", axis_limits=[(0, 50), (1e-4, None)], annotate_at=(5, 30)),
-    PsdPlot("Rear Ride PSD",                   "hRideR (raw)", axis_limits=[(0, 50), (1e-4, None)], annotate_at=(5, 30)),
-    PsdPlot("Front Heave PSD",                 ["FPRodAvgF", "FPRodAvgR"],    axis_limits=[(0, 50), (1e-4, None)], annotate_at=(5, 30)),
-    PsdPlot("Front Roll PSD",                  ["FPRodDeltaF", "FPRodDeltaR"],  axis_limits=[(0, 50), (1e-4, None)], annotate_at=(5, 30)),
+    PsdPlot("Front Vertical Acceleration PSD", "gVertF",       axis_limits=[(0, 20), (1e-4, None)], annotate_at=(5, 15)),
+    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR",       axis_limits=[(0, 20), (1e-4, None)], annotate_at=(5, 15)),
+    PsdPlot("Front Ride PSD",                  "hRideF (raw)", axis_limits=[(0, 20), (1e-4, None)], annotate_at=(5, 15)),
+    PsdPlot("Rear Ride PSD",                   "hRideR (raw)", axis_limits=[(0, 20), (1e-4, None)], annotate_at=(5, 15)),
+    PsdPlot("Front Heave PSD",                 ["FPRodAvgF", "FPRodAvgR"],    axis_limits=[(0, 20), (1e-4, None)], annotate_at=(5, 15)),
+    PsdPlot("Front Roll PSD",                  ["FPRodDeltaF", "FPRodDeltaR"],  axis_limits=[(0, 20), (1e-4, None)], annotate_at=(5, 15)),
     # ── Demo: multi-channel PSD ─────────────────────────────────────────────────
     # Both front and rear ride channels overlaid on the same axes. Line style
     # cycles (solid → dashed) per channel; legend shows "RUN — channel".
-    PsdPlot(
-        name="[Demo] Ride PSD Front+Rear",
-        channel=["hRideF (raw)", "hRideR (raw)"],
-        axis_limits=[(0, 50), (1e-4, None)],
-    ),
+    # PsdPlot(
+    #     name="gVertF PSD Filter Effect",
+    #     channel=["gVertF (raw)", "gVertF"],
+    #     axis_limits=[(0, 30), (1e-4, None)],
+    # ),
 ]
 
 # ─── HISTOGRAM PLOTS ──────────────────────────────────────────────────────────
@@ -278,7 +284,7 @@ if __name__ == "__main__":
         channel_mappings=CHANNEL_MAPPINGS,
         channel_transforms=CHANNEL_TRANSFORMS,
         calculated_channels=CORRELATION_CALCULATED,
-        low_pass_filters=CORRELATION_FILTERS,
+        filters=CORRELATION_FILTERS,
         units_map=UNITS_MAP,
         scatter_max_points=SCATTER_MAX_POINTS,
         bar_secondary_axis_ratio=BAR_SECONDARY_AXIS_RATIO,

@@ -182,21 +182,36 @@ def apply_calculated_channels(df: pd.DataFrame, source_type: str, calculated_cha
 
 
 # ================================================================
-# LOW-PASS FILTERING
+# BUTTERWORTH FILTERING
 # ================================================================
 
-def _apply_butterworth_filter_to_data(data, cutoff: float, order: int, sample_rate: float) -> tuple:
-    """Apply Butterworth low-pass filter. Returns (filtered_data, success_flag)."""
+def _apply_butterworth_filter_to_data(data, cutoff, order: int, sample_rate: float, btype: str = "low") -> tuple:
+    """Apply Butterworth filter. Returns (filtered_data, success_flag).
+
+    Parameters
+    ----------
+    cutoff : float or list[float]
+        Cutoff frequency in Hz.  For bandpass, a two-element list [low, high].
+    btype : str
+        Filter type: ``"low"``, ``"high"``, or ``"bandpass"``.
+    """
     if len(data) <= order * 3 or np.all(np.isnan(data)):
         return None, False
 
     nyquist = 0.5 * sample_rate
-    normal_cutoff = cutoff / nyquist
 
-    if normal_cutoff >= 1.0:
-        return None, False
+    if btype == "bandpass":
+        if not isinstance(cutoff, (list, tuple)) or len(cutoff) != 2:
+            return None, False
+        normal_cutoff = [c / nyquist for c in cutoff]
+        if any(nc >= 1.0 or nc <= 0.0 for nc in normal_cutoff):
+            return None, False
+    else:
+        normal_cutoff = cutoff / nyquist
+        if normal_cutoff >= 1.0:
+            return None, False
 
-    b, a = butter(order, normal_cutoff, btype="low", analog=False)
+    b, a = butter(order, normal_cutoff, btype=btype, analog=False)
 
     # Interpolate missing data
     mask_nan = np.isnan(data)
@@ -210,20 +225,25 @@ def _apply_butterworth_filter_to_data(data, cutoff: float, order: int, sample_ra
     return filtered_data, True
 
 
-def apply_lowpass_filters(df: pd.DataFrame, low_pass_filters, sample_rate: float, source_type: str):
-    """Apply Butterworth low-pass filters. Per-channel configs override the 'all' fallback."""
-    if not low_pass_filters:
+def apply_filters(df: pd.DataFrame, filters, sample_rate: float, source_type: str):
+    """Apply Butterworth filters. Per-channel configs override the 'all' fallback.
+
+    Each filter entry may contain an optional ``"type"`` key (``"low"``,
+    ``"high"``, or ``"bandpass"``).  When omitted the filter defaults to
+    low-pass for full backward compatibility.
+    """
+    if not filters:
         return df
 
-    filtered = []
+    applied = []
     channels_to_skip = []
-    filter_all = "all" in low_pass_filters
-    all_cfg = low_pass_filters.get("all", None)
+    filter_all = "all" in filters
+    all_cfg = filters.get("all", None)
 
     # ------------------------------
     # First: specific channels
     # ------------------------------
-    for channel, cfg in low_pass_filters.items():
+    for channel, cfg in filters.items():
         if channel == "all":
             continue
 
@@ -246,23 +266,24 @@ def apply_lowpass_filters(df: pd.DataFrame, low_pass_filters, sample_rate: float
 
         cutoff = config["cutoff"]
         order = config.get("order", 2)
+        btype = config.get("type", "low")
 
-        if cutoff <= 0:
+        # cutoff=0 disables the filter (unchanged convention)
+        if isinstance(cutoff, (int, float)) and cutoff <= 0:
             continue
 
         filtered_data, success = _apply_butterworth_filter_to_data(
-            df[channel].values, cutoff, order, sample_rate
+            df[channel].values, cutoff, order, sample_rate, btype=btype,
         )
 
         if not success:
-            if cutoff / (0.5 * sample_rate) >= 1.0:
-                print(f"[WARNING][datafunctions] Cutoff is too high for channel '{channel}'. Skipping filter.")
-            else:
-                print(f"[WARNING][datafunctions] Not enough data to filter channel '{channel}'.")
+            print(f"[WARNING][datafunctions] Filter failed for channel '{channel}' "
+                  f"(type={btype}). Skipping.")
             continue
 
         df[channel] = filtered_data
-        filtered.append(f"{channel}@{cutoff}Hz")
+        label = f"{channel}@{cutoff}Hz({btype})" if btype != "low" else f"{channel}@{cutoff}Hz"
+        applied.append(label)
 
     # ------------------------------
     # Second: generic "all" channels
@@ -270,27 +291,35 @@ def apply_lowpass_filters(df: pd.DataFrame, low_pass_filters, sample_rate: float
     if filter_all and all_cfg:
         cutoff = all_cfg.get("cutoff", 0)
         order = all_cfg.get("order", 2)
+        btype = all_cfg.get("type", "low")
 
-        if cutoff > 0:
+        if isinstance(cutoff, (int, float)) and cutoff <= 0:
+            pass  # disabled
+        else:
             for col in df.columns:
                 if col in channels_to_skip:
                     continue
 
                 df[col] = _to_numeric_safe(df[col])
-                
+
                 filtered_data, success = _apply_butterworth_filter_to_data(
-                    df[col].values, cutoff, order, sample_rate
+                    df[col].values, cutoff, order, sample_rate, btype=btype,
                 )
 
                 if success:
                     df[col] = filtered_data
-                    filtered.append(f"{col}@{cutoff}Hz")
+                    label = f"{col}@{cutoff}Hz({btype})" if btype != "low" else f"{col}@{cutoff}Hz"
+                    applied.append(label)
 
-    if filtered:
-        print(f" Applied {len(filtered)} low-pass filters for {source_type.upper()}")
-        #print(f" Applied low-pass filters: {', '.join(filtered)}")
+    if applied:
+        print(f" Applied {len(applied)} filters for {source_type.upper()}")
+        #print(f" Applied filters: {', '.join(applied)}")
 
     return df
+
+
+# Backward-compatible alias
+apply_lowpass_filters = apply_filters
 
 
 # ================================================================

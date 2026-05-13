@@ -46,7 +46,7 @@ if __name__ == "__main__":
         channel_mappings=CHANNEL_MAPPINGS,
         channel_transforms=CHANNEL_TRANSFORMS,
         calculated_channels=BOXPLOT_CALCULATED,
-        low_pass_filters=BOXPLOT_FILTERS,
+        filters=BOXPLOT_FILTERS,
         units_map=UNITS_MAP,
         box_plot_settings=BOX_PLOT_SETTINGS,
         plot_method="generate_box_plots",
