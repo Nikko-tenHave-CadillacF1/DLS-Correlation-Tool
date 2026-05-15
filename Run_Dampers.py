@@ -1,7 +1,6 @@
 """Damper workflow — edit RUNS and plot definitions to configure your analysis."""
 
-from plot_runtime import build_plot_groups, workflow_config, run_from_config, parse_plot_cli
-from plot_runtime import WaveformPlot, ScatterPlot
+from plot_runtime import run_workflow, WaveformPlot, ScatterPlot
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 
@@ -56,17 +55,12 @@ SCATTER_PLOT_DEFINITIONS = [
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-PLOT_DEFINITIONS = build_plot_groups(waveforms=WAVEFORM_PLOT_DEFINITIONS, scatters=SCATTER_PLOT_DEFINITIONS)
-
-_FIG_SIZE = {"waveform": (9.5, 8), "scatter": (10, 8), "psd": (10, 8), "histogram": (10, 8), "bar": (10, 6)}
-
 if __name__ == "__main__":
-    _cfg = workflow_config(
+    run_workflow(
         "dampers",
         title="DAMPER PLOT ANALYSIS",
         runs=RUNS,
-        plot_definitions=PLOT_DEFINITIONS,
-        fig_size=_FIG_SIZE,
-        generate_message="Generating damper plots...",
+        waveforms=WAVEFORM_PLOT_DEFINITIONS,
+        scatters=SCATTER_PLOT_DEFINITIONS,
+        fig_size={"waveform": (9.5, 8), "scatter": (10, 8), "psd": (10, 8), "histogram": (10, 8), "bar": (10, 6)},
     )
-    run_from_config(_cfg, parse_plot_cli("Damper plot analysis"))

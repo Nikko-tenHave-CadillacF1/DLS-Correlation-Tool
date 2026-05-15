@@ -1,7 +1,6 @@
 """Box plot workflow — edit RUNS and BOX_PLOT_DEFINITIONS to configure your analysis."""
 
-from plot_runtime import build_plot_groups, workflow_config, run_from_config, parse_plot_cli
-from plot_runtime import BoxPlot
+from plot_runtime import run_workflow, BoxPlot
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 
@@ -27,15 +26,10 @@ BOX_PLOT_DEFINITIONS = [
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-PLOT_DEFINITIONS = build_plot_groups(boxes=BOX_PLOT_DEFINITIONS)
-
 if __name__ == "__main__":
-    _cfg = workflow_config(
+    run_workflow(
         "boxplots",
         title="BOX PLOT ANALYSIS",
         runs=RUNS,
-        plot_definitions=PLOT_DEFINITIONS,
-        plot_method="generate_box_plots",
-        generate_message="Generating box plots...",
+        boxes=BOX_PLOT_DEFINITIONS,
     )
-    run_from_config(_cfg, parse_plot_cli("Box plot analysis"))

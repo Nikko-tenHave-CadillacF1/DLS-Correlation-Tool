@@ -2,7 +2,7 @@
 
 from channel_config import CORRELATION_OUTPUT_DIR, resolve_template_path
 from plot_runtime import (
-    build_plot_groups, workflow_config, run_from_config, parse_plot_cli, Slide,
+    run_workflow, Slide,
     WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot, BarPlot, BoxPlot,
 )
 
@@ -37,6 +37,9 @@ RUNS = [
 EXPORT_TO_POWERPOINT  = True
 POWERPOINT_TEMPLATE   = resolve_template_path("template.pptx")
 POWERPOINT_OUTPUT     = CORRELATION_OUTPUT_DIR / "Correlation_Report.pptx"
+# Slide number (1-based) where the first POWERPOINT_EXPORT_MAP entry is placed.
+# Leaves cover / intro slides untouched.
+POWERPOINT_START_SLIDE = 4
 
 # ─── WAVEFORM PLOTS ───────────────────────────────────────────────────────────
 # channels: one entry per subplot row — 'channel' or ('left_channel', 'right_channel')
@@ -253,23 +256,19 @@ POWERPOINT_EXPORT_MAP = [
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-PLOT_DEFINITIONS = build_plot_groups(
-    waveforms=WAVEFORM_PLOT_DEFINITIONS,
-    scatters=SCATTER_PLOT_DEFINITIONS,
-    psds=PSD_PLOT_DEFINITIONS,
-    histograms=HISTOGRAM_PLOT_DEFINITIONS,
-    bars=BAR_PLOT_DEFINITIONS,
-    boxes=BOX_PLOT_DEFINITIONS,
-)
-
 if __name__ == "__main__":
-    _cfg = workflow_config(
+    run_workflow(
         "correlation",
         title="CORRELATION PLOT GENERATION",
         runs=RUNS,
-        plot_definitions=PLOT_DEFINITIONS,
+        waveforms=WAVEFORM_PLOT_DEFINITIONS,
+        scatters=SCATTER_PLOT_DEFINITIONS,
+        psds=PSD_PLOT_DEFINITIONS,
+        histograms=HISTOGRAM_PLOT_DEFINITIONS,
+        bars=BAR_PLOT_DEFINITIONS,
+        boxes=BOX_PLOT_DEFINITIONS,
         powerpoint_template=POWERPOINT_TEMPLATE if EXPORT_TO_POWERPOINT else None,
         powerpoint_output=POWERPOINT_OUTPUT if EXPORT_TO_POWERPOINT else None,
         export_map=POWERPOINT_EXPORT_MAP if EXPORT_TO_POWERPOINT else None,
+        powerpoint_start_slide=POWERPOINT_START_SLIDE,
     )
-    run_from_config(_cfg, parse_plot_cli("Correlation plot generation"))

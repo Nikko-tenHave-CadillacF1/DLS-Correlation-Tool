@@ -125,6 +125,12 @@ class PsdHistMixin:
                 y_pad_ratio=(0 if has_y_limits else default_y_pad),
             )
             self._apply_grid(ax, which="both")
+            # On log-scale PSD plots, force denser minor ticks (one per decade
+            # intermediate 2..9) so reviewers can read off intermediate decades.
+            if log_scale:
+                ax.yaxis.set_minor_locator(ticker.LogLocator(base=10.0, subs=np.arange(2, 10), numticks=24))
+                ax.yaxis.set_minor_formatter(ticker.NullFormatter())
+                ax.grid(True, which="minor", axis="y", alpha=0.20, linewidth=0.4)
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
 
@@ -179,7 +185,7 @@ class PsdHistMixin:
                             )
 
             plt.tight_layout(pad=0.25)
-            fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white")
+            fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")
             plt.close(fig)
             if self.verbose:
                 print(f"  Saved: {filename}")
@@ -306,7 +312,7 @@ class PsdHistMixin:
             self._add_standard_legend(ax, loc="best")
 
             plt.tight_layout(pad=0.25)
-            fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.05, facecolor="white")
+            fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.05, facecolor="white", bbox_inches="tight")
             plt.close(fig)
             if self.verbose:
                 print(f"  Saved: {filename}")

@@ -41,6 +41,10 @@ python Run_Correlation.py --no-open
 | `--only NAME [NAME ...]` | Generate only plots whose name matches (case-insensitive) |
 | `--types TYPE [TYPE ...]` | Generate only these plot types (`waveform`, `scatter`, `psd`, `histogram`, `bar`, `box`) |
 | `--no-open` | Do not auto-open the output folder after completion |
+| `--dry-run` | Validate config and show what would be generated without creating plots |
+| `--list-plots` | Print all configured plot names, grouped by type |
+| `--check-only` | Run data-quality checks and produce the report without plotting |
+| `--runs NAME [...]` | Restrict to a subset of configured runs by name |
 
 Flags can be combined: `--types scatter --only "Front Heave" --no-open`.
 
@@ -183,6 +187,12 @@ WaveformPlot(
     normalise=False,
     # If True, all channels on each subplot are normalised to [0, 1] using
     # the global min/max across all runs. Dual-axis becomes single-axis.
+    legend_position="top",
+    # "top" (default): run legend above the subplots.
+    # "right": vertical legend to the right of the plot area.
+    show_delta=False,
+    # If True and exactly 2 runs are loaded, a thin difference row
+    # (run_B − run_A) is appended below each primary row.
 )
 ```
 
@@ -310,17 +320,34 @@ plotter.plot_data(
 
 Set `EXPORT_TO_POWERPOINT = True` in `Run_Correlation.py` and place a `.pptx` template in `Data/templates/`.
 
-`POWERPOINT_EXPORT_MAP` maps slide numbers to plot image files:
+Use the `Slide()` helper to build the export map declaratively:
 
 ```python
-POWERPOINT_EXPORT_MAP = {
-    4:  {"layout": "main_plot",   "images": ["waveform_driver_input.png"]},
-    6:  {"layout": "double_plot", "images": ["scatter_gear_ratios.png", "scatter_engine_power.png"]},
-}
+from plot_runtime import Slide
+
+POWERPOINT_EXPORT_MAP = [
+    Slide("main_plot",   "waveform/Driver Input"),
+    Slide("double_plot", "scatter/Gear Ratios", "scatter/Engine Power"),
+]
+```
+
+Set `POWERPOINT_START_SLIDE` to the 1-based slide number where the first entry should be placed (e.g. `4` to leave cover/intro slides untouched):
+
+```python
+POWERPOINT_START_SLIDE = 4
+```
+
+Pass it through in the `run_workflow()` call:
+
+```python
+run_workflow(
+    ...,
+    powerpoint_start_slide=POWERPOINT_START_SLIDE,
+)
 ```
 
 Layouts:
 - `"main_plot"` — single image, full-width on the slide
 - `"double_plot"` — two images side-by-side
 
-Image filenames follow the pattern `{type}_{name_with_underscores}.png` (all lowercase). The plot figure size is automatically matched to the template slide aspect ratio.
+Plot references use `"type/Plot Name"` notation and are automatically converted to filenames (`type_plot_name.png`, all lowercase). The plot figure size is automatically matched to the template slide aspect ratio.

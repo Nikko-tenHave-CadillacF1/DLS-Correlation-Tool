@@ -177,7 +177,7 @@ class BarBoxMixin:
                     y_pos = value + (padding if value >= 0 else -padding)
                     va = "bottom" if value >= 0 else "top"
                     axis.text(offset, y_pos, datafunctions._fmt_g(value, sig=5),
-                              ha="center", va=va, fontsize=10, fontweight="bold", color="black")
+                              ha="center", va=va, fontsize=10, fontweight="bold", color="#1A1A1A")
 
             for axis in ([ax2, ax] if ax2 is not None else [ax]):
                 y0, y1 = axis.get_ylim()
@@ -222,7 +222,7 @@ class BarBoxMixin:
                 )
 
             plt.tight_layout(pad=0.25)
-            fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white")
+            fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")
             plt.close(fig)
             if self.verbose:
                 print(f"  Saved: {filename}")
@@ -455,7 +455,7 @@ class BarBoxMixin:
 
         plt.tight_layout(pad=0.25)
         filename = self._sanitize_plot_filename("box", plot_name)
-        fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white")
+        fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")
         plt.close(fig)
         if self.verbose:
             print(f"  Saved: {filename}")
@@ -552,7 +552,7 @@ class BarBoxMixin:
 
         plt.tight_layout(pad=0.25)
         filename = self._sanitize_plot_filename("box", plot_name)
-        fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white")
+        fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")
         plt.close(fig)
         if self.verbose:
             print(f"  Saved: {filename}")

@@ -169,13 +169,15 @@ class WaveformMixin:
         plot_iter = plots if self.verbose else _tqdm(plots, desc="Waveform", unit="plot", leave=True)
         for plot_def in plot_iter:
             # Unpack with defaults for optional trailing items
-            _d = list(plot_def) + [None] * (9 - len(plot_def))
+            _d = list(plot_def) + [None] * (11 - len(plot_def))
             plot_name, channels, axis_limits, ref_lines = _d[:4]
             subplot_heights = _d[4]
             x_limits        = _d[5]
             x_channel       = _d[6] if isinstance(_d[6], str) and _d[6].strip() else "sLap"
             highlight_zones = _d[7]
             normalise       = bool(_d[8]) if _d[8] else False
+            legend_position = _d[9] if isinstance(_d[9], str) and _d[9] in ("top", "right") else "top"
+            show_delta      = bool(_d[10]) if _d[10] else False
 
             if self.verbose:
                 print(f"Creating waveform plot: {plot_name}")
@@ -190,21 +192,37 @@ class WaveformMixin:
 
             filename = self._sanitize_plot_filename("waveform", plot_name)
             min_height = 1.6 * sum(avail_heights)
+
+            # Resolve which runs actually have data loaded — needed for delta gating.
+            loaded_run_names = [r["name"].lower() for r in self.runs if r["name"].lower() in self.run_data]
+            delta_active = bool(show_delta) and len(loaded_run_names) == 2
+
+            if delta_active:
+                # Each prepared row is followed by a half-height delta row.
+                expanded_heights = []
+                for h in avail_heights:
+                    expanded_heights.append(h)
+                    expanded_heights.append(h * 0.45)
+                n_axes = len(expanded_heights)
+                min_height = 1.4 * sum(expanded_heights)
+            else:
+                expanded_heights = list(avail_heights)
+                n_axes = len(prepared_rows)
+
             figsize = self._resolve_plot_figsize(filename, self.waveform_figsize, min_height=min_height)
 
             fig, axes = plt.subplots(
-                len(prepared_rows),
+                n_axes,
                 1,
                 figsize=figsize,
                 sharex=True,
                 squeeze=False,
-                gridspec_kw={"height_ratios": avail_heights},
+                gridspec_kw={"height_ratios": expanded_heights},
             )
             axes = axes.flatten()
             plotted_runs = set()
 
             # Resolve the x-axis channel, falling back gracefully if unavailable
-            loaded_run_names = [r["name"].lower() for r in self.runs if r["name"].lower() in self.run_data]
             x_channel_available = x_channel and all(
                 x_channel in self.run_data[rn].columns for rn in loaded_run_names
             )
@@ -252,10 +270,15 @@ class WaveformMixin:
                         channel_ranges[ch] = (lo, hi - lo) if hi != lo else (lo, 1.0)
 
             for idx, row in enumerate(prepared_rows):
-                ax = axes[idx]
+                ax_idx = idx * 2 if delta_active else idx
+                ax = axes[ax_idx]
+                ax_delta = axes[ax_idx + 1] if delta_active else None
                 ch_primary = row["primary"]
                 ch_secondary = row["secondary"]
                 ax_right = (ax.twinx() if ch_secondary is not None else None) if not normalise else None
+
+                # Collect per-run primary traces for delta computation
+                delta_traces = {}  # rn -> (x_arr, y_arr)
 
                 for run in self.runs:
                     rn = run["name"].lower()
@@ -278,6 +301,12 @@ class WaveformMixin:
                         label=run["name"].upper(), alpha=0.85,
                     )
                     plotted_runs.add(rn)
+
+                    if ax_delta is not None:
+                        delta_traces[rn] = (
+                            np.asarray(x_plot, dtype=float),
+                            np.asarray(y_plot, dtype=float),
+                        )
 
                     if ax_right is not None and ch_secondary in df.columns:
                         x2_plot, y2_plot = datafunctions.mask_waveform_discontinuities(
@@ -404,6 +433,41 @@ class WaveformMixin:
 
                 if idx < len(prepared_rows) - 1:
                     ax.tick_params(labelbottom=False)
+                elif ax_delta is not None:
+                    # Last data row: hide its x labels because the delta row owns them.
+                    ax.tick_params(labelbottom=False)
+
+                # ── delta subplot: plot (run_B − run_A) for the primary channel ──
+                if ax_delta is not None and len(delta_traces) == 2:
+                    # Preserve run order from self.runs
+                    ordered = [r["name"].lower() for r in self.runs if r["name"].lower() in delta_traces]
+                    rn_a, rn_b = ordered[0], ordered[1]
+                    xa, ya = delta_traces[rn_a]
+                    xb, yb = delta_traces[rn_b]
+                    # Align on rn_a's x by linear interpolation of yb.
+                    finite_a = np.isfinite(xa) & np.isfinite(ya)
+                    finite_b = np.isfinite(xb) & np.isfinite(yb)
+                    if finite_a.sum() >= 2 and finite_b.sum() >= 2:
+                        xa_f, ya_f = xa[finite_a], ya[finite_a]
+                        xb_f, yb_f = xb[finite_b], yb[finite_b]
+                        order_b = np.argsort(xb_f)
+                        yb_on_a = np.interp(xa_f, xb_f[order_b], yb_f[order_b],
+                                            left=np.nan, right=np.nan)
+                        delta = yb_on_a - ya_f
+                        ax_delta.plot(
+                            xa_f, delta,
+                            linewidth=1.2, color="#3C3C3C", alpha=0.95,
+                        )
+                        ax_delta.axhline(0, color="#9A9A9A", linewidth=0.8, alpha=0.7, zorder=1)
+                        ax_delta.set_ylabel(
+                            f"Δ {ch_primary}\n({rn_b.upper()}−{rn_a.upper()})",
+                            fontsize=8.5, fontweight="bold", rotation=0, ha="right", va="center",
+                        )
+                        ax_delta.yaxis.set_label_coords(-0.035, 0.5)
+                        ax_delta.tick_params(axis="y", labelsize=8)
+                        self._apply_grid(ax_delta, which="major", axis="y")
+                        if idx < len(prepared_rows) - 1:
+                            ax_delta.tick_params(labelbottom=False)
 
             # X-axis styling
             axes[-1].set_xlabel(xlabel, fontweight="bold")
@@ -430,7 +494,7 @@ class WaveformMixin:
                     ax.xaxis.set_minor_locator(ticker.AutoMinorLocator(5))
                     self._apply_grid(ax, which="both", axis="x")
 
-            # Legend above subplots
+            # Legend above (default) or to the right of subplots
             run_handles = [
                 Line2D([0], [0], color=run["color"], linewidth=2.0)
                 for run in self.runs if run["name"].lower() in plotted_runs
@@ -439,9 +503,13 @@ class WaveformMixin:
                 run["name"].upper()
                 for run in self.runs if run["name"].lower() in plotted_runs
             ]
-            self._add_waveform_figure_legend(fig, run_handles, run_labels)
+            self._add_waveform_figure_legend(fig, run_handles, run_labels, position=legend_position)
 
-            plt.tight_layout(pad=0.3, h_pad=0.0, rect=(0, 0, 1, 0.95))
+            if legend_position == "right":
+                # Reserve space on the right for the side legend.
+                plt.tight_layout(pad=0.3, h_pad=0.0, rect=(0, 0, 0.88, 1.0))
+            else:
+                plt.tight_layout(pad=0.3, h_pad=0.0, rect=(0, 0, 1, 0.95))
             fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")
             plt.close(fig)
             if self.verbose:

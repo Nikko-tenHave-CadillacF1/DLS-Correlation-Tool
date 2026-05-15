@@ -533,15 +533,38 @@ def aggregate_channel_for_bar(series, aggregation="last", sample_rate=100.0, tim
 # ================================================================
 
 
+_DECIMATE_CACHE = {}
+_DECIMATE_CACHE_MAX_ENTRIES = 64
+
+
 def _decimate_xy(x_data, y_data, max_points):
-    """Downsample evenly when data volume is large to keep plots responsive."""
+    """Downsample evenly when data volume is large to keep plots responsive.
+
+    Decimated outputs for the same (x_array, y_array, max_points) inputs are
+    memoized by array ``id()`` so that repeat scatter calls (e.g. when the same
+    run/channel pair is plotted across multiple figures) reuse the work.
+    """
     if max_points is None or max_points <= 0:
         return x_data, y_data
     if len(x_data) <= max_points:
         return x_data, y_data
 
+    cache_key = (id(x_data), id(y_data), int(max_points), len(x_data))
+    cached = _DECIMATE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     stride = max(1, int(np.ceil(len(x_data) / float(max_points))))
-    return x_data[::stride], y_data[::stride]
+    out = (x_data[::stride], y_data[::stride])
+
+    # Bounded cache — drop oldest entries when above the soft cap.
+    if len(_DECIMATE_CACHE) >= _DECIMATE_CACHE_MAX_ENTRIES:
+        try:
+            _DECIMATE_CACHE.pop(next(iter(_DECIMATE_CACHE)))
+        except StopIteration:
+            pass
+    _DECIMATE_CACHE[cache_key] = out
+    return out
 
 
 def _plot_scatter_layer(ax, x_data, y_data, label, color, alpha, size, max_points=45000):

@@ -27,20 +27,6 @@ DEFAULT_FIG_SIZE = {
 _ASPECT_RATIO_CACHE = {}
 
 
-def _fig_size_to_list(fig_size):
-    """Convert a dict-based fig_size to the legacy 5-element list format."""
-    if isinstance(fig_size, dict):
-        return [
-            fig_size.get("waveform", (15.5, 6.4)),
-            fig_size.get("scatter", (10, 8)),
-            fig_size.get("psd", (10, 8)),
-            fig_size.get("histogram", (10, 8)),
-            fig_size.get("bar", (10, 6)),
-        ]
-    # Already a list/tuple — pass through
-    return fig_size
-
-
 # ================================================================
 # JOB CONFIGURATION
 # ================================================================
@@ -66,18 +52,17 @@ class PlotJobConfig:
     box_plot_settings: Optional[dict] = None
     verbose: bool = False
 
-    # Plot method and filtering
-    plot_method: str = "plot_data"
-    generate_message: str = "Generating plots..."
-
     # PowerPoint
     powerpoint_template: Optional[Path] = None
     powerpoint_output: Optional[Path] = None
     export_map: Optional[Union[dict, list]] = None
+    # Slide number (1-based) where the first list-style export_map entry is placed.
+    # Useful when the template has cover/intro slides that should be left untouched.
+    powerpoint_start_slide: int = 1
 
     # Output behaviour
     open_output: bool = True
-    output_dpi: int = 200
+    output_dpi: int = 300
 
 
 # ================================================================
@@ -113,18 +98,19 @@ def _plot_ref_to_filename(ref: str) -> str:
     return f"{prefix.lower()}_{safe}.png"
 
 
-def _resolve_export_map(export_map, plot_definitions):
+def _resolve_export_map(export_map, plot_definitions, start_slide=1):
     """Resolve export_map: if it's a list of Slide dicts, convert to numbered dict.
 
     Accepts:
       - dict (legacy format): {slide_num: {"layout": ..., "images": [...]}}
-      - list (new format): [Slide(...), Slide(...), ...] — auto-numbered starting at 1
+      - list (new format): [Slide(...), Slide(...), ...] — auto-numbered starting at ``start_slide``
     Returns a dict in legacy format.
     """
     if export_map is None:
         return None
     if isinstance(export_map, list):
-        return {i + 1: slide for i, slide in enumerate(export_map)}
+        offset = max(1, int(start_slide))
+        return {i + offset: slide for i, slide in enumerate(export_map)}
     return export_map
 
 
@@ -210,6 +196,48 @@ def validate_export_map(plot_definitions: tuple, export_map: Optional[dict]) -> 
     return warnings
 
 
+def run_workflow(
+    workflow: str,
+    *,
+    title: str,
+    runs: list,
+    waveforms=None,
+    scatters=None,
+    psds=None,
+    histograms=None,
+    bars=None,
+    boxes=None,
+    powerpoint_template=None,
+    powerpoint_output=None,
+    export_map=None,
+    fig_size=None,
+    cli_description: Optional[str] = None,
+    **overrides,
+):
+    """One-call entry point: build plot groups, parse CLI, run the job.
+
+    workflow: 'correlation' | 'boxplots' | 'dampers'.
+    Pass plot lists by category (waveforms=, scatters=, ...); empty categories may be omitted.
+    Any PlotJobConfig field can be overridden via **overrides.
+    """
+    plot_definitions = build_plot_groups(
+        waveforms=waveforms, scatters=scatters, psds=psds,
+        histograms=histograms, bars=bars, boxes=boxes,
+    )
+    config = workflow_config(
+        workflow,
+        title=title,
+        runs=runs,
+        plot_definitions=plot_definitions,
+        powerpoint_template=powerpoint_template,
+        powerpoint_output=powerpoint_output,
+        export_map=export_map,
+        fig_size=fig_size,
+        **overrides,
+    )
+    return run_from_config(config, parse_plot_cli(cli_description or title))
+
+
 def run_from_config(config: PlotJobConfig, cli_args=None):
     """Build a plotter from a PlotJobConfig and run the job.
 
@@ -217,7 +245,9 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
               / .dry_run / .list_plots / .check_only overrides from parse_plot_cli().
     """
     # --- Resolve export map (list → dict) ---
-    resolved_export_map = _resolve_export_map(config.export_map, config.plot_definitions)
+    resolved_export_map = _resolve_export_map(
+        config.export_map, config.plot_definitions, start_slide=config.powerpoint_start_slide,
+    )
 
     # --- Handle --list-plots (early exit) ---
     if cli_args is not None and getattr(cli_args, "list_plots", False):
@@ -267,9 +297,21 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
             open_output = False
 
     # --- Resolve fig_size ---
-    fig_size = _fig_size_to_list(config.fig_size) if config.fig_size else None
+    fig_size = config.fig_size
 
-    plotter = build_plotter(
+    # --- Resolve PPT aspect ratios ---
+    plot_aspect_ratios = {}
+    if config.powerpoint_template and resolved_export_map:
+        cache_key = (
+            str(config.powerpoint_template),
+            json.dumps(resolved_export_map, sort_keys=True),
+        )
+        plot_aspect_ratios = _ASPECT_RATIO_CACHE.get(cache_key)
+        if plot_aspect_ratios is None:
+            plot_aspect_ratios = get_template_plot_aspect_ratios(config.powerpoint_template, resolved_export_map)
+            _ASPECT_RATIO_CACHE[cache_key] = plot_aspect_ratios
+
+    plotter = DataPlotter(
         root_folder=config.root_folder,
         runs=runs,
         plot_definitions=config.plot_definitions,
@@ -277,15 +319,14 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
         channel_transforms=config.channel_transforms,
         calculated_channels=config.calculated_channels,
         filters=config.filters,
+        fig_size=fig_size or DEFAULT_FIG_SIZE,
         units_map=config.units_map,
-        fig_size=fig_size,
+        plot_aspect_ratios=plot_aspect_ratios,
         scatter_max_points=config.scatter_max_points,
         bar_secondary_axis_ratio=config.bar_secondary_axis_ratio,
         box_plot_settings=config.box_plot_settings,
         output_dir=config.output_dir,
         verbose=config.verbose,
-        template_path=config.powerpoint_template,
-        export_map=resolved_export_map,
         output_dpi=config.output_dpi,
     )
 
@@ -301,8 +342,6 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
     run_plot_job(
         title=config.title,
         plotter=plotter,
-        plot_method=config.plot_method,
-        generate_message=config.generate_message,
         plot_types=plot_types,
         plot_names=plot_names,
         powerpoint_template=config.powerpoint_template,
@@ -431,8 +470,6 @@ def workflow_config(
     powerpoint_output=None,
     export_map=None,
     fig_size=None,
-    plot_method: str = "plot_data",
-    generate_message: str = "Generating plots...",
     **overrides,
 ) -> PlotJobConfig:
     """Create a PlotJobConfig with workflow-specific defaults auto-resolved.
@@ -448,26 +485,19 @@ def workflow_config(
     )
 
     _WORKFLOW_MAP = {
-        "correlation": {
-            "module_attrs": ("CORRELATION_INPUT_DIR", "CORRELATION_OUTPUT_DIR",
-                             "CORRELATION_CALCULATED", "CORRELATION_FILTERS"),
-        },
-        "boxplots": {
-            "module_attrs": ("BOXPLOT_INPUT_DIR", "BOXPLOT_OUTPUT_DIR",
-                             "BOXPLOT_CALCULATED", "BOXPLOT_FILTERS"),
-        },
-        "dampers": {
-            "module_attrs": ("DAMPER_INPUT_DIR", "DAMPER_PLOTS_DIR",
-                             "DAMPER_CALCULATED", "DAMPER_FILTERS"),
-        },
+        "correlation": ("CORRELATION_INPUT_DIR", "CORRELATION_OUTPUT_DIR",
+                        "CORRELATION_CALCULATED", "CORRELATION_FILTERS"),
+        "boxplots":    ("BOXPLOT_INPUT_DIR",     "BOXPLOT_OUTPUT_DIR",
+                        "BOXPLOT_CALCULATED",    "BOXPLOT_FILTERS"),
+        "dampers":     ("DAMPER_INPUT_DIR",      "DAMPER_PLOTS_DIR",
+                        "DAMPER_CALCULATED",     "DAMPER_FILTERS"),
     }
 
-    wf = _WORKFLOW_MAP.get(workflow)
-    if wf is None:
+    if workflow not in _WORKFLOW_MAP:
         raise ValueError(f"Unknown workflow '{workflow}'. Expected: {list(_WORKFLOW_MAP)}")
 
     import channel_config as _cc
-    input_dir, output_dir, calc_attr, filt_attr = wf["module_attrs"]
+    input_dir, output_dir, calc_attr, filt_attr = _WORKFLOW_MAP[workflow]
 
     return PlotJobConfig(
         title=title,
@@ -484,8 +514,6 @@ def workflow_config(
         bar_secondary_axis_ratio=overrides.pop("bar_secondary_axis_ratio", BAR_SECONDARY_AXIS_RATIO),
         box_plot_settings=overrides.pop("box_plot_settings", BOX_PLOT_SETTINGS),
         fig_size=fig_size,
-        plot_method=plot_method,
-        generate_message=generate_message,
         powerpoint_template=powerpoint_template,
         powerpoint_output=powerpoint_output,
         export_map=export_map,
@@ -493,64 +521,10 @@ def workflow_config(
     )
 
 
-def build_plotter(
-    *,
-    root_folder,
-    runs,
-    plot_definitions,
-    channel_mappings=None,
-    channel_transforms=None,
-    calculated_channels=None,
-    filters=None,
-    units_map=None,
-    template_path=None,
-    export_map=None,
-    fig_size=None,
-    scatter_max_points=45000,
-    bar_secondary_axis_ratio=20.0,
-    box_plot_settings=None,
-    output_dir=None,
-    verbose=False,
-    output_dpi=200,
-):
-    """Build a DataPlotter with optional PowerPoint aspect-ratio hints."""
-    plot_aspect_ratios = {}
-    if template_path and export_map:
-        cache_key = (
-            str(template_path),
-            json.dumps(export_map, sort_keys=True),
-        )
-        plot_aspect_ratios = _ASPECT_RATIO_CACHE.get(cache_key)
-        if plot_aspect_ratios is None:
-            plot_aspect_ratios = get_template_plot_aspect_ratios(template_path, export_map)
-            _ASPECT_RATIO_CACHE[cache_key] = plot_aspect_ratios
-
-    return DataPlotter(
-        root_folder=root_folder,
-        runs=runs,
-        plot_definitions=plot_definitions,
-        channel_mappings=channel_mappings,
-        channel_transforms=channel_transforms,
-        calculated_channels=calculated_channels,
-        filters=filters,
-        fig_size=fig_size or _fig_size_to_list(DEFAULT_FIG_SIZE),
-        units_map=units_map,
-        plot_aspect_ratios=plot_aspect_ratios,
-        scatter_max_points=scatter_max_points,
-        bar_secondary_axis_ratio=bar_secondary_axis_ratio,
-        box_plot_settings=box_plot_settings,
-        output_dir=output_dir,
-        verbose=verbose,
-        output_dpi=output_dpi,
-    )
-
-
 def run_plot_job(
     *,
     title,
     plotter,
-    plot_method="plot_data",
-    generate_message="Generating plots...",
     plot_types=None,
     plot_names=None,
     powerpoint_template=None,
@@ -580,11 +554,8 @@ def run_plot_job(
     }
     t0 = _time.perf_counter()
 
-    print(f"\n{generate_message}")
-    if (plot_types is not None or plot_names is not None) and plot_method == "plot_data":
-        plotter.plot_data(plot_types=plot_types, plot_names=plot_names)
-    else:
-        getattr(plotter, plot_method)()
+    print("\nGenerating plots...")
+    plotter.plot_data(plot_types=plot_types, plot_names=plot_names)
 
     elapsed = _time.perf_counter() - t0
     plot_count = sum(
@@ -643,6 +614,8 @@ def WaveformPlot(
     x_channel: str = "sLap",
     highlight_zones=None,
     normalise: bool = False,
+    legend_position: str = "top",
+    show_delta: bool = False,
 ) -> list:
     """Define a waveform subplot figure.
 
@@ -653,10 +626,15 @@ def WaveformPlot(
     x_channel: 'sLap' (default) or 'tLap' etc.
     highlight_zones: ('ch', 'op', val[, '#color']) — shade matching x-regions.
     normalise: rescale all channels to [0, 1].
+    legend_position: 'top' (default) or 'right' — places run legend above or to the side.
+    show_delta: if True and exactly 2 runs are loaded, append a thin difference
+        row (run_B − run_A) below each primary row. Default False.
     """
     _require_str(name, "name")
     _require_nonempty(channels, "channels")
-    return [name, channels, axis_limits, reference_lines, subplot_heights, x_limits, x_channel, highlight_zones, normalise]
+    if legend_position not in ("top", "right"):
+        raise ValueError("legend_position must be 'top' or 'right'.")
+    return [name, channels, axis_limits, reference_lines, subplot_heights, x_limits, x_channel, highlight_zones, normalise, legend_position, bool(show_delta)]
 
 
 # ---------------------------------------------------------------------------

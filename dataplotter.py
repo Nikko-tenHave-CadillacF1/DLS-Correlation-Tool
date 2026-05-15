@@ -47,18 +47,33 @@ def make_unique(names):
     return unique_names
 
 
+_CALC_DEP_CACHE = {}
+
+
 def _extract_calculated_dependencies(func):
-    """Return source column names referenced by a calculated-channel lambda."""
+    """Return source column names referenced by a calculated-channel lambda.
+
+    Results are memoized by ``id(func)`` at module scope so repeated lookups
+    across DataPlotter instances are O(1).
+    """
+    key = id(func)
+    cached = _CALC_DEP_CACHE.get(key)
+    if cached is not None:
+        return cached
+
     import inspect
     import re
 
     try:
         source = inspect.getsource(func)
     except Exception:
-        return set()
+        _CALC_DEP_CACHE[key] = set()
+        return _CALC_DEP_CACHE[key]
 
     matches = re.findall(r"df\['([^']+)'\]|df\[\"([^\"]+)\"\]", source)
-    return {m[0] or m[1] for m in matches}
+    deps = {m[0] or m[1] for m in matches}
+    _CALC_DEP_CACHE[key] = deps
+    return deps
 
 
 # ================================================================
@@ -321,11 +336,11 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         box_plot_settings=None,
         output_dir=None,
         verbose=False,
-        output_dpi=200,
+        output_dpi=300,
     ):
         """Build a plotter instance and run the preprocessing pipeline."""
         if fig_size is None:
-            fig_size = [(15.5, 6.4), (10, 8), (10, 8), (10, 8), (10, 6)]
+            fig_size = {"waveform": (15.5, 6.4), "scatter": (10, 8), "psd": (10, 8), "histogram": (10, 8), "bar": (10, 6)}
 
         root_folder = Path(root_folder)
         output_dir = Path(output_dir) if output_dir is not None else root_folder
@@ -347,11 +362,19 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         self.SCATTER_TRANSPARENCY = scatter_transparency
         self.SCATTER_MAX_POINTS = scatter_max_points
 
-        self.waveform_figsize = fig_size[0]
-        self.scatter_FIGSIZE = fig_size[1]
-        self.psd_FIGSIZE = fig_size[2]
-        self.histogram_FIGSIZE = fig_size[3]
-        self.boxplot_FIGSIZE = fig_size[4] if len(fig_size) > 4 else (10, 6)
+        # Accept both dict and legacy list format
+        if isinstance(fig_size, dict):
+            self.waveform_figsize = fig_size.get("waveform", (15.5, 6.4))
+            self.scatter_FIGSIZE = fig_size.get("scatter", (10, 8))
+            self.psd_FIGSIZE = fig_size.get("psd", (10, 8))
+            self.histogram_FIGSIZE = fig_size.get("histogram", (10, 8))
+            self.boxplot_FIGSIZE = fig_size.get("bar", (10, 6))
+        else:
+            self.waveform_figsize = fig_size[0]
+            self.scatter_FIGSIZE = fig_size[1]
+            self.psd_FIGSIZE = fig_size[2]
+            self.histogram_FIGSIZE = fig_size[3]
+            self.boxplot_FIGSIZE = fig_size[4] if len(fig_size) > 4 else (10, 6)
         self.plot_aspect_ratios = plot_aspect_ratios or {}
         self.BOX_PLOT_SETTINGS = box_plot_settings or {}
 
@@ -360,7 +383,6 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         self.run_data = {}
         self.run_units = {}
         self.run_required_cols = {}
-        self._calculated_dependency_cache = {}
         self._gated_data_cache = {}
         self._reverse_mappings = {}
         self._parquet_alias_cache = {}
@@ -411,6 +433,8 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
             else self.PLOT_FONT["fallback"][0]
         )
 
+        # Soft dark grey replaces pure black for less harsh contrast in print/PDF.
+        ink = "#1A1A1A"
         plt.rcParams.update({
             "font.family": preferred_font,
             "font.sans-serif": [self.PLOT_FONT["family"]] + self.PLOT_FONT["fallback"],
@@ -418,17 +442,25 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
             "axes.titleweight": "bold",
             "axes.labelsize": self.PLOT_FONT["label_size"],
             "axes.labelweight": "bold",
+            "axes.edgecolor": ink,
+            "axes.labelcolor": ink,
+            "axes.titlecolor": ink,
+            "xtick.color": ink,
+            "ytick.color": ink,
             "xtick.labelsize": self.PLOT_FONT["tick_size"],
             "ytick.labelsize": self.PLOT_FONT["tick_size"],
+            "xtick.minor.visible": True,
+            "ytick.minor.visible": True,
+            "text.color": ink,
             "legend.fontsize": self.PLOT_FONT["legend_size"],
             "figure.titlesize": self.PLOT_FONT["figure_title_size"],
             "figure.titleweight": "bold",
         })
 
-    def _apply_grid(self, ax, which="major", axis="both"):
+    def _apply_grid(self, ax, which="both", axis="both"):
         """Apply consistent grid styling to an axis.
 
-        which: 'major', 'minor', or 'both'.
+        which: 'major', 'minor', or 'both' (default: both for report-quality plots).
         axis: 'both', 'x', or 'y'.
         """
         if which in ("major", "both"):
@@ -516,11 +548,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
                 calc_set = calc_set.get(source_type) or calc_set
 
             if isinstance(calc_set, dict) and channel in calc_set:
-                cache_key = id(calc_set[channel])
-                deps = self._calculated_dependency_cache.get(cache_key)
-                if deps is None:
-                    deps = _extract_calculated_dependencies(calc_set[channel])
-                    self._calculated_dependency_cache[cache_key] = deps
+                deps = _extract_calculated_dependencies(calc_set[channel])
                 for dep in deps:
                     if dep not in processed:
                         to_process.append(dep)
@@ -733,20 +761,6 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         )
         return filtered
 
-    def _apply_parquet_nrun_filter(self, df, nrun, file_path, run_name=""):
-        return self._apply_parquet_rank_value_filter(
-            df=df, filter_spec=nrun, column_logical_name="nRun",
-            file_path=file_path, run_name=run_name,
-            is_rank=True, raise_on_missing_column=True, raise_on_empty_result=True,
-        )
-
-    def _apply_parquet_lap_filter(self, df, nlap, file_path, run_name=""):
-        return self._apply_parquet_rank_value_filter(
-            df=df, filter_spec=nlap, column_logical_name="nLap",
-            file_path=file_path, run_name=run_name,
-            is_rank=False, raise_on_missing_column=False, raise_on_empty_result=False,
-        )
-
     def _load_parquet_with_fallback(
         self, file_path, columns_to_load=None, parquet_nrun=None, parquet_nlap=None, run_name=""
     ):
@@ -789,12 +803,16 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
 
                 # Step 4: Apply row filters
                 if parquet_nrun is not None:
-                    df = self._apply_parquet_nrun_filter(
-                        df, nrun=parquet_nrun, file_path=file_path, run_name=run_name
+                    df = self._apply_parquet_rank_value_filter(
+                        df, filter_spec=parquet_nrun, column_logical_name="nRun",
+                        file_path=file_path, run_name=run_name,
+                        is_rank=True, raise_on_missing_column=True, raise_on_empty_result=True,
                     )
                 elif parquet_nlap is not None:
-                    df = self._apply_parquet_lap_filter(
-                        df, nlap=parquet_nlap, file_path=file_path, run_name=run_name
+                    df = self._apply_parquet_rank_value_filter(
+                        df, filter_spec=parquet_nlap, column_logical_name="nLap",
+                        file_path=file_path, run_name=run_name,
+                        is_rank=False, raise_on_missing_column=False, raise_on_empty_result=False,
                     )
 
                 # Step 5: Final column selection (handles any stragglers like nRun/nLap cols)
@@ -883,66 +901,32 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
     # Data cleaning
     # ------------------------------------------------------------------
 
-    def clean_data(self):
+    def _clean_data(self):
         """Remove non-numeric columns, patch YES/NO values, and interpolate gaps."""
-        # Limit: don't fill more than 1 second of missing data
         interp_limit = max(1, int(self.FILTER_SAMPLE_RATE))
 
         for run_name in list(self.run_data.keys()):
             df = datafunctions.convert_yes_no_to_binary(self.run_data[run_name])
+
+            # Drop string columns and sanitize numeric ones up-front.
+            drop_cols = []
             for col in list(df.columns):
                 if df[col].dtype == "object":
                     non_nan = df[col].dropna()
                     if any(isinstance(x, str) for x in non_nan):
-                        df.drop(col, axis=1, inplace=True)
-                        if self.verbose:
-                            print(f"  Dropped '{col}' from run '{run_name}' (string column)")
+                        drop_cols.append(col)
                         continue
-
                 df[col] = datafunctions.sanitize_numeric_series(df[col])
-                df[col] = df[col].interpolate(method="linear", limit=interp_limit)
+            if drop_cols:
+                df.drop(columns=drop_cols, inplace=True)
+                if self.verbose:
+                    for col in drop_cols:
+                        print(f"  Dropped '{col}' from run '{run_name}' (string column)")
+
+            # Batched DataFrame-wide linear interpolation; ~10× faster than per-column.
+            if not df.empty:
+                df.interpolate(method="linear", limit=interp_limit, axis=0, inplace=True)
             self.run_data[run_name] = df
-
-    # ------------------------------------------------------------------
-    # Preprocessing steps
-    # ------------------------------------------------------------------
-
-    def apply_channel_mappings(self):
-        """Apply source-specific channel renaming for every loaded run."""
-        for run in self.runs:
-            name = run["name"].lower()
-            if name in self.run_data:
-                self.run_data[name] = datafunctions.apply_channel_mappings(
-                    self.run_data[name], self.CHANNEL_MAPPINGS, run.get("type", name)
-                )
-
-    def apply_transformations(self):
-        """Apply configured per-source numeric transforms to each run."""
-        for run in self.runs:
-            name = run["name"].lower()
-            if name in self.run_data:
-                self.run_data[name] = datafunctions.apply_transformations(
-                    self.run_data[name], run.get("type", name), self.CHANNEL_TRANSFORMS
-                )
-
-    def apply_calculated_channels(self):
-        """Create configured derived channels for each run."""
-        for run in self.runs:
-            name = run["name"].lower()
-            if name in self.run_data:
-                datafunctions.apply_calculated_channels(
-                    self.run_data[name], name, self.CALCULATED_CHANNELS
-                )
-
-    def apply_filters(self):
-        """Apply Butterworth filtering to each run using shared settings."""
-        for run in self.runs:
-            name = run["name"].lower()
-            if name in self.run_data:
-                self.run_data[name] = datafunctions.apply_filters(
-                    self.run_data[name], self.FILTERS,
-                    self.FILTER_SAMPLE_RATE, name,
-                )
 
     def _ensure_preprocessed(self):
         """Guard against plotting before preprocessing has completed."""
@@ -964,19 +948,16 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         available = list(df.columns)
 
         def _similarity(name):
-            """Simple substring + prefix similarity score."""
             nl = name.lower()
             if target in nl or nl in target:
                 return 0.9
-            # Common-prefix length ratio
             prefix_len = 0
             for a, b in zip(nl, target):
                 if a == b:
                     prefix_len += 1
                 else:
                     break
-            max_len = max(len(nl), len(target), 1)
-            return prefix_len / max_len
+            return prefix_len / max(len(nl), len(target), 1)
 
         scored = [(col, _similarity(col)) for col in available]
         scored.sort(key=lambda x: x[1], reverse=True)
@@ -1120,11 +1101,31 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
             raise RuntimeError("Data must be loaded before preprocessing.")
 
         self._gated_data_cache.clear()
-        self.apply_channel_mappings()
-        self.apply_transformations()
-        self.clean_data()
-        self.apply_calculated_channels()
-        self.apply_filters()
+        for run in self.runs:
+            name = run["name"].lower()
+            if name not in self.run_data:
+                continue
+            source_type = run.get("type", name)
+            self.run_data[name] = datafunctions.apply_channel_mappings(
+                self.run_data[name], self.CHANNEL_MAPPINGS, source_type
+            )
+            self.run_data[name] = datafunctions.apply_transformations(
+                self.run_data[name], source_type, self.CHANNEL_TRANSFORMS
+            )
+
+        self._clean_data()
+
+        for run in self.runs:
+            name = run["name"].lower()
+            if name not in self.run_data:
+                continue
+            datafunctions.apply_calculated_channels(
+                self.run_data[name], name, self.CALCULATED_CHANNELS
+            )
+            self.run_data[name] = datafunctions.apply_filters(
+                self.run_data[name], self.FILTERS, self.FILTER_SAMPLE_RATE, name,
+            )
+
         self._preprocessed = True
         return self.run_data
 
@@ -1204,16 +1205,8 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         "lower center": ("center", "bottom"),
     }
 
-    def _score_legend_position(self, ax, loc_str):
-        """Score a legend position by data density — lower is better."""
-        corner = self._LOC_TO_CORNER.get(loc_str)
-        if corner is None:
-            return 0
-        halign, valign = corner
-        x0, x1 = ax.get_xlim()
-        y0, y1 = ax.get_ylim()
-
-        # Collect scatter data points (sampled for performance)
+    def _sample_ax_data(self, ax):
+        """Collect sampled (xs, ys) arrays from an axis's lines and collections."""
         xs, ys = [], []
         for coll in ax.collections:
             try:
@@ -1228,25 +1221,40 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
             step = max(1, len(xd) // 500)
             xs.extend(xd[::step])
             ys.extend(yd[::step])
+        return np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
 
-        if not xs:
+    def _count_points_in_region(self, xs, ys, x0, x1, y0, y1, halign, valign, w_frac=0.18, h_frac=0.20):
+        """Count sampled data points in a corner region of the axes."""
+        if xs.size == 0:
             return 0
-        xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
-
-        # Legend occupies ~18% width, ~20% height of axes
-        w = (x1 - x0) * 0.18
-        h = (y1 - y0) * 0.20
+        w = (x1 - x0) * w_frac
+        h = (y1 - y0) * h_frac
         xa = 0.97 if halign == "right" else (0.50 if halign == "center" else 0.03)
-        ya = 0.97 if valign == "top" else 0.03
-
+        ya = 0.97 if valign == "top" else (0.50 if valign == "center" else 0.03)
         x_abs = x0 + xa * (x1 - x0)
         x_min = x_abs if halign == "left" else (x_abs - w if halign == "right" else x_abs - w / 2)
         x_max = x_min + w
         y_abs = y0 + ya * (y1 - y0)
-        y_min = y_abs - h if valign == "top" else y_abs
-        y_max = y_min + h
-
+        if valign == "top":
+            y_min, y_max = y_abs - h, y_abs
+        elif valign == "bottom":
+            y_min, y_max = y_abs, y_abs + h
+        else:
+            y_min, y_max = y_abs - h / 2, y_abs + h / 2
         return int(((xs >= x_min) & (xs <= x_max) & (ys >= y_min) & (ys <= y_max)).sum())
+
+    def _score_legend_position(self, ax, loc_str):
+        """Score a legend position by data density — lower is better."""
+        corner = self._LOC_TO_CORNER.get(loc_str)
+        if corner is None:
+            return 0
+        halign, valign = corner
+        xs, ys = self._sample_ax_data(ax)
+        if xs.size == 0:
+            return 0
+        x0, x1 = ax.get_xlim()
+        y0, y1 = ax.get_ylim()
+        return self._count_points_in_region(xs, ys, x0, x1, y0, y1, halign, valign)
 
     def _add_standard_legend(self, ax, handles=None, labels=None, loc="best",
                               bbox_to_anchor=None, ncol=1, avoid_corner=None):
@@ -1285,18 +1293,32 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         self._colorize_legend_labels(legend)
         return legend
 
-    def _add_waveform_figure_legend(self, fig, handles, labels):
-        """Place waveform legend above subplots to avoid covering trace data."""
+    def _add_waveform_figure_legend(self, fig, handles, labels, position="top"):
+        """Place waveform legend above (default) or to the right of subplots.
+
+        position: 'top' (legend across the top, multi-column) or 'right'
+            (vertical legend to the right of the plot area).
+        """
         if not handles:
             return None
-        legend = fig.legend(
-            handles, labels,
-            loc="upper center", bbox_to_anchor=(0.5, 1.0),
-            ncol=max(1, min(len(handles), 5)),
-            fancybox=True, framealpha=0.92, edgecolor="#3C3C3C",
-            borderpad=0.3, handlelength=1.8,
-            prop={"family": self.PLOT_FONT["family"], "weight": "bold", "size": self.PLOT_FONT["legend_size"]},
-        )
+        if position == "right":
+            legend = fig.legend(
+                handles, labels,
+                loc="center right", bbox_to_anchor=(1.0, 0.5),
+                ncol=1,
+                fancybox=True, framealpha=0.92, edgecolor="#3C3C3C",
+                borderpad=0.4, handlelength=1.8,
+                prop={"family": self.PLOT_FONT["family"], "weight": "bold", "size": self.PLOT_FONT["legend_size"]},
+            )
+        else:
+            legend = fig.legend(
+                handles, labels,
+                loc="upper center", bbox_to_anchor=(0.5, 1.0),
+                ncol=max(1, min(len(handles), 5)),
+                fancybox=True, framealpha=0.92, edgecolor="#3C3C3C",
+                borderpad=0.3, handlelength=1.8,
+                prop={"family": self.PLOT_FONT["family"], "weight": "bold", "size": self.PLOT_FONT["legend_size"]},
+            )
         legend.get_frame().set_linewidth(1.4)
         legend.set_zorder(10)
         self._colorize_legend_labels(legend)
@@ -1336,45 +1358,13 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         candidates = free if free else all_positions
 
         # --- Step 2: pick the least data-dense corner (sampled) ----------------
+        xs, ys = self._sample_ax_data(ax)
         x0, x1 = ax.get_xlim()
         y0, y1 = ax.get_ylim()
-        xs, ys = [], []
-        for line in ax.lines:
-            xd, yd = line.get_xdata(), line.get_ydata()
-            # Sample every Nth point for performance on large datasets
-            step = max(1, len(xd) // 500)
-            xs.extend(xd[::step])
-            ys.extend(yd[::step])
-        for coll in ax.collections:
-            try:
-                offsets = coll.get_offsets()
-                step = max(1, len(offsets) // 500)
-                xs.extend(offsets[::step, 0])
-                ys.extend(offsets[::step, 1])
-            except Exception:
-                pass
-        xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
 
         def _data_density(c):
-            cx, cy, hal, val = c
-            w = (x1 - x0) * 0.22
-            h = (y1 - y0) * 0.28
-            x_abs = x0 + cx * (x1 - x0)
-            x_min = x_abs if hal == "left" else (x_abs - w if hal == "right" else x_abs - w / 2)
-            x_max = x_min + w
-            y_abs = y0 + cy * (y1 - y0)
-            if val == "top":
-                y_min = y_abs - h
-                y_max = y_abs
-            elif val == "bottom":
-                y_min = y_abs
-                y_max = y_abs + h
-            else:  # center (mid-edge)
-                y_min = y_abs - h / 2
-                y_max = y_abs + h / 2
-            if xs.size == 0:
-                return 0
-            return int(((xs >= x_min) & (xs <= x_max) & (ys >= y_min) & (ys <= y_max)).sum())
+            _, _, hal, val = c
+            return self._count_points_in_region(xs, ys, x0, x1, y0, y1, hal, val, 0.22, 0.28)
 
         chosen = min(candidates, key=_data_density)
 
