@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import traceback
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
 from zipfile import ZipFile

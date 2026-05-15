@@ -6,8 +6,6 @@ from plot_runtime import (
     WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot, BarPlot, BoxPlot,
 )
 
-ROOT_FOLDER = None  # auto-resolved by workflow_config("correlation")
-
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 # name:  display label used in plots and reports
 # file:  path relative to ROOT_FOLDER (Data/inputs/correlation/)

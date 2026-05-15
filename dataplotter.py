@@ -22,10 +22,7 @@ from plot_generators_scatter import ScatterMixin
 from plot_generators_misc import PsdHistMixin
 from plot_generators_bar_box import BarBoxMixin
 
-try:
-    from tqdm import tqdm as _tqdm_bar
-except ImportError:
-    _tqdm_bar = None
+
 
 
 # ---------------------------------------------------------------------------
@@ -1057,19 +1054,6 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         filtered = datafunctions.apply_gate_to_dataframe(df, gate_spec)
         self._gated_data_cache[cache_key] = filtered
         return filtered
-
-    def run_data_quality_checks(self):
-        """Run lightweight checks and write a report before plotting."""
-        sections = build_quality_sections(
-            runs=self.runs, run_data=self.run_data, plot_definitions=self.PLOT_DEFINITIONS,
-        )
-        total_items = sum(len(v) for _, v in sections)
-        if total_items:
-            print(f"[WARNING][DataPlotter] Data-quality preflight found {total_items} issue(s).")
-        else:
-            print("[INFO][DataPlotter] Data-quality preflight found no issues.")
-        report_path = write_data_quality_report(self.plots_dir, sections)
-        print(f"[INFO][DataPlotter] Wrote data quality report: {report_path}")
 
     # ------------------------------------------------------------------
     # Pipeline

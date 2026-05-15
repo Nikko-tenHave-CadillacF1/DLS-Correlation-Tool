@@ -3,8 +3,6 @@
 from plot_runtime import build_plot_groups, workflow_config, run_from_config, parse_plot_cli
 from plot_runtime import BoxPlot
 
-ROOT_FOLDER = None  # auto-resolved by workflow_config("boxplots")
-
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 
 RUNS = [
