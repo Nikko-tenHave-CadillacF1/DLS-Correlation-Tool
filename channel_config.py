@@ -248,31 +248,37 @@ DAMPER_CALCULATED = {
 # Optional "type" key: "low" (default), "high", or "bandpass".
 # For bandpass, cutoff is a two-element list [low_hz, high_hz].
 
-CORRELATION_FILTERS = {
+# Base filter settings shared across workflows. Override per-workflow below.
+_BASE_FILTERS = {
     "gVertF":        {"cutoff": 0,  "order": 2},
     "gVertR":        {"cutoff": 0,  "order": 2},
     "gVert":         {"cutoff": 0,  "order": 2},
-    "FzPlankF":      {"cutoff": 0,  "order": 2},
     "PMGUK":         {"cutoff": 0,  "order": 2},
     "SM":            {"cutoff": 0,  "order": 2},
     "NGear":         {"cutoff": 0,  "order": 2},
     "nEngine":       {"cutoff": 0,  "order": 2},
+    "rThrottle":     {"cutoff": 0,  "order": 2},
+    "vCar":          {"cutoff": 0,  "order": 2},
+    "dmInjector":    {"cutoff": 0,  "order": 2},
+}
+
+CORRELATION_FILTERS = {
+    **_BASE_FILTERS,
+    "FzPlankF":      {"cutoff": 0,  "order": 2},
     "nWheelAvg_R":   {"cutoff": 0,  "order": 2},
     "EPlank_F":      {"cutoff": 0,  "order": 2},
     "PPlank_F":      {"cutoff": 0,  "order": 2},
-    "rThrottle":     {"cutoff": 0,  "order": 2},
     "gLong (raw)":   {"cutoff": 0,  "order": 2},
     "hRideF (raw)":  {"cutoff": 0,  "order": 2},
     "hRideR (raw)":  {"cutoff": 0,  "order": 2},
     "hRideF (high)": {"cutoff": 0.5,  "order": 4, "type": "high"},
     "hRideR (high)": {"cutoff": 0.5,  "order": 4, "type": "high"},
-    "dmInjector":    {"cutoff": 0,  "order": 2},
     "PPUTotal":      {"cutoff": 0,  "order": 2},
-    "vCar":          {"cutoff": 0,  "order": 2},
     "all":           {"cutoff": 5,  "order": 2},
 }
 
 BOXPLOT_FILTERS = {
+    **_BASE_FILTERS,
     "rLambdaL":    {"cutoff": 5, "order": 2},
     "rLambdaR":    {"cutoff": 5, "order": 2},
     "rLambda_avg": {"cutoff": 3, "order": 2},
@@ -285,6 +291,7 @@ BOXPLOT_FILTERS = {
 }
 
 DAMPER_FILTERS = {
+    **_BASE_FILTERS,
     "CosPhi": {"cutoff": 3,  "order": 3},
     "rLLTD":  {"cutoff": 10, "order": 2},
     "gVert":  {"cutoff": 30, "order": 2},

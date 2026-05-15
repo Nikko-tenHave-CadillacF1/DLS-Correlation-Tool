@@ -6,6 +6,16 @@ from scipy.stats import linregress
 from scipy.signal import butter, filtfilt, welch
 from matplotlib import patheffects as pe
 
+# Shared progress bar wrapper — import in generators as: from datafunctions import _tqdm
+try:
+    from tqdm import tqdm as _tqdm_raw
+    def _tqdm(it, **kw):
+        import sys
+        return _tqdm_raw(it, file=sys.stderr, dynamic_ncols=True, **kw)
+except ImportError:
+    def _tqdm(iterable, **kwargs):
+        return iterable
+
 
 def _fmt_g(v, sig=3):
     """Format v to `sig` significant figures, using compact fixed-point when possible."""
@@ -316,10 +326,6 @@ def apply_filters(df: pd.DataFrame, filters, sample_rate: float, source_type: st
         #print(f" Applied filters: {', '.join(applied)}")
 
     return df
-
-
-# Backward-compatible alias
-apply_lowpass_filters = apply_filters
 
 
 # ================================================================

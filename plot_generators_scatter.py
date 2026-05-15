@@ -4,13 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import datafunctions
-
-try:
-    from tqdm import tqdm as _tqdm_raw
-    def _tqdm(it, **kw): return _tqdm_raw(it, file=__import__('sys').stderr, dynamic_ncols=True, **kw)
-except ImportError:
-    def _tqdm(iterable, **kwargs):
-        return iterable
+from datafunctions import _tqdm
 
 
 def _resolve_scatter_style(point_count, base_size, base_alpha):
@@ -543,68 +537,45 @@ class ScatterMixin:
 
         plot_iter = plots if self.verbose else _tqdm(plots, desc="Scatter", unit="plot", leave=True)
         for plot_def in plot_iter:
-            show_equations = True
-            show_error = True
-            gate_spec = None
-            color_gate = None
-            annotate_fit_at = None
+            # Unpack: ScatterPlot() always produces a 9-element list.
+            # Legacy 4-6 element definitions are still supported via padding.
+            _d = list(plot_def) + [None] * (9 - len(plot_def))
+            plot_name = _d[0]
+            (x_var, y_var) = _d[1]
+            axis_limits = _d[2]
+            best_fit = _d[3]
 
-            if len(plot_def) == 4:
-                plot_name, (x_var, y_var), axis_limits, best_fit = plot_def
-            elif len(plot_def) == 5:
-                plot_name, (x_var, y_var), axis_limits, best_fit, item5 = plot_def
-                if isinstance(item5, bool):
-                    show_equations = item5
-                elif datafunctions.is_gate_spec(item5):
-                    gate_spec = item5
-                else:
-                    raise ValueError(
-                        f"Scatter plot '{plot_name}': 5th item must be gate_spec or boolean."
-                    )
+            # Resolve gate/show_equations/show_error from positions 4-6
+            # (handles both legacy short formats and modern 9-element format)
+            if len(plot_def) >= 7:
+                gate_spec = _d[4]
+                show_equations = _d[5] if isinstance(_d[5], bool) else True
+                show_error = _d[6] if isinstance(_d[6], bool) else True
             elif len(plot_def) == 6:
-                plot_name, (x_var, y_var), axis_limits, best_fit, item5, item6 = plot_def
-                if isinstance(item6, bool):
-                    if isinstance(item5, bool):
-                        show_equations, show_error = item5, item6
-                    else:
-                        gate_spec = item5
-                        show_equations = item6
-                        if not datafunctions.is_gate_spec(gate_spec):
-                            raise ValueError(
-                                f"Scatter plot '{plot_name}': 5th item must be gate_spec when 6th is boolean."
-                            )
+                item5, item6 = _d[4], _d[5]
+                if isinstance(item6, bool) and isinstance(item5, bool):
+                    gate_spec, show_equations, show_error = None, item5, item6
+                elif isinstance(item6, bool):
+                    gate_spec, show_equations, show_error = item5, item6, True
                 elif isinstance(item5, bool):
-                    show_equations = item5
-                    gate_spec = item6
-                    if not datafunctions.is_gate_spec(gate_spec):
-                        raise ValueError(
-                            f"Scatter plot '{plot_name}': 6th item must be gate_spec when 5th is boolean."
-                        )
+                    gate_spec, show_equations, show_error = item6, item5, True
                 else:
-                    raise ValueError(
-                        f"Scatter plot '{plot_name}': 6-item format requires gate_spec + boolean, or two booleans."
-                    )
-            elif len(plot_def) >= 7:
-                plot_name, (x_var, y_var), axis_limits, best_fit, gate_spec, show_equations, show_error = plot_def[:7]
-                color_gate = plot_def[7] if len(plot_def) > 7 else None
-                annotate_fit_at = plot_def[8] if len(plot_def) > 8 else None
-                if gate_spec is not None and not datafunctions.is_gate_spec(gate_spec):
-                    raise ValueError(
-                        f"Scatter plot '{plot_name}': 5th item (gate_spec) must be a valid gate specification or None."
-                    )
-                if not isinstance(show_equations, bool) or not isinstance(show_error, bool):
-                    raise ValueError(
-                        f"Scatter plot '{plot_name}': 6th and 7th items must be booleans."
-                    )
+                    gate_spec, show_equations, show_error = None, True, True
+            elif len(plot_def) == 5:
+                item5 = _d[4]
+                if isinstance(item5, bool):
+                    gate_spec, show_equations, show_error = None, item5, True
+                elif datafunctions.is_gate_spec(item5):
+                    gate_spec, show_equations, show_error = item5, True, True
+                else:
+                    gate_spec, show_equations, show_error = None, True, True
             else:
-                raise ValueError(
-                    f"Scatter plot '{plot_def[0] if plot_def else 'unknown'}' must have 4–7 items."
-                )
+                gate_spec, show_equations, show_error = None, True, True
+
+            color_gate = _d[7]
+            annotate_fit_at = _d[8]
 
             if best_fit is None:
-                print(
-                    f"[WARNING][DataPlotter] Scatter '{plot_name}': best_fit=None → 0 (no fit)."
-                )
                 best_fit = 0
 
             if self.verbose:

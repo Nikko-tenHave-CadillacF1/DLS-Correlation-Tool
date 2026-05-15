@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import traceback
 import json
 from dataclasses import dataclass, field
@@ -16,8 +17,29 @@ from typing import Optional, Union
 from dataplotter import DataPlotter
 
 
-DEFAULT_FIG_SIZE = [(15.5, 6.4), (10, 8), (10, 8), (10, 8), (10, 6)]
+# Default figure sizes keyed by plot type for clarity.
+DEFAULT_FIG_SIZE = {
+    "waveform": (15.5, 6.4),
+    "scatter": (10, 8),
+    "psd": (10, 8),
+    "histogram": (10, 8),
+    "bar": (10, 6),
+}
 _ASPECT_RATIO_CACHE = {}
+
+
+def _fig_size_to_list(fig_size):
+    """Convert a dict-based fig_size to the legacy 5-element list format."""
+    if isinstance(fig_size, dict):
+        return [
+            fig_size.get("waveform", (15.5, 6.4)),
+            fig_size.get("scatter", (10, 8)),
+            fig_size.get("psd", (10, 8)),
+            fig_size.get("histogram", (10, 8)),
+            fig_size.get("bar", (10, 6)),
+        ]
+    # Already a list/tuple — pass through
+    return fig_size
 
 
 # ================================================================
@@ -39,7 +61,7 @@ class PlotJobConfig:
     calculated_channels: Optional[dict] = None
     filters: Optional[dict] = None
     units_map: Optional[dict] = None
-    fig_size: Optional[list] = None
+    fig_size: Optional[Union[list, dict]] = None
     scatter_max_points: int = 45000
     bar_secondary_axis_ratio: float = 20.0
     box_plot_settings: Optional[dict] = None
@@ -52,11 +74,59 @@ class PlotJobConfig:
     # PowerPoint
     powerpoint_template: Optional[Path] = None
     powerpoint_output: Optional[Path] = None
-    export_map: Optional[dict] = None
+    export_map: Optional[Union[dict, list]] = None
 
     # Output behaviour
     open_output: bool = True
     output_dpi: int = 200
+
+
+# ================================================================
+# POWERPOINT SLIDE HELPER
+# ================================================================
+
+def Slide(layout: str, *plot_refs: str) -> dict:
+    """Declarative slide definition for PowerPoint export.
+
+    Usage:
+        Slide("main_plot", "waveform/Driver Input")
+        Slide("double_plot", "scatter/Gear Ratios", "scatter/Engine Power")
+
+    plot_refs: 'type/Plot Name' — auto-converts to filename format.
+    """
+    images = [_plot_ref_to_filename(ref) for ref in plot_refs]
+    return {"layout": layout, "images": images}
+
+
+def _plot_ref_to_filename(ref: str) -> str:
+    """Convert 'type/Plot Name' to 'type_plot_name.png'."""
+    if "/" in ref:
+        prefix, name = ref.split("/", 1)
+    else:
+        # Assume it's already a filename
+        return ref if ref.endswith(".png") else f"{ref}.png"
+    safe = (
+        name.lower()
+        .replace(" ", "_")
+        .replace("(", "").replace(")", "")
+        .replace("/", "_").replace("\\", "_")
+    )
+    return f"{prefix.lower()}_{safe}.png"
+
+
+def _resolve_export_map(export_map, plot_definitions):
+    """Resolve export_map: if it's a list of Slide dicts, convert to numbered dict.
+
+    Accepts:
+      - dict (legacy format): {slide_num: {"layout": ..., "images": [...]}}
+      - list (new format): [Slide(...), Slide(...), ...] — auto-numbered starting at 1
+    Returns a dict in legacy format.
+    """
+    if export_map is None:
+        return None
+    if isinstance(export_map, list):
+        return {i + 1: slide for i, slide in enumerate(export_map)}
+    return export_map
 
 
 # ================================================================
@@ -144,9 +214,27 @@ def validate_export_map(plot_definitions: tuple, export_map: Optional[dict]) -> 
 def run_from_config(config: PlotJobConfig, cli_args=None):
     """Build a plotter from a PlotJobConfig and run the job.
 
-    cli_args: optional argparse.Namespace with .only / .types / .no_open
-              overrides from parse_plot_cli().
+    cli_args: optional argparse.Namespace with .only / .types / .no_open / .runs
+              / .dry_run / .list_plots / .check_only overrides from parse_plot_cli().
     """
+    # --- Resolve export map (list → dict) ---
+    resolved_export_map = _resolve_export_map(config.export_map, config.plot_definitions)
+
+    # --- Handle --list-plots (early exit) ---
+    if cli_args is not None and getattr(cli_args, "list_plots", False):
+        _print_plot_list(config.plot_definitions)
+        return
+
+    # --- Handle --runs filter ---
+    runs = config.runs
+    if cli_args is not None and getattr(cli_args, "runs", None):
+        requested = {r.lower() for r in cli_args.runs}
+        runs = [r for r in runs if r["name"].lower() in requested]
+        if not runs:
+            print(f"[ERROR] No runs matched: {cli_args.runs}")
+            print(f"  Available: {[r['name'] for r in config.runs]}")
+            raise SystemExit(1)
+
     # --- Pre-flight validation ---
     issues = validate_config(config)
     if issues:
@@ -155,12 +243,17 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
             print(f"  ✗ {issue}")
         raise SystemExit(1)
 
-    if config.export_map:
-        orphan_warnings = validate_export_map(config.plot_definitions, config.export_map)
+    if resolved_export_map:
+        orphan_warnings = validate_export_map(config.plot_definitions, resolved_export_map)
         if orphan_warnings:
             for line in orphan_warnings:
                 print(line)
             print()
+
+    # --- Handle --dry-run (early exit after validation) ---
+    if cli_args is not None and getattr(cli_args, "dry_run", False):
+        _print_dry_run(config, runs, resolved_export_map)
+        return
 
     plot_types = None
     plot_names = None
@@ -174,25 +267,37 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
         if getattr(cli_args, "no_open", False):
             open_output = False
 
+    # --- Resolve fig_size ---
+    fig_size = _fig_size_to_list(config.fig_size) if config.fig_size else None
+
     plotter = build_plotter(
         root_folder=config.root_folder,
-        runs=config.runs,
+        runs=runs,
         plot_definitions=config.plot_definitions,
         channel_mappings=config.channel_mappings,
         channel_transforms=config.channel_transforms,
         calculated_channels=config.calculated_channels,
         filters=config.filters,
         units_map=config.units_map,
-        fig_size=config.fig_size,
+        fig_size=fig_size,
         scatter_max_points=config.scatter_max_points,
         bar_secondary_axis_ratio=config.bar_secondary_axis_ratio,
         box_plot_settings=config.box_plot_settings,
         output_dir=config.output_dir,
         verbose=config.verbose,
         template_path=config.powerpoint_template,
-        export_map=config.export_map,
+        export_map=resolved_export_map,
         output_dpi=config.output_dpi,
     )
+
+    # --- Handle --check-only (data quality report only) ---
+    if cli_args is not None and getattr(cli_args, "check_only", False):
+        from dataplotter import build_quality_sections, write_data_quality_report
+        sections = build_quality_sections(runs, plotter.run_data, config.plot_definitions)
+        report_path = write_data_quality_report(plotter.plots_dir, sections)
+        _print_quality_summary(sections)
+        print(f"\nFull report: {report_path}")
+        return
 
     run_plot_job(
         title=config.title,
@@ -203,13 +308,13 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
         plot_names=plot_names,
         powerpoint_template=config.powerpoint_template,
         powerpoint_output=config.powerpoint_output,
-        export_map=config.export_map,
+        export_map=resolved_export_map,
         open_output=open_output,
     )
 
 
 def parse_plot_cli(description: str = "Run plotting job"):
-    """Minimal CLI parser for Run_*.py entry points."""
+    """CLI parser for Run_*.py entry points with filtering and diagnostic modes."""
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--only", nargs="+", metavar="NAME",
@@ -220,10 +325,85 @@ def parse_plot_cli(description: str = "Run plotting job"):
         help="Generate only these plot types (waveform, scatter, psd, histogram, bar, box).",
     )
     parser.add_argument(
+        "--runs", nargs="+", metavar="RUN",
+        help="Process only these runs by name (case-insensitive).",
+    )
+    parser.add_argument(
         "--no-open", action="store_true", default=False,
         help="Do not auto-open the output folder after completion.",
     )
+    parser.add_argument(
+        "--dry-run", action="store_true", default=False,
+        help="Preview what would be generated without running the pipeline.",
+    )
+    parser.add_argument(
+        "--list-plots", action="store_true", default=False,
+        help="Print all configured plot names and exit.",
+    )
+    parser.add_argument(
+        "--check-only", action="store_true", default=False,
+        help="Load data, run quality checks, and exit without generating plots.",
+    )
     return parser.parse_args()
+
+
+def _print_plot_list(plot_definitions):
+    """Print all configured plot names grouped by type."""
+    type_names = ["waveform", "scatter", "psd", "histogram", "bar", "box"]
+    print("\nConfigured Plots:")
+    print("-" * 50)
+    total = 0
+    for i, group in enumerate(plot_definitions or []):
+        if not group:
+            continue
+        label = type_names[i] if i < len(type_names) else f"group_{i}"
+        print(f"\n  {label.upper()} ({len(group)}):")
+        for plot_def in group:
+            print(f"    • {plot_def[0]}")
+            total += 1
+    print(f"\n  Total: {total} plot(s)")
+
+
+def _print_dry_run(config, runs, export_map):
+    """Print a summary of what would be generated."""
+    type_names = ["waveform", "scatter", "psd", "histogram", "bar", "box"]
+    print("\n" + "=" * 60)
+    print(f"{'DRY RUN':^60}")
+    print("=" * 60)
+
+    print(f"\n  Title:   {config.title}")
+    print(f"  Output:  {config.output_dir}")
+    print(f"\n  Runs ({len(runs)}):")
+    for run in runs:
+        print(f"    • {run['name']} ({run.get('type', '?')}) — {run.get('file', '?')}")
+
+    total = 0
+    print(f"\n  Plots:")
+    for i, group in enumerate(config.plot_definitions or []):
+        if not group:
+            continue
+        label = type_names[i] if i < len(type_names) else f"group_{i}"
+        print(f"    {label}: {len(group)}")
+        total += len(group)
+    print(f"    ─────────")
+    print(f"    total: {total}")
+
+    if config.powerpoint_template:
+        print(f"\n  PowerPoint: {config.powerpoint_output}")
+        if export_map:
+            print(f"    Slides mapped: {len(export_map)}")
+
+    print("\n" + "=" * 60 + "\n")
+
+
+def _print_quality_summary(sections):
+    """Print a brief summary of data quality findings."""
+    print("\n  Data Quality Summary:")
+    print("  " + "-" * 40)
+    for title, values in sections:
+        status = "✓" if not values else f"⚠ {len(values)}"
+        print(f"    {status}  {title}")
+    print()
 
 
 def build_plot_groups(
@@ -240,6 +420,78 @@ def build_plot_groups(
     All arguments are keyword-only; omitted slots default to [].
     """
     return tuple(group or [] for group in (waveforms, scatters, psds, histograms, bars, boxes))
+
+
+def workflow_config(
+    workflow: str,
+    *,
+    title: str,
+    runs: list,
+    plot_definitions: tuple,
+    powerpoint_template=None,
+    powerpoint_output=None,
+    export_map=None,
+    fig_size=None,
+    plot_method: str = "plot_data",
+    generate_message: str = "Generating plots...",
+    **overrides,
+) -> PlotJobConfig:
+    """Create a PlotJobConfig with workflow-specific defaults auto-resolved.
+
+    workflow: 'correlation' | 'boxplots' | 'dampers' — auto-selects input/output dirs,
+              calculated channels, and filters from channel_config.
+
+    Any PlotJobConfig field can be overridden via **overrides.
+    """
+    from channel_config import (
+        CHANNEL_MAPPINGS, UNITS_MAP, CHANNEL_TRANSFORMS,
+        SCATTER_MAX_POINTS, BAR_SECONDARY_AXIS_RATIO, BOX_PLOT_SETTINGS,
+    )
+
+    _WORKFLOW_MAP = {
+        "correlation": {
+            "module_attrs": ("CORRELATION_INPUT_DIR", "CORRELATION_OUTPUT_DIR",
+                             "CORRELATION_CALCULATED", "CORRELATION_FILTERS"),
+        },
+        "boxplots": {
+            "module_attrs": ("BOXPLOT_INPUT_DIR", "BOXPLOT_OUTPUT_DIR",
+                             "BOXPLOT_CALCULATED", "BOXPLOT_FILTERS"),
+        },
+        "dampers": {
+            "module_attrs": ("DAMPER_INPUT_DIR", "DAMPER_PLOTS_DIR",
+                             "DAMPER_CALCULATED", "DAMPER_FILTERS"),
+        },
+    }
+
+    wf = _WORKFLOW_MAP.get(workflow)
+    if wf is None:
+        raise ValueError(f"Unknown workflow '{workflow}'. Expected: {list(_WORKFLOW_MAP)}")
+
+    import channel_config as _cc
+    input_dir, output_dir, calc_attr, filt_attr = wf["module_attrs"]
+
+    return PlotJobConfig(
+        title=title,
+        root_folder=getattr(_cc, input_dir),
+        output_dir=getattr(_cc, output_dir),
+        runs=runs,
+        plot_definitions=plot_definitions,
+        channel_mappings=overrides.pop("channel_mappings", CHANNEL_MAPPINGS),
+        channel_transforms=overrides.pop("channel_transforms", CHANNEL_TRANSFORMS),
+        calculated_channels=overrides.pop("calculated_channels", getattr(_cc, calc_attr)),
+        filters=overrides.pop("filters", getattr(_cc, filt_attr)),
+        units_map=overrides.pop("units_map", UNITS_MAP),
+        scatter_max_points=overrides.pop("scatter_max_points", SCATTER_MAX_POINTS),
+        bar_secondary_axis_ratio=overrides.pop("bar_secondary_axis_ratio", BAR_SECONDARY_AXIS_RATIO),
+        box_plot_settings=overrides.pop("box_plot_settings", BOX_PLOT_SETTINGS),
+        fig_size=fig_size,
+        plot_method=plot_method,
+        generate_message=generate_message,
+        powerpoint_template=powerpoint_template,
+        powerpoint_output=powerpoint_output,
+        export_map=export_map,
+        **overrides,
+    )
 
 
 def build_plotter(
@@ -282,7 +534,7 @@ def build_plotter(
         channel_transforms=channel_transforms,
         calculated_channels=calculated_channels,
         filters=filters,
-        fig_size=fig_size or DEFAULT_FIG_SIZE,
+        fig_size=fig_size or _fig_size_to_list(DEFAULT_FIG_SIZE),
         units_map=units_map,
         plot_aspect_ratios=plot_aspect_ratios,
         scatter_max_points=scatter_max_points,
@@ -298,7 +550,7 @@ def run_plot_job(
     *,
     title,
     plotter,
-    plot_method="plot_all",
+    plot_method="plot_data",
     generate_message="Generating plots...",
     plot_types=None,
     plot_names=None,
@@ -314,6 +566,15 @@ def run_plot_job(
     print(f"{title:^80}")
     print("=" * 80 + "\n")
 
+    # --- Data quality report (before plotting) ---
+    from dataplotter import build_quality_sections, write_data_quality_report
+    sections = build_quality_sections(plotter.runs, plotter.run_data, plotter.PLOT_DEFINITIONS)
+    report_path = write_data_quality_report(plotter.plots_dir, sections)
+    has_issues = any(values for _, values in sections)
+    if has_issues:
+        _print_quality_summary(sections)
+        print(f"  Full report: {report_path}\n")
+
     # Snapshot existing PNG modification times to count new/updated plots
     pre_mtimes = {
         p: p.stat().st_mtime for p in plotter.plots_dir.glob("*.png")
@@ -321,7 +582,7 @@ def run_plot_job(
     t0 = _time.perf_counter()
 
     print(f"\n{generate_message}")
-    if (plot_types is not None or plot_names is not None) and plot_method in ("plot_all", "plot_data"):
+    if (plot_types is not None or plot_names is not None) and plot_method == "plot_data":
         plotter.plot_data(plot_types=plot_types, plot_names=plot_names)
     else:
         getattr(plotter, plot_method)()
@@ -453,12 +714,7 @@ def PsdPlot(
             raise ValueError("'channel' list must not be empty.")
     else:
         _require_str(channel, "channel")
-    definition = [name, channel, axis_limits, log_scale]
-    if nperseg is not None or annotate_at is not None:
-        definition.append(int(nperseg) if nperseg is not None else 512)
-    if annotate_at is not None:
-        definition.append(annotate_at)
-    return definition
+    return [name, channel, axis_limits, log_scale, int(nperseg) if nperseg is not None else None, annotate_at]
 
 
 # ---------------------------------------------------------------------------
@@ -527,12 +783,7 @@ def BoxPlot(
             f"BoxPlot '{name}': aggregation_mode must be 'per_run' or 'aggregated'. "
             f"Got: {aggregation_mode!r}"
         )
-    definition = [name, channels, aggregation_mode, axis_limits]
-    if gate is not None:
-        definition.append(gate)
-    if options is not None:
-        definition.append(options)
-    return definition
+    return [name, channels, aggregation_mode, axis_limits, gate, options]
 
 
 # ---------------------------------------------------------------------------

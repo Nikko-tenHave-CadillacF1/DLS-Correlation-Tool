@@ -1,17 +1,12 @@
 """Correlation workflow — edit RUNS and plot definitions to configure your analysis."""
 
-from channel_config import CORRELATION_INPUT_DIR as _INPUT_DIR, CORRELATION_OUTPUT_DIR, resolve_template_path
+from channel_config import CORRELATION_OUTPUT_DIR, resolve_template_path
 from plot_runtime import (
-    build_plot_groups, PlotJobConfig, run_from_config, parse_plot_cli,
+    build_plot_groups, workflow_config, run_from_config, parse_plot_cli, Slide,
     WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot, BarPlot, BoxPlot,
 )
-from channel_config import (
-    CHANNEL_MAPPINGS, UNITS_MAP, CHANNEL_TRANSFORMS,
-    CORRELATION_CALCULATED, CORRELATION_FILTERS,
-    SCATTER_MAX_POINTS, BAR_SECONDARY_AXIS_RATIO,
-)
 
-ROOT_FOLDER = _INPUT_DIR
+ROOT_FOLDER = None  # auto-resolved by workflow_config("correlation")
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 # name:  display label used in plots and reports
@@ -24,26 +19,20 @@ ROOT_FOLDER = _INPUT_DIR
 RUNS = [
     # {"name": "v37", "file": "...", "color": "#0051FF", "nrun": 1, "type": "OC"},
     {
-        "name": "CAR",
-        "file": r"26R04MIA_260502_MAC26-02_BOT_Q_R03.txt",
-        "color": "#D86100",
-        # "nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
-        "type": "CAR",
+        "name": "DRY",
+        "file": r"VPG Baselines  MTL  26R05MTL v2b - No FARB_-DRY_LTS_Iteration_3.parquet",
+        "color": "#D80000",
+        "nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
+        "type": "DLS",
+    },
+    {
+        "name": "WET",
+        "file": r"VPG Baselines  MTL  26R05MTL v2b - No FARB_-WETv2_LTS_Iteration_3.parquet",
+        "color": "#0051FF",
+        "nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
+        "type": "DLS",
     },  
-    {
-        "name": "OC - 0.85 mu",
-        "file": r"20260512-OC-VPG - 26R04MIA - Post Event Cor- v1-MIA - 0p85 MU.parquet",
-        "color": "#00C74C",
-        # "nlap": 1, #OC uses nrun, DLS uses nLap
-        "type": "OC",
-    },
-    {
-        "name": "OC - 0.95 mu",
-        "file": r"20260512-OC-VPG - 26R04MIA - Post Event Cor- v1-MIA - 0p95 MU.parquet",
-        "color": "#9300A1",
-        # "nlap": 1, #OC uses nrun, DLS uses nLap
-        "type": "OC",
-    },
+
 ]
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
@@ -238,30 +227,31 @@ BAR_PLOT_DEFINITIONS = [
 BOX_PLOT_DEFINITIONS = []
 
 # ─── POWERPOINT EXPORT MAP ────────────────────────────────────────────────────
-# Maps slide numbers to generated plot images.
+# Maps slides to generated plot images using Slide() helper.
 # Layouts: "main_plot" (full-width) | "double_plot" (two side-by-side images)
+# Reference format: "type/Plot Name" — auto-converts to filename.
 
-POWERPOINT_EXPORT_MAP = {
-    4:  {"layout": "main_plot",   "images": ["waveform_driver_input.png"]},
-    5:  {"layout": "main_plot",   "images": ["waveform_power_unit.png"]},
-    6:  {"layout": "double_plot", "images": ["scatter_gear_ratios.png",              "scatter_engine_power.png"]},
-    7:  {"layout": "double_plot", "images": ["bar_cumulative_metrics.png",           "scatter_engine_efficiency.png"]},
-    8:  {"layout": "double_plot", "images": ["scatter_long_acceleration.png",        "scatter_lat_acceleration.png"]},
-    9:  {"layout": "double_plot", "images": ["scatter_gg_plot.png",                  "scatter_understeer_plot.png"]},
-    10: {"layout": "double_plot", "images": ["scatter_yaw_rate_response.png",        "scatter_lateral_acceleration_response.png"]},
-    11: {"layout": "double_plot", "images": ["scatter_braking_efficiency.png",       "scatter_steering_moment.png"]},
-    12: {"layout": "double_plot", "images": ["scatter_damper_glat_front.png",        "scatter_damper_glat_rear.png"]},
-    13: {"layout": "double_plot", "images": ["scatter_pushrod_glat_front.png",       "scatter_pushrod_glat_rear.png"]},
-    14: {"layout": "double_plot", "images": ["scatter_front_heave.png",              "scatter_rear_heave.png"]},
-    15: {"layout": "double_plot", "images": ["scatter_front_roll.png",               "scatter_rear_roll.png"]},
-    16: {"layout": "double_plot", "images": ["scatter_front_pushrod_vcar.png",       "scatter_rear_pushrod_vcar.png"]},
-    17: {"layout": "double_plot", "images": ["scatter_front_ride_vcar.png",          "scatter_rear_ride_vcar.png"]},
-    18: {"layout": "double_plot", "images": ["scatter_ride_height_compare.png",      "scatter_roll_angle_glat.png"]},
-    19: {"layout": "double_plot", "images": ["psd_front_vertical_acceleration_psd.png", "psd_rear_vertical_acceleration_psd.png"]},
-    20: {"layout": "double_plot", "images": ["psd_front_ride_psd.png",               "psd_rear_ride_psd.png"]},
-    21: {"layout": "main_plot",   "images": ["waveform_plank_wear.png"]},
-    22: {"layout": "double_plot", "images": ["scatter_plank_power_acceleration.png", "histogram_plank_power_distribution.png"]},
-}
+POWERPOINT_EXPORT_MAP = [
+    Slide("main_plot",   "waveform/Driver Input"),
+    Slide("main_plot",   "waveform/Power Unit"),
+    Slide("double_plot", "scatter/Gear Ratios",              "scatter/Engine Power"),
+    Slide("double_plot", "bar/Cumulative Metrics",           "scatter/Engine Efficiency"),
+    Slide("double_plot", "scatter/Long Acceleration",        "scatter/Lat Acceleration"),
+    Slide("double_plot", "scatter/GG Plot",                  "scatter/Understeer Plot"),
+    Slide("double_plot", "scatter/Yaw Rate Response",        "scatter/Lateral Acceleration Response"),
+    Slide("double_plot", "scatter/Braking Efficiency",       "scatter/Steering Moment"),
+    Slide("double_plot", "scatter/Damper gLat front",        "scatter/Damper gLat rear"),
+    Slide("double_plot", "scatter/Pushrod gLat front",       "scatter/Pushrod gLat rear"),
+    Slide("double_plot", "scatter/Front Heave",              "scatter/Rear Heave"),
+    Slide("double_plot", "scatter/Front Roll",               "scatter/Rear Roll"),
+    Slide("double_plot", "scatter/Front Pushrod vCar",       "scatter/Rear Pushrod vCar"),
+    Slide("double_plot", "scatter/Front Ride vCar",          "scatter/Rear Ride vCar"),
+    Slide("double_plot", "scatter/Ride Height Compare",      "scatter/Roll angle gLat"),
+    Slide("double_plot", "psd/Front Vertical Acceleration PSD", "psd/Rear Vertical Acceleration PSD"),
+    Slide("double_plot", "psd/Front Ride PSD",               "psd/Rear Ride PSD"),
+    Slide("main_plot",   "waveform/Plank Wear"),
+    Slide("double_plot", "scatter/Plank power acceleration", "histogram/Plank Power Distribution"),
+]
 
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -275,19 +265,11 @@ PLOT_DEFINITIONS = build_plot_groups(
 )
 
 if __name__ == "__main__":
-    _cfg = PlotJobConfig(
+    _cfg = workflow_config(
+        "correlation",
         title="CORRELATION PLOT GENERATION",
-        root_folder=ROOT_FOLDER,
-        output_dir=CORRELATION_OUTPUT_DIR,
         runs=RUNS,
         plot_definitions=PLOT_DEFINITIONS,
-        channel_mappings=CHANNEL_MAPPINGS,
-        channel_transforms=CHANNEL_TRANSFORMS,
-        calculated_channels=CORRELATION_CALCULATED,
-        filters=CORRELATION_FILTERS,
-        units_map=UNITS_MAP,
-        scatter_max_points=SCATTER_MAX_POINTS,
-        bar_secondary_axis_ratio=BAR_SECONDARY_AXIS_RATIO,
         powerpoint_template=POWERPOINT_TEMPLATE if EXPORT_TO_POWERPOINT else None,
         powerpoint_output=POWERPOINT_OUTPUT if EXPORT_TO_POWERPOINT else None,
         export_map=POWERPOINT_EXPORT_MAP if EXPORT_TO_POWERPOINT else None,

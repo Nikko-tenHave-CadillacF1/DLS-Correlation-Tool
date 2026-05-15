@@ -487,19 +487,17 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
                         if len(plot_def) >= 2:
                             _extract_channels(plot_def[1])
 
+                    # Scatter: fit conditions at [3], gate at [4]
                     if group_idx == 1:
                         if len(plot_def) >= 4:
                             fit_chs = datafunctions.collect_multi_fit_condition_channels(plot_def[3])
                             required_channels.update(fit_chs)
 
-                        gate_spec = None
-                        if len(plot_def) == 5:
-                            gate_spec = plot_def[4]
-                        elif len(plot_def) >= 6:
-                            gate_spec = plot_def[5]
+                        gate_spec = plot_def[4] if len(plot_def) >= 5 else None
                         if datafunctions.is_gate_spec(gate_spec):
                             required_channels.update(datafunctions.collect_gate_channels(gate_spec))
 
+                    # Box: gate at [4]
                     elif group_idx == 5:
                         gate_spec = plot_def[4] if len(plot_def) >= 5 else None
                         if datafunctions.is_gate_spec(gate_spec):
@@ -1143,7 +1141,6 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         self.clean_data()
         self.apply_calculated_channels()
         self.apply_filters()
-        self.run_data_quality_checks()
         self._preprocessed = True
         return self.run_data
 
@@ -1458,6 +1455,3 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
 
         print(f"\nAll plots saved to: {self.plots_dir}")
 
-    def plot_all(self):
-        """Backward-compatible alias for plot_data()."""
-        self.plot_data()

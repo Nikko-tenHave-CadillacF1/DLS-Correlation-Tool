@@ -5,13 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import datafunctions
-
-try:
-    from tqdm import tqdm as _tqdm_raw
-    def _tqdm(it, **kw): return _tqdm_raw(it, file=__import__('sys').stderr, dynamic_ncols=True, **kw)
-except ImportError:
-    def _tqdm(iterable, **kwargs):
-        return iterable
+from datafunctions import _tqdm
 
 
 class BarBoxMixin:
@@ -30,11 +24,12 @@ class BarBoxMixin:
 
         plot_iter = plots if self.verbose else _tqdm(plots, desc="Bar", unit="plot", leave=True)
         for plot_def in plot_iter:
-            plot_name = plot_def[0]
-            metric_specs_raw = plot_def[1] if len(plot_def) > 1 else ()
-            default_agg = plot_def[2] if len(plot_def) > 2 and isinstance(plot_def[2], str) else "last"
-            axis_limits = plot_def[3] if len(plot_def) > 3 else None
-            target_line = plot_def[4] if len(plot_def) > 4 else None
+            _d = list(plot_def) + [None] * (5 - len(plot_def))
+            plot_name = _d[0]
+            metric_specs_raw = _d[1] or ()
+            default_agg = _d[2] if isinstance(_d[2], str) else "last"
+            axis_limits = _d[3]
+            target_line = _d[4]
 
             metric_specs = datafunctions.normalize_bar_metric_specs(
                 metric_specs_raw, default_aggregation=default_agg
@@ -241,30 +236,20 @@ class BarBoxMixin:
         if not isinstance(plot_def, (list, tuple)) or len(plot_def) < 4:
             raise ValueError("Box plot definitions must have at least 4 items.")
 
-        plot_name = plot_def[0]
-        channels = plot_def[1]
-        aggregation_mode = plot_def[2] if len(plot_def) > 2 else "per_run"
-        axis_limits = plot_def[3] if len(plot_def) > 3 else None
-        gate_spec = None
-        options = {}
+        _d = list(plot_def) + [None] * (6 - len(plot_def))
+        plot_name = _d[0]
+        channels = _d[1]
+        aggregation_mode = _d[2] if _d[2] is not None else "per_run"
+        axis_limits = _d[3]
+        gate_spec = _d[4] if datafunctions.is_gate_spec(_d[4]) else None
+        options = _d[5] if isinstance(_d[5], dict) else {}
 
-        if len(plot_def) > 4:
-            item5 = plot_def[4]
-            item6 = plot_def[5] if len(plot_def) > 5 else None
-
-            if datafunctions.is_gate_spec(item5):
-                gate_spec = item5
-                if isinstance(item6, dict):
-                    options = item6
-            elif isinstance(item5, dict):
-                options = item5
-                if datafunctions.is_gate_spec(item6):
-                    gate_spec = item6
-            elif item5 is None:
-                if datafunctions.is_gate_spec(item6):
-                    gate_spec = item6
-                elif isinstance(item6, dict):
-                    options = item6
+        # Legacy: gate/options could be swapped
+        if gate_spec is None and datafunctions.is_gate_spec(_d[5]):
+            gate_spec = _d[5]
+            options = {}
+        if not options and isinstance(_d[4], dict):
+            options = _d[4]
 
         if channels is None:
             channels = []
@@ -273,7 +258,7 @@ class BarBoxMixin:
         else:
             channels = list(channels)
 
-        return plot_name, channels, aggregation_mode, axis_limits, gate_spec, options or {}
+        return plot_name, channels, aggregation_mode, axis_limits, gate_spec, options
 
     def _collect_boxplot_point_series_from_data(self, channel, filtered_run_data):
         """Collect per-run point series using prefiltered run data."""
