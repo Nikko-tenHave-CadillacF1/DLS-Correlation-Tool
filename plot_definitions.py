@@ -1,0 +1,443 @@
+"""Typed plot definitions.
+
+Each plot type is a frozen-ish dataclass with ``__post_init__`` validation
+so configuration errors are surfaced immediately at workflow startup rather
+than deep inside matplotlib. Field semantics are documented inline.
+
+Backward compatibility: the old ``WaveformPlot(...)`` etc. callables are
+preserved by exposing the dataclasses under the same names from
+``plot_runtime``.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, ClassVar, List, Optional, Sequence, Tuple, Union
+
+# --- Allowed value sets -------------------------------------------------------
+
+_VALID_BAR_AGGS = {
+    "integral", "abs_integral", "sum", "abs_sum",
+    "mean", "median", "max", "min", "first", "last",
+}
+_VALID_BOX_MODES = {"per_run", "aggregated"}
+_VALID_GATE_OPS = {">", "<", ">=", "<=", "==", "!=", "between", "outside", "robust"}
+_VALID_LEGEND_POS = {"top", "right"}
+_VALID_HEATMAP_AGGS = {"mean", "median", "std", "count", "sum", "max", "min"}
+
+
+# --- Validation helpers -------------------------------------------------------
+
+
+def _require_str(value: Any, where: str, allow_blank: bool = False) -> None:
+    if not isinstance(value, str) or (not allow_blank and not value.strip()):
+        raise TypeError(f"{where}: expected non-empty string, got {value!r}.")
+
+
+def _require_nonempty(value: Any, where: str) -> None:
+    if not value:
+        raise ValueError(f"{where}: must not be empty (got {value!r}).")
+
+
+def _validate_gate(value: Any, where: str) -> None:
+    """Accept None, a single 3-tuple gate, or a list/tuple of 3-tuple gates."""
+    if value is None:
+        return
+    if not isinstance(value, (list, tuple)):
+        raise TypeError(f"{where}: gate must be a tuple or list of tuples.")
+    # Single condition
+    if len(value) == 3 and isinstance(value[0], str):
+        _validate_one_gate(value, where)
+        return
+    # List of conditions
+    for i, cond in enumerate(value):
+        if not isinstance(cond, (list, tuple)) or len(cond) != 3 or not isinstance(cond[0], str):
+            raise TypeError(
+                f"{where}: condition #{i} must be (channel, operator, value); got {cond!r}."
+            )
+        _validate_one_gate(cond, f"{where} cond#{i}")
+
+
+def _validate_one_gate(cond: Sequence[Any], where: str) -> None:
+    _, op, _ = cond
+    if op not in _VALID_GATE_OPS:
+        raise ValueError(
+            f"{where}: unknown gate operator {op!r}. "
+            f"Expected one of {sorted(_VALID_GATE_OPS)}."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Markers (generalised annotation primitive — used across plot types)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Marker:
+    """A vertical reference at a specific x-value on any plot.
+
+    Used by WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot, HeatmapPlot.
+
+    x:          x-axis value where the marker is drawn.
+    label:      optional text label shown near the marker.
+    color:      hex colour; defaults to dark grey.
+    linestyle:  matplotlib linestyle (default dashed).
+    row:        for waveforms only — row index to limit the marker to;
+                None = draw on every row.
+    """
+
+    x: float
+    label: Optional[str] = None
+    color: str = "#5E5E5E"
+    linestyle: str = "--"
+    row: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        try:
+            self.x = float(self.x)
+        except (TypeError, ValueError) as exc:
+            raise TypeError(f"Marker.x must be numeric, got {self.x!r}.") from exc
+        if self.label is not None and not isinstance(self.label, str):
+            raise TypeError(f"Marker.label must be str or None, got {self.label!r}.")
+
+
+def _coerce_markers(value: Any, where: str) -> List[Marker]:
+    """Accept None, a single Marker, a dict, a tuple/list of any of those."""
+    if value is None:
+        return []
+    if isinstance(value, Marker):
+        return [value]
+    if isinstance(value, dict):
+        return [Marker(**value)]
+    if isinstance(value, (list, tuple)):
+        out: List[Marker] = []
+        for i, item in enumerate(value):
+            if isinstance(item, Marker):
+                out.append(item)
+            elif isinstance(item, dict):
+                out.append(Marker(**item))
+            elif isinstance(item, (int, float)):
+                out.append(Marker(x=float(item)))
+            else:
+                raise TypeError(
+                    f"{where}: marker #{i} must be a Marker, dict, or number; got {item!r}."
+                )
+        return out
+    raise TypeError(f"{where}: markers must be None, Marker, dict, or list. Got {value!r}.")
+
+
+# ---------------------------------------------------------------------------
+# Waveform
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class WaveformPlot:
+    """Stacked time/distance traces, one subplot row per channel.
+
+    Channel rows may be a single 'ch' or a ('left', 'right') overlay.
+    """
+
+    name: str
+    channels: Tuple[Any, ...]
+    axis_limits: Optional[Tuple[Any, ...]] = None
+    reference_lines: Optional[Tuple[Any, ...]] = None
+    subplot_heights: Optional[Tuple[float, ...]] = None
+    x_limits: Optional[Tuple[Optional[float], Optional[float]]] = None
+    x_channel: str = "sLap"
+    highlight_zones: Any = None
+    normalise: bool = False
+    legend_position: str = "top"
+    show_delta: bool = False
+    markers: List[Marker] = field(default_factory=list)
+
+    kind: ClassVar[str] = "waveform"
+
+    def __post_init__(self) -> None:
+        where = f"WaveformPlot {self.name!r}"
+        _require_str(self.name, "WaveformPlot.name")
+        _require_nonempty(self.channels, f"{where}.channels")
+        if not isinstance(self.channels, (list, tuple)):
+            raise TypeError(f"{where}.channels must be tuple/list.")
+        if self.legend_position not in _VALID_LEGEND_POS:
+            raise ValueError(
+                f"{where}.legend_position must be one of {sorted(_VALID_LEGEND_POS)}."
+            )
+        # Per-row length consistency — catches the classic mismatch foot-gun.
+        n = len(self.channels)
+        for attr in ("axis_limits", "reference_lines", "subplot_heights"):
+            value = getattr(self, attr)
+            if value is not None and len(value) != n:
+                raise ValueError(
+                    f"{where}.{attr} has length {len(value)} but channels has {n}."
+                )
+        if not isinstance(self.x_channel, str) or not self.x_channel.strip():
+            raise TypeError(f"{where}.x_channel must be a non-empty string.")
+        self.markers = _coerce_markers(self.markers, f"{where}.markers")
+        self.show_delta = bool(self.show_delta)
+        self.normalise = bool(self.normalise)
+
+
+# ---------------------------------------------------------------------------
+# Scatter
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ScatterPlot:
+    """XY correlation plot with optional segmented fits and outlier handling."""
+
+    name: str
+    x_channel: str
+    y_channel: str
+    axis_limits: Optional[List[Tuple[Optional[float], Optional[float]]]] = None
+    best_fit: Union[int, List[Tuple[str, Optional[float], Optional[float]]], None] = 0
+    gate: Any = None
+    show_equations: bool = True
+    show_error: bool = True
+    color_gate: Any = None
+    annotate_fit_at: Any = None
+    markers: List[Marker] = field(default_factory=list)
+    # Robust mode (#18): Theil-Sen regression instead of OLS, plus MAD-based
+    # outlier rejection on the fit. Outliers are still plotted but as a faint
+    # grey 'x' overlay so engineers can see what was excluded.
+    robust: bool = False
+    # Multiples of MAD used as outlier threshold during robust fitting.
+    robust_threshold: float = 3.0
+
+    kind: ClassVar[str] = "scatter"
+
+    def __post_init__(self) -> None:
+        where = f"ScatterPlot {self.name!r}"
+        _require_str(self.name, "ScatterPlot.name")
+        _require_str(self.x_channel, f"{where}.x_channel")
+        _require_str(self.y_channel, f"{where}.y_channel")
+        _validate_gate(self.gate, f"{where}.gate")
+        if self.color_gate is not None:
+            if (
+                not isinstance(self.color_gate, (list, tuple))
+                or len(self.color_gate) < 4
+                or not isinstance(self.color_gate[0], str)
+                or not isinstance(self.color_gate[3], str)
+            ):
+                raise TypeError(
+                    f"{where}.color_gate must be ('channel', 'op', value, '#hexcolor')."
+                )
+            _validate_one_gate(self.color_gate[:3], f"{where}.color_gate")
+        if isinstance(self.best_fit, (list, tuple)):
+            for i, seg in enumerate(self.best_fit):
+                if not isinstance(seg, (list, tuple)) or len(seg) != 3 or not isinstance(seg[0], str):
+                    raise TypeError(
+                        f"{where}.best_fit[{i}] must be (axis, lo, hi); got {seg!r}."
+                    )
+        elif self.best_fit not in (None, 0, 1, 2):
+            raise ValueError(f"{where}.best_fit must be 0/1/2/None or a list of segments.")
+        self.markers = _coerce_markers(self.markers, f"{where}.markers")
+        self.robust = bool(self.robust)
+        self.robust_threshold = float(self.robust_threshold)
+        if self.robust_threshold <= 0:
+            raise ValueError(f"{where}.robust_threshold must be > 0.")
+
+
+# ---------------------------------------------------------------------------
+# PSD
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PsdPlot:
+    name: str
+    channel: Union[str, List[str], Tuple[str, ...]]
+    axis_limits: Optional[List[Tuple[Optional[float], Optional[float]]]] = None
+    log_scale: bool = True
+    nperseg: Optional[int] = None
+    annotate_at: Any = None
+    markers: List[Marker] = field(default_factory=list)
+
+    kind: ClassVar[str] = "psd"
+
+    def __post_init__(self) -> None:
+        where = f"PsdPlot {self.name!r}"
+        _require_str(self.name, "PsdPlot.name")
+        if isinstance(self.channel, (list, tuple)):
+            if not self.channel:
+                raise ValueError(f"{where}.channel list must not be empty.")
+            for ch in self.channel:
+                if not isinstance(ch, str) or not ch.strip():
+                    raise TypeError(f"{where}: channel entries must be non-empty strings.")
+        else:
+            _require_str(self.channel, f"{where}.channel")
+        if self.nperseg is not None:
+            self.nperseg = int(self.nperseg)
+            if self.nperseg < 8:
+                raise ValueError(f"{where}.nperseg must be >= 8.")
+        self.markers = _coerce_markers(self.markers, f"{where}.markers")
+        self.log_scale = bool(self.log_scale)
+
+
+# ---------------------------------------------------------------------------
+# Histogram
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class HistogramPlot:
+    name: str
+    channel: str
+    axis_limits: Optional[List[Tuple[Optional[float], Optional[float]]]] = None
+    log_scale: bool = False
+    markers: List[Marker] = field(default_factory=list)
+
+    kind: ClassVar[str] = "histogram"
+
+    def __post_init__(self) -> None:
+        where = f"HistogramPlot {self.name!r}"
+        _require_str(self.name, "HistogramPlot.name")
+        _require_str(self.channel, f"{where}.channel")
+        self.markers = _coerce_markers(self.markers, f"{where}.markers")
+        self.log_scale = bool(self.log_scale)
+
+
+# ---------------------------------------------------------------------------
+# Bar
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class BarPlot:
+    name: str
+    metrics: Tuple[Any, ...]
+    default_aggregation: str = "last"
+    axis_limits: Optional[Tuple[Optional[float], Optional[float]]] = None
+    target_line: Optional[float] = None
+
+    kind: ClassVar[str] = "bar"
+
+    def __post_init__(self) -> None:
+        where = f"BarPlot {self.name!r}"
+        _require_str(self.name, "BarPlot.name")
+        _require_nonempty(self.metrics, f"{where}.metrics")
+        if self.default_aggregation not in _VALID_BAR_AGGS:
+            raise ValueError(
+                f"{where}.default_aggregation must be one of {sorted(_VALID_BAR_AGGS)}."
+            )
+        if self.target_line is not None:
+            self.target_line = float(self.target_line)
+
+
+# ---------------------------------------------------------------------------
+# Box
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class BoxPlot:
+    name: str
+    channels: Union[str, List[str], Tuple[str, ...]]
+    aggregation_mode: str = "per_run"
+    axis_limits: Optional[Tuple[Optional[float], Optional[float]]] = None
+    gate: Any = None
+    options: Optional[dict] = None
+
+    kind: ClassVar[str] = "box"
+
+    def __post_init__(self) -> None:
+        where = f"BoxPlot {self.name!r}"
+        _require_str(self.name, "BoxPlot.name")
+        if self.aggregation_mode not in _VALID_BOX_MODES:
+            raise ValueError(
+                f"{where}.aggregation_mode must be one of {sorted(_VALID_BOX_MODES)}."
+            )
+        _validate_gate(self.gate, f"{where}.gate")
+        # Normalise channels to a list of strings.
+        if isinstance(self.channels, str):
+            self.channels = [self.channels]
+        elif isinstance(self.channels, (list, tuple)):
+            for ch in self.channels:
+                if not isinstance(ch, str) or not ch.strip():
+                    raise TypeError(f"{where}: channel entries must be non-empty strings.")
+            self.channels = list(self.channels)
+        else:
+            raise TypeError(f"{where}.channels must be a string or list of strings.")
+
+
+# ---------------------------------------------------------------------------
+# Heatmap (NEW)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class HeatmapPlot:
+    """2-D binned aggregate plot (one panel per run).
+
+    For each (x_bin, y_bin) cell, computes the aggregate of z_channel
+    (or counts when z_channel is None).
+    """
+
+    name: str
+    x_channel: str
+    y_channel: str
+    z_channel: Optional[str] = None
+    aggregation: str = "mean"
+    bins: Union[int, Tuple[int, int]] = 40
+    axis_limits: Optional[List[Tuple[Optional[float], Optional[float]]]] = None
+    cmap: str = "viridis"
+    z_limits: Optional[Tuple[Optional[float], Optional[float]]] = None
+    gate: Any = None
+    markers: List[Marker] = field(default_factory=list)
+    min_count: int = 3  # cells with fewer points are masked
+
+    kind: ClassVar[str] = "heatmap"
+
+    def __post_init__(self) -> None:
+        where = f"HeatmapPlot {self.name!r}"
+        _require_str(self.name, "HeatmapPlot.name")
+        _require_str(self.x_channel, f"{where}.x_channel")
+        _require_str(self.y_channel, f"{where}.y_channel")
+        if self.z_channel is not None and (not isinstance(self.z_channel, str) or not self.z_channel.strip()):
+            raise TypeError(f"{where}.z_channel must be a non-empty string or None.")
+        if self.aggregation not in _VALID_HEATMAP_AGGS:
+            raise ValueError(
+                f"{where}.aggregation must be one of {sorted(_VALID_HEATMAP_AGGS)}."
+            )
+        if isinstance(self.bins, int):
+            if self.bins < 4:
+                raise ValueError(f"{where}.bins must be >= 4.")
+        elif isinstance(self.bins, (list, tuple)) and len(self.bins) == 2:
+            self.bins = (int(self.bins[0]), int(self.bins[1]))
+        else:
+            raise TypeError(f"{where}.bins must be int or (int, int); got {self.bins!r}.")
+        if self.min_count < 1:
+            raise ValueError(f"{where}.min_count must be >= 1.")
+        _validate_gate(self.gate, f"{where}.gate")
+        self.markers = _coerce_markers(self.markers, f"{where}.markers")
+
+
+# ---------------------------------------------------------------------------
+# Helpers used across the codebase
+# ---------------------------------------------------------------------------
+
+
+PLOT_TYPE_ORDER: Tuple[str, ...] = (
+    "waveform", "scatter", "psd", "histogram", "bar", "box", "heatmap",
+)
+"""Canonical group order — used to index ``DataPlotter.PLOT_DEFINITIONS``."""
+
+
+_PLOT_KIND_TO_INDEX = {kind: i for i, kind in enumerate(PLOT_TYPE_ORDER)}
+
+
+def plot_group_index(kind: str) -> int:
+    """Group-tuple index for a plot kind string."""
+    return _PLOT_KIND_TO_INDEX[kind]
+
+
+PLOT_KIND_BY_DATACLASS = {
+    WaveformPlot: "waveform",
+    ScatterPlot: "scatter",
+    PsdPlot: "psd",
+    HistogramPlot: "histogram",
+    BarPlot: "bar",
+    BoxPlot: "box",
+    HeatmapPlot: "heatmap",
+}

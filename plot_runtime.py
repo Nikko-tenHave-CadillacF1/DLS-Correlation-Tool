@@ -160,7 +160,7 @@ def validate_export_map(plot_definitions: tuple, export_map: Optional[dict]) -> 
         return []
 
     # Collect all filenames that will be generated
-    type_prefixes = ["waveform", "scatter", "psd", "histogram", "bar", "box"]
+    from plot_definitions import PLOT_TYPE_ORDER as type_prefixes
     generated_names: set[str] = set()
 
     for group_idx, group in enumerate(plot_definitions):
@@ -168,9 +168,9 @@ def validate_export_map(plot_definitions: tuple, export_map: Optional[dict]) -> 
             continue
         prefix = type_prefixes[group_idx] if group_idx < len(type_prefixes) else "plot"
         for plot_def in group:
-            if not plot_def or len(plot_def) < 1:
+            plot_name = getattr(plot_def, "name", None)
+            if not plot_name:
                 continue
-            plot_name = plot_def[0]
             safe = (
                 plot_name.lower()
                 .replace(" ", "_")
@@ -207,6 +207,7 @@ def run_workflow(
     histograms=None,
     bars=None,
     boxes=None,
+    heatmaps=None,
     powerpoint_template=None,
     powerpoint_output=None,
     export_map=None,
@@ -222,7 +223,7 @@ def run_workflow(
     """
     plot_definitions = build_plot_groups(
         waveforms=waveforms, scatters=scatters, psds=psds,
-        histograms=histograms, bars=bars, boxes=boxes,
+        histograms=histograms, bars=bars, boxes=boxes, heatmaps=heatmaps,
     )
     config = workflow_config(
         workflow,
@@ -296,6 +297,20 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
         if getattr(cli_args, "no_open", False):
             open_output = False
 
+    # --- Apply --x-axis override (#8) ---
+    if cli_args is not None and getattr(cli_args, "x_axis", None):
+        new_x = cli_args.x_axis
+        wf_group = (
+            config.plot_definitions[0] if config.plot_definitions and config.plot_definitions[0] else []
+        )
+        overridden = 0
+        for wf in wf_group:
+            if getattr(wf, "kind", None) == "waveform" and wf.x_channel != new_x:
+                wf.x_channel = new_x
+                overridden += 1
+        if overridden:
+            print(f"[INFO] Overrode x_channel to '{new_x}' on {overridden} waveform plot(s).")
+
     # --- Resolve fig_size ---
     fig_size = config.fig_size
 
@@ -332,12 +347,22 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
 
     # --- Handle --check-only (data quality report only) ---
     if cli_args is not None and getattr(cli_args, "check_only", False):
-        from dataplotter import build_quality_sections, write_data_quality_report
-        sections = build_quality_sections(runs, plotter.run_data, config.plot_definitions)
+        from data_quality_report import (
+            build_quality_sections, write_data_quality_report, print_quality_summary,
+        )
+        sections = build_quality_sections(
+            runs, plotter.run_data, config.plot_definitions,
+            run_sample_rates=plotter.run_sample_rates,
+            outlier_log=plotter._outlier_log,
+        )
         report_path = write_data_quality_report(plotter.plots_dir, sections)
-        _print_quality_summary(sections)
+        print_quality_summary(sections)
         print(f"\nFull report: {report_path}")
         return
+
+    # --- Handle --export-data (#7) ---
+    if cli_args is not None and getattr(cli_args, "export_data", None):
+        plotter.export_run_data(cli_args.export_data)
 
     run_plot_job(
         title=config.title,
@@ -360,7 +385,7 @@ def parse_plot_cli(description: str = "Run plotting job"):
     )
     parser.add_argument(
         "--types", nargs="+", metavar="TYPE",
-        help="Generate only these plot types (waveform, scatter, psd, histogram, bar, box).",
+        help="Generate only these plot types (waveform, scatter, psd, histogram, bar, box, heatmap).",
     )
     parser.add_argument(
         "--runs", nargs="+", metavar="RUN",
@@ -382,12 +407,21 @@ def parse_plot_cli(description: str = "Run plotting job"):
         "--check-only", action="store_true", default=False,
         help="Load data, run quality checks, and exit without generating plots.",
     )
+    parser.add_argument(
+        "--x-axis", dest="x_axis", default=None, metavar="CHANNEL",
+        help="Override the x-axis channel for all waveform plots (e.g. 'tLap').",
+    )
+    parser.add_argument(
+        "--export-data", dest="export_data", default=None,
+        choices=("csv", "parquet"),
+        help="Export each run's preprocessed dataframe to <plots_dir>/exported_data/ in this format.",
+    )
     return parser.parse_args()
 
 
 def _print_plot_list(plot_definitions):
     """Print all configured plot names grouped by type."""
-    type_names = ["waveform", "scatter", "psd", "histogram", "bar", "box"]
+    from plot_definitions import PLOT_TYPE_ORDER as type_names
     print("\nConfigured Plots:")
     print("-" * 50)
     total = 0
@@ -397,14 +431,19 @@ def _print_plot_list(plot_definitions):
         label = type_names[i] if i < len(type_names) else f"group_{i}"
         print(f"\n  {label.upper()} ({len(group)}):")
         for plot_def in group:
-            print(f"    • {plot_def[0]}")
+            print(f"    • {getattr(plot_def, 'name', plot_def)}")
             total += 1
     print(f"\n  Total: {total} plot(s)")
 
 
 def _print_dry_run(config, runs, export_map):
-    """Print a summary of what would be generated."""
-    type_names = ["waveform", "scatter", "psd", "histogram", "bar", "box"]
+    """Print a detailed summary of what would be generated (#12).
+
+    For each configured plot, indicates which referenced channels are present
+    in each run (peeking at the file schema where possible) and estimates the
+    on-disk size of the resulting PNG.
+    """
+    from plot_definitions import PLOT_TYPE_ORDER as type_names
     print("\n" + "=" * 60)
     print(f"{'DRY RUN':^60}")
     print("=" * 60)
@@ -413,18 +452,68 @@ def _print_dry_run(config, runs, export_map):
     print(f"  Output:  {config.output_dir}")
     print(f"\n  Runs ({len(runs)}):")
     for run in runs:
-        print(f"    • {run['name']} ({run.get('type', '?')}) — {run.get('file', '?')}")
+        print(f"    \u2022 {run['name']} ({run.get('type', '?')}) \u2014 {run.get('file', '?')}")
+
+    # Peek the file schemas to flag missing channels per run.
+    available_by_run = {}
+    for run in runs:
+        file_path = config.root_folder / run.get("file", "")
+        cols = set()
+        try:
+            if file_path.suffix.lower() in (".parquet", ".pq"):
+                # Try a column-name-only read.
+                try:
+                    import pyarrow.parquet as pq
+                    cols = set(pq.read_schema(str(file_path)).names)
+                except Exception:
+                    try:
+                        from fastparquet import ParquetFile  # type: ignore[import-not-found]
+                        cols = set(ParquetFile(str(file_path)).columns)
+                    except Exception:
+                        cols = set()
+            elif file_path.suffix.lower() in (".txt", ".csv"):
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as fh:
+                    # 3-row DLS header: metadata, headers (row 2), units.
+                    fh.readline()
+                    header_line = fh.readline()
+                    if header_line:
+                        cols = {c.strip() for c in header_line.replace("\t", ",").split(",") if c.strip()}
+        except Exception:
+            cols = set()
+        available_by_run[run["name"]] = cols
 
     total = 0
-    print(f"\n  Plots:")
+    print("\n  Plots:")
+    est_bytes = 0
+    figsize_default = (10, 8)
+    dpi = config.output_dpi if hasattr(config, "output_dpi") else 300
     for i, group in enumerate(config.plot_definitions or []):
         if not group:
             continue
         label = type_names[i] if i < len(type_names) else f"group_{i}"
         print(f"    {label}: {len(group)}")
-        total += len(group)
-    print(f"    ─────────")
+        for plot_def in group:
+            name = getattr(plot_def, "name", str(plot_def))
+            # Per-plot referenced channels
+            refs = _plot_referenced_channels(plot_def)
+            missing_per_run = []
+            for run in runs:
+                avail = available_by_run.get(run["name"]) or set()
+                if not avail:
+                    continue
+                missing = [c for c in refs if c not in avail]
+                if missing:
+                    missing_per_run.append(f"{run['name']}: {', '.join(missing[:5])}{' ...' if len(missing) > 5 else ''}")
+            extra = f"  [missing in: {' | '.join(missing_per_run)}]" if missing_per_run else ""
+            print(f"      \u2022 {name}{extra}")
+            total += 1
+            # Crude PNG size estimate: w*h*dpi^2 px, ~3 bytes/px before compression
+            # then divide by ~6 to account for PNG/zlib compression on telemetry plots.
+            est_bytes += int(figsize_default[0] * figsize_default[1] * dpi * dpi * 3 / 6)
+    print(f"    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
     print(f"    total: {total}")
+    if total:
+        print(f"    estimated on-disk size: ~{est_bytes/1024/1024:.0f} MB")
 
     if config.powerpoint_template:
         print(f"\n  PowerPoint: {config.powerpoint_output}")
@@ -432,6 +521,43 @@ def _print_dry_run(config, runs, export_map):
             print(f"    Slides mapped: {len(export_map)}")
 
     print("\n" + "=" * 60 + "\n")
+
+
+def _plot_referenced_channels(plot_def) -> list:
+    """Best-effort list of channel names referenced by a single plot dataclass."""
+    out: list = []
+    kind = getattr(plot_def, "kind", None)
+    if kind == "waveform":
+        def _walk(item):
+            if isinstance(item, str):
+                out.append(item)
+            elif isinstance(item, (list, tuple)):
+                for v in item:
+                    _walk(v)
+        _walk(plot_def.channels)
+        out.append(plot_def.x_channel)
+    elif kind == "scatter":
+        out.extend([plot_def.x_channel, plot_def.y_channel])
+    elif kind in ("psd", "histogram"):
+        ch = plot_def.channel
+        if isinstance(ch, (list, tuple)):
+            out.extend(ch)
+        else:
+            out.append(ch)
+    elif kind == "bar":
+        for m in plot_def.metrics or ():
+            if isinstance(m, str):
+                out.append(m)
+            elif isinstance(m, (list, tuple)) and m:
+                out.append(m[0])
+    elif kind == "box":
+        for ch in plot_def.channels:
+            out.append(ch)
+    elif kind == "heatmap":
+        out.extend([plot_def.x_channel, plot_def.y_channel])
+        if plot_def.z_channel:
+            out.append(plot_def.z_channel)
+    return sorted(set(c for c in out if c))
 
 
 def _print_quality_summary(sections):
@@ -452,12 +578,17 @@ def build_plot_groups(
     histograms=None,
     bars=None,
     boxes=None,
+    heatmaps=None,
 ):
-    """Build the 6-slot plot-definition tuple expected by DataPlotter.
+    """Build the 7-slot plot-definition tuple expected by DataPlotter.
 
+    Order matches ``plot_definitions.PLOT_TYPE_ORDER``.
     All arguments are keyword-only; omitted slots default to [].
     """
-    return tuple(group or [] for group in (waveforms, scatters, psds, histograms, bars, boxes))
+    return tuple(
+        group or []
+        for group in (waveforms, scatters, psds, histograms, bars, boxes, heatmaps)
+    )
 
 
 def workflow_config(
@@ -540,12 +671,18 @@ def run_plot_job(
     print("=" * 80 + "\n")
 
     # --- Data quality report (before plotting) ---
-    from dataplotter import build_quality_sections, write_data_quality_report
-    sections = build_quality_sections(plotter.runs, plotter.run_data, plotter.PLOT_DEFINITIONS)
+    from data_quality_report import (
+        build_quality_sections, write_data_quality_report, print_quality_summary,
+    )
+    sections = build_quality_sections(
+        plotter.runs, plotter.run_data, plotter.PLOT_DEFINITIONS,
+        run_sample_rates=getattr(plotter, "run_sample_rates", None),
+        outlier_log=getattr(plotter, "_outlier_log", None),
+    )
     report_path = write_data_quality_report(plotter.plots_dir, sections)
     has_issues = any(values for _, values in sections)
     if has_issues:
-        _print_quality_summary(sections)
+        print_quality_summary(sections)
         print(f"  Full report: {report_path}\n")
 
     # Snapshot existing PNG modification times to count new/updated plots
@@ -599,173 +736,26 @@ def run_plot_job(
 # ================================================================
 # PLOT CONSTRUCTORS
 # ================================================================
+#
+# The typed plot dataclasses now live in ``plot_definitions``. We re-export
+# them here so existing config files (``from plot_runtime import WaveformPlot``)
+# keep working unchanged. The dataclass ``__post_init__`` performs validation
+# that previously lived in this file (#9, #23, #24).
 
-# ---------------------------------------------------------------------------
-# Waveform
-# ---------------------------------------------------------------------------
-
-def WaveformPlot(
-    name: str,
-    channels: tuple,
-    axis_limits: Optional[tuple] = None,
-    reference_lines: Optional[tuple] = None,
-    subplot_heights: Optional[tuple] = None,
-    x_limits: Optional[tuple] = None,
-    x_channel: str = "sLap",
-    highlight_zones=None,
-    normalise: bool = False,
-    legend_position: str = "top",
-    show_delta: bool = False,
-) -> list:
-    """Define a waveform subplot figure.
-
-    channels: one entry per row — 'ch' or ('left', 'right').
-    axis_limits: per-row (ymin, ymax) or ((y1_min, y1_max), (y2_min, y2_max)).
-    reference_lines: per-row scalar / tuple-of-scalars / None.
-    subplot_heights: relative row heights; default equal.
-    x_channel: 'sLap' (default) or 'tLap' etc.
-    highlight_zones: ('ch', 'op', val[, '#color']) — shade matching x-regions.
-    normalise: rescale all channels to [0, 1].
-    legend_position: 'top' (default) or 'right' — places run legend above or to the side.
-    show_delta: if True and exactly 2 runs are loaded, append a thin difference
-        row (run_B − run_A) below each primary row. Default False.
-    """
-    _require_str(name, "name")
-    _require_nonempty(channels, "channels")
-    if legend_position not in ("top", "right"):
-        raise ValueError("legend_position must be 'top' or 'right'.")
-    return [name, channels, axis_limits, reference_lines, subplot_heights, x_limits, x_channel, highlight_zones, normalise, legend_position, bool(show_delta)]
+from plot_definitions import (  # noqa: E402
+    Marker,
+    WaveformPlot,
+    ScatterPlot,
+    PsdPlot,
+    HistogramPlot,
+    BarPlot,
+    BoxPlot,
+    HeatmapPlot,
+)
 
 
-# ---------------------------------------------------------------------------
-# Scatter
-# ---------------------------------------------------------------------------
-
-def ScatterPlot(
-    name: str,
-    x_channel: str,
-    y_channel: str,
-    axis_limits: Optional[list] = None,
-    best_fit: Union[int, list, None] = 0,
-    gate: Union[tuple, list, None] = None,
-    show_equations: bool = True,
-    show_error: bool = True,
-    color_gate=None,
-    annotate_fit_at=None,
-) -> list:
-    """Define a scatter (XY correlation) plot.
-
-    best_fit: 0/None=no fit, 1=single, list=segmented [('ch', lo, hi), ...].
-    gate: ('ch', 'op', val) or list thereof — pre-filter data.
-    color_gate: ('ch', 'op', val, '#hex') — colour matching points differently.
-    annotate_fit_at: x-value to mark on fit line with vertical dashed line.
-    """
-    _require_str(name, "name")
-    _require_str(x_channel, "x_channel")
-    _require_str(y_channel, "y_channel")
-    return [name, (x_channel, y_channel), axis_limits, best_fit, gate, show_equations, show_error, color_gate, annotate_fit_at]
-
-
-# ---------------------------------------------------------------------------
-# PSD
-# ---------------------------------------------------------------------------
-
-def PsdPlot(
-    name: str,
-    channel: Union[str, list],
-    axis_limits: Optional[list] = None,
-    log_scale: bool = True,
-    nperseg: Optional[int] = None,
-    annotate_at=None,
-) -> list:
-    """Define a PSD plot.
-
-    channel: str or list[str] for multi-channel overlay.
-    axis_limits: [(f_min, f_max), (power_min, power_max)].
-    nperseg: Welch window size; None for pipeline default.
-    annotate_at: frequency or tuple of frequencies to annotate PSD values at.
-    """
-    _require_str(name, "name")
-    if isinstance(channel, (list, tuple)):
-        if not channel:
-            raise ValueError("'channel' list must not be empty.")
-    else:
-        _require_str(channel, "channel")
-    return [name, channel, axis_limits, log_scale, int(nperseg) if nperseg is not None else None, annotate_at]
-
-
-# ---------------------------------------------------------------------------
-# Histogram
-# ---------------------------------------------------------------------------
-
-def HistogramPlot(
-    name: str,
-    channel: str,
-    axis_limits: Optional[list] = None,
-    log_scale: bool = False,
-) -> list:
-    """Define a histogram plot. axis_limits: [(x_min, x_max), (y_min, y_max)]."""
-    _require_str(name, "name")
-    _require_str(channel, "channel")
-    return [name, channel, axis_limits, log_scale]
-
-
-# ---------------------------------------------------------------------------
-# Bar
-# ---------------------------------------------------------------------------
-
-def BarPlot(
-    name: str,
-    metrics: tuple,
-    default_aggregation: str = "last",
-    axis_limits: Optional[tuple] = None,
-    target_line=None,
-) -> list:
-    """Define a bar chart.
-
-    metrics: ('ch',) or (('ch', 'agg'),). Aggregations: integral/sum/last/mean/max/min.
-    target_line: optional horizontal reference value.
-    """
-    _require_str(name, "name")
-    _require_nonempty(metrics, "metrics")
-    if default_aggregation not in {"integral", "sum", "last", "mean", "max", "min"}:
-        raise ValueError(
-            f"BarPlot '{name}': default_aggregation must be one of "
-            "'integral', 'sum', 'last', 'mean', 'max', 'min'. Got: {default_aggregation!r}"
-        )
-    return [name, metrics, default_aggregation, axis_limits, target_line]
-
-
-# ---------------------------------------------------------------------------
-# Box
-# ---------------------------------------------------------------------------
-
-def BoxPlot(
-    name: str,
-    channels: Union[str, list],
-    aggregation_mode: str = "per_run",
-    axis_limits: Optional[tuple] = None,
-    gate: Union[tuple, list, None] = None,
-    options: Optional[dict] = None,
-) -> list:
-    """Define a box plot.
-
-    aggregation_mode: 'per_run' (one box per run) or 'aggregated' (all merged).
-    gate: same format as ScatterPlot.gate.
-    options: override visual settings (show_points, box_width, jitter, etc.).
-    """
-    _require_str(name, "name")
-    if aggregation_mode not in {"per_run", "aggregated"}:
-        raise ValueError(
-            f"BoxPlot '{name}': aggregation_mode must be 'per_run' or 'aggregated'. "
-            f"Got: {aggregation_mode!r}"
-        )
-    return [name, channels, aggregation_mode, axis_limits, gate, options]
-
-
-# ---------------------------------------------------------------------------
-# Internal validators
-# ---------------------------------------------------------------------------
+# Legacy helpers kept for any external callers — accept the same args as before
+# but raise familiar exceptions.
 
 def _require_str(value, param_name: str):
     if not isinstance(value, str) or not value.strip():

@@ -3,9 +3,15 @@
 Split into focused modules:
   plot_generators_waveform.py  — WaveformMixin
   plot_generators_scatter.py   — ScatterMixin
-  plot_generators_misc.py      — PsdHistMixin
+  plot_generators_misc.py      — PsdHistMixin, HeatmapMixin
   plot_generators_bar_box.py   — BarBoxMixin
 """
+
+import matplotlib
+# Force the non-interactive Agg backend so the tool can run from terminals,
+# remote shells, and CI agents that lack a display. Must come before any
+# pyplot import. (#16)
+matplotlib.use("Agg")
 
 import pandas as pd
 import numpy as np
@@ -17,9 +23,20 @@ import datafunctions
 from collections import Counter, deque
 from matplotlib.patches import Patch
 
+from plot_definitions import (
+    PLOT_TYPE_ORDER,
+    Marker,
+    WaveformPlot,
+    ScatterPlot,
+    PsdPlot,
+    HistogramPlot,
+    BarPlot,
+    BoxPlot,
+    HeatmapPlot,
+)
 from plot_generators_waveform import WaveformMixin
 from plot_generators_scatter import ScatterMixin
-from plot_generators_misc import PsdHistMixin
+from plot_generators_misc import PsdHistMixin, HeatmapMixin
 from plot_generators_bar_box import BarBoxMixin
 
 
@@ -81,23 +98,60 @@ def _extract_calculated_dependencies(func):
 # ================================================================
 
 def collect_referenced_channels(plot_definitions):
-    """Collect channels referenced by configured plot definitions."""
+    """Collect channels referenced by configured plot definitions.
+
+    Works on the new typed plot dataclasses (WaveformPlot, ScatterPlot, ...).
+    """
     referenced = set()
 
-    def _extract(item):
-        """Recursively collect channel names from strings/tuples/lists."""
-        if isinstance(item, str):
-            referenced.add(item)
-            return
-        if isinstance(item, (list, tuple)):
-            for value in item:
-                _extract(value)
+    def _add(value):
+        if isinstance(value, str):
+            referenced.add(value)
+        elif isinstance(value, (list, tuple)):
+            for v in value:
+                _add(v)
 
     for plot_group in plot_definitions or []:
         for plot_def in plot_group or []:
-            if len(plot_def) < 2:
-                continue
-            _extract(plot_def[1])
+            kind = getattr(plot_def, "kind", None)
+            if kind == "waveform":
+                _add(plot_def.channels)
+                _add(plot_def.x_channel)
+            elif kind == "scatter":
+                _add(plot_def.x_channel)
+                _add(plot_def.y_channel)
+                if isinstance(plot_def.best_fit, (list, tuple)):
+                    referenced.update(
+                        datafunctions.collect_multi_fit_condition_channels(plot_def.best_fit)
+                    )
+                if plot_def.gate is not None:
+                    referenced.update(datafunctions.collect_gate_channels(plot_def.gate))
+                if isinstance(plot_def.color_gate, (list, tuple)) and len(plot_def.color_gate) >= 3:
+                    referenced.update(
+                        datafunctions.collect_gate_channels(tuple(plot_def.color_gate[:3]))
+                    )
+            elif kind == "psd":
+                _add(plot_def.channel)
+            elif kind == "histogram":
+                _add(plot_def.channel)
+            elif kind == "bar":
+                for ch, _agg in datafunctions.normalize_bar_metric_specs(plot_def.metrics):
+                    _add(ch)
+            elif kind == "box":
+                _add(plot_def.channels)
+                if plot_def.gate is not None:
+                    referenced.update(datafunctions.collect_gate_channels(plot_def.gate))
+            elif kind == "heatmap":
+                _add(plot_def.x_channel)
+                _add(plot_def.y_channel)
+                if plot_def.z_channel:
+                    _add(plot_def.z_channel)
+                if plot_def.gate is not None:
+                    referenced.update(datafunctions.collect_gate_channels(plot_def.gate))
+            else:
+                # Defensive fallback for unknown / legacy tuples.
+                if isinstance(plot_def, (list, tuple)) and len(plot_def) >= 2:
+                    _add(plot_def[1])
     return sorted(referenced)
 
 
@@ -245,75 +299,23 @@ def estimate_slap_alignment(runs, run_data):
     return lines
 
 
-def build_quality_sections(runs, run_data, plot_definitions):
-    """Build preflight data-quality sections from loaded run data."""
-    referenced = collect_referenced_channels(plot_definitions)
-    missing_by_run = []
-    high_nan = []
-    flatlined = []
-    slap_resets = []
-
-    for run in runs:
-        run_name = run["name"].lower()
-        if run_name not in run_data:
-            missing_by_run.append(f"{run_name.upper()}: dataframe not loaded")
-            continue
-
-        df = run_data[run_name]
-        missing = [ch for ch in referenced if ch not in df.columns]
-        if missing:
-            missing_by_run.append(f"{run_name.upper()}: {', '.join(missing[:20])}")
-
-        for ch in referenced:
-            if ch not in df.columns:
-                continue
-
-            series = pd.to_numeric(df[ch], errors="coerce")
-            nan_ratio = float(series.isna().mean()) if len(series) else 0.0
-            if nan_ratio > 0.20:
-                high_nan.append(f"{run_name.upper()} {ch}: {nan_ratio:.1%} NaN")
-
-            valid = series.dropna()
-            if len(valid) > 20 and float(valid.std()) < 1e-9:
-                flatlined.append(f"{run_name.upper()} {ch}")
-
-        if "sLap" in df.columns:
-            sl = pd.to_numeric(df["sLap"], errors="coerce")
-            resets = int((sl.diff() < 0).sum())
-            if resets > 0:
-                slap_resets.append(f"{run_name.upper()}: {resets}")
-
-    return [
-        ("Missing Referenced Channels", missing_by_run),
-        ("High NaN Ratios (>20%)", high_nan),
-        ("Flatlined Channels", flatlined),
-        ("sLap Resets", slap_resets),
-        ("sLap Alignment Estimate (vCar-based)", estimate_slap_alignment(runs, run_data)),
-    ]
+def build_quality_sections(runs, run_data, plot_definitions, run_sample_rates=None, outlier_log=None):
+    """Backward-compatible thin wrapper around the data_quality_report module."""
+    from data_quality_report import build_quality_sections as _impl
+    return _impl(runs, run_data, plot_definitions, run_sample_rates, outlier_log)
 
 
 def write_data_quality_report(plots_dir, sections):
-    """Write preflight data-quality findings to the plots directory."""
-    report_path = Path(plots_dir) / "data_quality_report.txt"
-    lines = ["Data Quality Report", "=" * 72]
-    for title, values in sections:
-        lines.append("")
-        lines.append(title)
-        lines.append("-" * len(title))
-        if not values:
-            lines.append("None")
-            continue
-        lines.extend(values)
-
-    report_path.write_text("\n".join(lines), encoding="utf-8")
-    return report_path
+    """Backward-compatible wrapper — emits Markdown via data_quality_report."""
+    from data_quality_report import write_data_quality_report as _impl
+    return _impl(plots_dir, sections)
 
 
 # ---------------------------------------------------------------------------
 # DataPlotter
 # ---------------------------------------------------------------------------
 
-class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
+class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBoxMixin):
     """Main class for loading, processing, and plotting multi-run data."""
 
     def __init__(
@@ -383,7 +385,10 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
         self.run_data = {}
         self.run_units = {}
         self.run_required_cols = {}
+        self.run_sample_rates = {}   # {run_name: (rate_hz, source_label)} (#17)
         self._gated_data_cache = {}
+        self._psd_cache = {}         # {(run_name, channel, nperseg): (freq, power)} (#15)
+        self._outlier_log = []       # populated by scatter robust fits (#18)
         self._reverse_mappings = {}
         self._parquet_alias_cache = {}
         self._loaded = False
@@ -485,52 +490,58 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
                 for part in spec_item:
                     _extract_channels(part)
 
-        # Add x-axis channels required by each waveform plot (default: sLap)
-        waveform_group = (
-            self.PLOT_DEFINITIONS[0]
-            if self.PLOT_DEFINITIONS and len(self.PLOT_DEFINITIONS) > 0
-            else []
-        )
-        for wf_def in (waveform_group or []):
-            # x_channel is the 7th item (index 6) if present; default "sLap"
-            x_ch = (
-                wf_def[6]
-                if len(wf_def) >= 7 and isinstance(wf_def[6], str) and wf_def[6].strip()
-                else "sLap"
-            )
-            required_channels.add(x_ch)
-        if not waveform_group:
-            # No waveform plots, but sLap is still useful for general alignment
-            pass
-
         if self.PLOT_DEFINITIONS:
-            for group_idx, plot_group in enumerate(self.PLOT_DEFINITIONS):
-                if plot_group is None:
+            for plot_group in self.PLOT_DEFINITIONS:
+                if not plot_group:
                     continue
                 for plot_def in plot_group:
-                    if group_idx == 4:
-                        if len(plot_def) >= 2:
-                            for ch, _ in datafunctions.normalize_bar_metric_specs(plot_def[1]):
-                                _extract_channels(ch)
-                    else:
-                        if len(plot_def) >= 2:
-                            _extract_channels(plot_def[1])
+                    kind = getattr(plot_def, "kind", None)
+                    if kind == "waveform":
+                        _extract_channels(plot_def.channels)
+                        if plot_def.x_channel:
+                            required_channels.add(plot_def.x_channel)
+                    elif kind == "scatter":
+                        required_channels.add(plot_def.x_channel)
+                        required_channels.add(plot_def.y_channel)
+                        if isinstance(plot_def.best_fit, (list, tuple)):
+                            required_channels.update(
+                                datafunctions.collect_multi_fit_condition_channels(plot_def.best_fit)
+                            )
+                        if plot_def.gate is not None:
+                            required_channels.update(
+                                datafunctions.collect_gate_channels(plot_def.gate)
+                            )
+                        if isinstance(plot_def.color_gate, (list, tuple)) and len(plot_def.color_gate) >= 3:
+                            required_channels.update(
+                                datafunctions.collect_gate_channels(tuple(plot_def.color_gate[:3]))
+                            )
+                    elif kind == "psd":
+                        _extract_channels(plot_def.channel)
+                    elif kind == "histogram":
+                        _extract_channels(plot_def.channel)
+                    elif kind == "bar":
+                        for ch, _agg in datafunctions.normalize_bar_metric_specs(plot_def.metrics):
+                            _extract_channels(ch)
+                    elif kind == "box":
+                        _extract_channels(plot_def.channels)
+                        if plot_def.gate is not None:
+                            required_channels.update(
+                                datafunctions.collect_gate_channels(plot_def.gate)
+                            )
+                    elif kind == "heatmap":
+                        required_channels.add(plot_def.x_channel)
+                        required_channels.add(plot_def.y_channel)
+                        if plot_def.z_channel:
+                            required_channels.add(plot_def.z_channel)
+                        if plot_def.gate is not None:
+                            required_channels.update(
+                                datafunctions.collect_gate_channels(plot_def.gate)
+                            )
 
-                    # Scatter: fit conditions at [3], gate at [4]
-                    if group_idx == 1:
-                        if len(plot_def) >= 4:
-                            fit_chs = datafunctions.collect_multi_fit_condition_channels(plot_def[3])
-                            required_channels.update(fit_chs)
-
-                        gate_spec = plot_def[4] if len(plot_def) >= 5 else None
-                        if datafunctions.is_gate_spec(gate_spec):
-                            required_channels.update(datafunctions.collect_gate_channels(gate_spec))
-
-                    # Box: gate at [4]
-                    elif group_idx == 5:
-                        gate_spec = plot_def[4] if len(plot_def) >= 5 else None
-                        if datafunctions.is_gate_spec(gate_spec):
-                            required_channels.update(datafunctions.collect_gate_channels(gate_spec))
+        # Always pull sLap and tLap if the dataset has them — needed for axis
+        # rendering and sample-rate detection.
+        for support in ("sLap", "tLap", "vCar"):
+            required_channels.add(support)
 
         # Resolve calculated channel dependencies
         resolved_channels = set()
@@ -936,32 +947,75 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
             raise RuntimeError("Data has not been preprocessed.")
 
     # ------------------------------------------------------------------
+    # Cached PSD computation (#15)
+    # ------------------------------------------------------------------
+
+    def _cached_psd(self, run_name, channel, nperseg):
+        """Compute (or fetch cached) PSD for a (run, channel, nperseg) triple."""
+        key = (run_name, channel, nperseg)
+        cached = self._psd_cache.get(key)
+        if cached is not None:
+            return cached
+        df = self.run_data.get(run_name)
+        if df is None or channel not in df.columns:
+            return None, None
+        signal = np.asarray(df[channel], dtype=float)
+        rate = self.run_sample_rates.get(run_name, (self.FILTER_SAMPLE_RATE, "default"))[0]
+        freq, power = datafunctions.calculate_psd(signal, rate, nperseg=nperseg)
+        self._psd_cache[key] = (freq, power)
+        return freq, power
+
+    # ------------------------------------------------------------------
+    # Data export (#7)
+    # ------------------------------------------------------------------
+
+    def export_run_data(self, export_format="csv"):
+        """Dump preprocessed per-run dataframes to disk.
+
+        Drops to ``<plots_dir>/exported_data/<run>.{csv|parquet}``.
+        """
+        self._ensure_preprocessed()
+        fmt = export_format.lower()
+        if fmt not in {"csv", "parquet"}:
+            raise ValueError(f"export_format must be 'csv' or 'parquet'; got {fmt!r}.")
+        out_dir = self.plots_dir / "exported_data"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        written = []
+        for run_name, df in self.run_data.items():
+            safe = run_name.replace("/", "_").replace("\\", "_")
+            path = out_dir / f"{safe}.{fmt}"
+            if fmt == "csv":
+                df.to_csv(path, index=False)
+            else:
+                try:
+                    df.to_parquet(path, index=False)
+                except Exception as exc:
+                    print(f"[WARNING][DataPlotter] Parquet export failed for '{run_name}': {exc}. Falling back to CSV.")
+                    path = out_dir / f"{safe}.csv"
+                    df.to_csv(path, index=False)
+            written.append(path)
+            if self.verbose:
+                print(f"  Exported: {path}")
+        print(f"Exported {len(written)} runs to {out_dir}")
+        return written
+
+    # ------------------------------------------------------------------
     # Plot utilities
     # ------------------------------------------------------------------
 
     def _suggest_similar_channels(self, run_name, missing_channel, max_suggestions=5):
-        """Return a list of available channel names similar to `missing_channel`."""
+        """Return a list of available channel names similar to `missing_channel`.
+
+        Uses ``datafunctions.suggest_similar_channels`` which combines
+        substring/prefix matching with ``difflib.get_close_matches`` for
+        typo-tolerant suggestions (#10).
+        """
         df = self.run_data.get(run_name)
         if df is None:
             return []
-        target = missing_channel.lower()
-        available = list(df.columns)
-
-        def _similarity(name):
-            nl = name.lower()
-            if target in nl or nl in target:
-                return 0.9
-            prefix_len = 0
-            for a, b in zip(nl, target):
-                if a == b:
-                    prefix_len += 1
-                else:
-                    break
-            return prefix_len / max(len(nl), len(target), 1)
-
-        scored = [(col, _similarity(col)) for col in available]
-        scored.sort(key=lambda x: x[1], reverse=True)
-        return [col for col, score in scored[:max_suggestions] if score > 0.3]
+        return datafunctions.suggest_similar_channels(
+            missing_channel, list(df.columns), max_results=max_suggestions
+        )
 
     def _format_missing_channel_hint(self, run_name, missing_channel):
         """Build a hint string showing similar available channels for a missing one."""
@@ -1114,6 +1168,31 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
             )
 
         self._clean_data()
+
+        # Detect per-run sample rates (#17). The global self.FILTER_SAMPLE_RATE
+        # is preserved for filter design (which expects a single value); per-run
+        # rates are stored separately so PSD and the data-quality report can use
+        # the actual rate of each dataset rather than a single assumed value.
+        detected_rates = []
+        for run in self.runs:
+            name = run["name"].lower()
+            if name not in self.run_data:
+                continue
+            rate, source = datafunctions.detect_sample_rate(
+                self.run_data[name], default=self.FILTER_SAMPLE_RATE
+            )
+            self.run_sample_rates[name] = (rate, source)
+            detected_rates.append(rate)
+            if self.verbose:
+                print(f"  [{name}] sample rate: {rate:.1f} Hz (source: {source})")
+        if detected_rates:
+            rmin, rmax = min(detected_rates), max(detected_rates)
+            if rmin > 0 and (rmax / rmin) > 1.05:
+                print(
+                    f"[WARNING][DataPlotter] Per-run sample rates vary by "
+                    f"{rmax/rmin:.2f}x ({rmin:.1f}–{rmax:.1f} Hz). "
+                    f"This may affect PSD comparisons."
+                )
 
         for run in self.runs:
             name = run["name"].lower()
@@ -1389,7 +1468,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
     def plot_data(self, plot_types=None, plot_names=None):
         """Run all (or filtered) plot generators.
 
-        plot_types: list of 'waveform','scatter','psd','histogram','bar','box' or None.
+        plot_types: list of 'waveform','scatter','psd','histogram','bar','box','heatmap' or None.
         plot_names: list of plot name strings (case-insensitive) or None.
         """
         self._ensure_preprocessed()
@@ -1401,6 +1480,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
             ("histogram",  self.generate_histogram_plots),
             ("bar",        self.generate_bar_plots),
             ("box",        self.generate_box_plots),
+            ("heatmap",    self.generate_heatmap_plots),
         ]
 
         if plot_types is not None:
@@ -1416,7 +1496,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, BarBoxMixin):
             names_lower = {n.lower() for n in plot_names}
             original_defs = self.PLOT_DEFINITIONS
             self.PLOT_DEFINITIONS = tuple(
-                [pd for pd in group if pd[0].lower() in names_lower]
+                [pd for pd in group if getattr(pd, "name", "").lower() in names_lower]
                 for group in self.PLOT_DEFINITIONS
             )
 

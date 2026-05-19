@@ -3,7 +3,8 @@
 from channel_config import CORRELATION_OUTPUT_DIR, resolve_template_path
 from plot_runtime import (
     run_workflow, Slide,
-    WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot, BarPlot, BoxPlot,
+    WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot, BarPlot, BoxPlot, HeatmapPlot,
+    Marker,
 )
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
@@ -180,6 +181,27 @@ SCATTER_PLOT_DEFINITIONS = [
         gate=[('SM', '<', 0.5)],
         annotate_fit_at=250.0,
     ),
+
+    # ── Demo: robust single fit (#18) ──────────────────────────────
+    # Uses Theil-Sen + MAD outlier rejection. Outliers are shown faint grey
+    # 'x' markers and logged to the data-quality report.
+    ScatterPlot(
+        name="[Demo] Robust Fit",
+        x_channel="vCar",
+        y_channel="PEngine",
+        best_fit=1,
+        robust=True,
+        robust_threshold=3.0,
+    ),
+
+    # ── Demo: vertical markers (#6) ─────────────────────────────
+    # Annotates noteworthy x-values with labelled vertical lines.
+    ScatterPlot(
+        name="[Demo] Markers",
+        x_channel="vCar",
+        y_channel="gLong",
+        markers=[Marker(x=100, label="100 km/h"), Marker(x=300, label="300 km/h", color="#FF6600")],
+    ),
 ]
 
 # ─── PSD PLOTS ────────────────────────────────────────────────────────────────
@@ -227,6 +249,27 @@ BAR_PLOT_DEFINITIONS = [
 # ─── BOX PLOTS ────────────────────────────────────────────────────────────────
 BOX_PLOT_DEFINITIONS = []
 
+# ─── HEATMAP PLOTS (#5) ──────────────────────────────────────────────────────
+# 2D density / aggregation grids. One panel per run, shared colour scale.
+# z_channel=None   → count-based heatmap (2D histogram).
+# z_channel=<ch>  → mean/median/std/sum/max/min of z over the (x, y) bin.
+HEATMAP_PLOT_DEFINITIONS = [
+    HeatmapPlot(
+        name="[Demo] gLat vs gLong density",
+        x_channel="gLat",
+        y_channel="gLong",
+        bins=100,
+    ),
+    HeatmapPlot(
+        name="[Demo] Ride height vs speed (mean SM)",
+        x_channel="vCar",
+        y_channel="hRideF",
+        z_channel="SM",
+        aggregation="mean",
+        bins=100,
+    ),
+]
+
 # ─── POWERPOINT EXPORT MAP ────────────────────────────────────────────────────
 # Maps slides to generated plot images using Slide() helper.
 # Layouts: "main_plot" (full-width) | "double_plot" (two side-by-side images)
@@ -267,6 +310,7 @@ if __name__ == "__main__":
         histograms=HISTOGRAM_PLOT_DEFINITIONS,
         bars=BAR_PLOT_DEFINITIONS,
         boxes=BOX_PLOT_DEFINITIONS,
+        heatmaps=HEATMAP_PLOT_DEFINITIONS,
         powerpoint_template=POWERPOINT_TEMPLATE if EXPORT_TO_POWERPOINT else None,
         powerpoint_output=POWERPOINT_OUTPUT if EXPORT_TO_POWERPOINT else None,
         export_map=POWERPOINT_EXPORT_MAP if EXPORT_TO_POWERPOINT else None,

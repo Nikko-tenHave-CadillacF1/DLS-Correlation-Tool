@@ -168,16 +168,19 @@ class WaveformMixin:
 
         plot_iter = plots if self.verbose else _tqdm(plots, desc="Waveform", unit="plot", leave=True)
         for plot_def in plot_iter:
-            # Unpack with defaults for optional trailing items
-            _d = list(plot_def) + [None] * (11 - len(plot_def))
-            plot_name, channels, axis_limits, ref_lines = _d[:4]
-            subplot_heights = _d[4]
-            x_limits        = _d[5]
-            x_channel       = _d[6] if isinstance(_d[6], str) and _d[6].strip() else "sLap"
-            highlight_zones = _d[7]
-            normalise       = bool(_d[8]) if _d[8] else False
-            legend_position = _d[9] if isinstance(_d[9], str) and _d[9] in ("top", "right") else "top"
-            show_delta      = bool(_d[10]) if _d[10] else False
+            # Typed dataclass access (#9/#24).
+            plot_name       = plot_def.name
+            channels        = plot_def.channels
+            axis_limits     = plot_def.axis_limits
+            ref_lines       = plot_def.reference_lines
+            subplot_heights = plot_def.subplot_heights
+            x_limits        = plot_def.x_limits
+            x_channel       = plot_def.x_channel or "sLap"
+            highlight_zones = plot_def.highlight_zones
+            normalise       = plot_def.normalise
+            legend_position = plot_def.legend_position
+            show_delta      = plot_def.show_delta
+            markers         = plot_def.markers
 
             if self.verbose:
                 print(f"Creating waveform plot: {plot_name}")
@@ -493,6 +496,29 @@ class WaveformMixin:
                     )
                     ax.xaxis.set_minor_locator(ticker.AutoMinorLocator(5))
                     self._apply_grid(ax, which="both", axis="x")
+
+            # ── Markers (#6): vertical reference lines at user-supplied x-values ──
+            if markers:
+                for m in markers:
+                    rows_to_draw = (
+                        [m.row]
+                        if m.row is not None and 0 <= m.row < len(axes)
+                        else list(range(len(axes)))
+                    )
+                    for ridx in rows_to_draw:
+                        ax_m = axes[ridx]
+                        ax_m.axvline(m.x, color=m.color, linestyle=m.linestyle,
+                                     linewidth=1.2, alpha=0.7, zorder=2)
+                        if m.label and ridx == 0:
+                            ax_m.text(
+                                m.x, 1.01, m.label,
+                                transform=ax_m.get_xaxis_transform(),
+                                ha="center", va="bottom",
+                                fontsize=9, fontweight="bold", color=m.color,
+                                bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
+                                          edgecolor=m.color, linewidth=0.8, alpha=0.9),
+                                zorder=12,
+                            )
 
             # Legend above (default) or to the right of subplots
             run_handles = [

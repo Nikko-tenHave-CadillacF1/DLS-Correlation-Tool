@@ -505,46 +505,20 @@ class ScatterMixin:
 
         plot_iter = plots if self.verbose else _tqdm(plots, desc="Scatter", unit="plot", leave=True)
         for plot_def in plot_iter:
-            # Unpack: ScatterPlot() always produces a 9-element list.
-            # Legacy 4-6 element definitions are still supported via padding.
-            _d = list(plot_def) + [None] * (9 - len(plot_def))
-            plot_name = _d[0]
-            (x_var, y_var) = _d[1]
-            axis_limits = _d[2]
-            best_fit = _d[3]
-
-            # Resolve gate/show_equations/show_error from positions 4-6
-            # (handles both legacy short formats and modern 9-element format)
-            if len(plot_def) >= 7:
-                gate_spec = _d[4]
-                show_equations = _d[5] if isinstance(_d[5], bool) else True
-                show_error = _d[6] if isinstance(_d[6], bool) else True
-            elif len(plot_def) == 6:
-                item5, item6 = _d[4], _d[5]
-                if isinstance(item6, bool) and isinstance(item5, bool):
-                    gate_spec, show_equations, show_error = None, item5, item6
-                elif isinstance(item6, bool):
-                    gate_spec, show_equations, show_error = item5, item6, True
-                elif isinstance(item5, bool):
-                    gate_spec, show_equations, show_error = item6, item5, True
-                else:
-                    gate_spec, show_equations, show_error = None, True, True
-            elif len(plot_def) == 5:
-                item5 = _d[4]
-                if isinstance(item5, bool):
-                    gate_spec, show_equations, show_error = None, item5, True
-                elif datafunctions.is_gate_spec(item5):
-                    gate_spec, show_equations, show_error = item5, True, True
-                else:
-                    gate_spec, show_equations, show_error = None, True, True
-            else:
-                gate_spec, show_equations, show_error = None, True, True
-
-            color_gate = _d[7]
-            annotate_fit_at = _d[8]
-
-            if best_fit is None:
-                best_fit = 0
+            # Typed dataclass access (#9/#24).
+            plot_name = plot_def.name
+            x_var = plot_def.x_channel
+            y_var = plot_def.y_channel
+            axis_limits = plot_def.axis_limits
+            best_fit = plot_def.best_fit if plot_def.best_fit is not None else 0
+            gate_spec = plot_def.gate
+            show_equations = plot_def.show_equations
+            show_error = plot_def.show_error
+            color_gate = plot_def.color_gate
+            annotate_fit_at = plot_def.annotate_fit_at
+            markers = plot_def.markers
+            robust = plot_def.robust
+            robust_threshold = plot_def.robust_threshold
 
             if self.verbose:
                 print(f"Creating scatter plot: {plot_name} ({x_var} vs {y_var})")
@@ -644,22 +618,35 @@ class ScatterMixin:
                                     condition_data_bounds[ch_name] = (min(prev_min, ch_min), max(prev_max, ch_max))
                                 else:
                                     condition_data_bounds[ch_name] = (ch_min, ch_max)
-                    ok, slopes, intercepts, eq_text, _ = datafunctions.plot_scatter_with_multi_fit(
+                    ok, slopes, intercepts, eq_text, fit_meta = datafunctions.plot_scatter_with_multi_fit(
                         ax, x_fit, y_fit,
                         run["name"].upper(), run["color"],
                         point_alpha, point_size, x_var, y_var,
                         fit_defs=best_fit, fit_condition_data=fit_condition_data,
                         max_points=max_points,
+                        robust=robust, robust_threshold=robust_threshold,
                     ) if color_gate is None else datafunctions.plot_scatter_with_multi_fit(
                         ax, x_fit, y_fit,
                         "_nolegend_", run["color"],
                         0, 0, x_var, y_var,
                         fit_defs=best_fit, fit_condition_data=fit_condition_data,
                         max_points=max_points,
+                        robust=robust, robust_threshold=robust_threshold,
                     )
                     if ok:
                         eq_list.append((run["name"].upper(), eq_text, run["color"], x_values, y_values, slopes))
                         fit_line_params[run["name"].upper()] = (slopes, intercepts)
+                        # Record outliers across all segments for the data-quality report (#18)
+                        if robust and isinstance(fit_meta, dict) and fit_meta.get("robust_info"):
+                            info = fit_meta["robust_info"]
+                            if info["n_outliers"] > 0:
+                                self._outlier_log.append({
+                                    "plot": plot_name,
+                                    "run": run["name"].upper(),
+                                    "n_outliers": info["n_outliers"],
+                                    "n_total": info["n_total"],
+                                    "pseudo_r2": None,
+                                })
 
                 elif best_fit == 0:
                     if color_gate is None:
@@ -671,16 +658,28 @@ class ScatterMixin:
                         )
 
                 elif best_fit in (1, 2):
-                    ok, slope, interc, eq_text, _ = datafunctions.plot_scatter_with_1fit(
+                    ok, slope, interc, eq_text, fit_meta = datafunctions.plot_scatter_with_1fit(
                         ax, x_fit, y_fit,
                         run["name"].upper() if color_gate is None else "_nolegend_",
                         run["color"],
                         point_alpha, point_size, x_var, y_var,
                         max_points=max_points,
+                        robust=robust, robust_threshold=robust_threshold,
                     )
                     if ok:
                         eq_list.append((run["name"].upper(), eq_text, run["color"], x_values, y_values, slope))
                         fit_line_params[run["name"].upper()] = (slope, interc)
+                        # Record outliers for the data-quality report (#18)
+                        if robust and isinstance(fit_meta, dict) and fit_meta.get("robust_info"):
+                            info = fit_meta["robust_info"]
+                            if info["n_outliers"] > 0:
+                                self._outlier_log.append({
+                                    "plot": plot_name,
+                                    "run": run["name"].upper(),
+                                    "n_outliers": info["n_outliers"],
+                                    "n_total": info["n_total"],
+                                    "pseudo_r2": info["pseudo_r2"],
+                                })
 
             # Axis limits
             has_x_limits = has_y_limits = False
@@ -849,6 +848,25 @@ class ScatterMixin:
                                 bbox=dict(boxstyle="round,pad=0.22", facecolor="white",
                                           alpha=0.92, edgecolor=color_e, linewidth=0.8),
                             )
+
+            # ── Markers (#6) ──
+            if markers:
+                xl_m, xr_m = ax.get_xlim()
+                for m in markers:
+                    if not (xl_m <= m.x <= xr_m):
+                        continue
+                    ax.axvline(m.x, color=m.color, linestyle=m.linestyle,
+                               linewidth=1.2, alpha=0.7, zorder=2)
+                    if m.label:
+                        ax.text(
+                            m.x, 1.01, m.label,
+                            transform=ax.get_xaxis_transform(),
+                            ha="center", va="bottom",
+                            fontsize=9, fontweight="bold", color=m.color,
+                            bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
+                                      edgecolor=m.color, linewidth=0.8, alpha=0.9),
+                            zorder=12,
+                        )
 
             plt.tight_layout(pad=0.25)
             fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")

@@ -24,12 +24,12 @@ class BarBoxMixin:
 
         plot_iter = plots if self.verbose else _tqdm(plots, desc="Bar", unit="plot", leave=True)
         for plot_def in plot_iter:
-            _d = list(plot_def) + [None] * (5 - len(plot_def))
-            plot_name = _d[0]
-            metric_specs_raw = _d[1] or ()
-            default_agg = _d[2] if isinstance(_d[2], str) else "last"
-            axis_limits = _d[3]
-            target_line = _d[4]
+            # Typed dataclass access (#9/#24).
+            plot_name = plot_def.name
+            metric_specs_raw = plot_def.metrics or ()
+            default_agg = plot_def.default_aggregation
+            axis_limits = plot_def.axis_limits
+            target_line = plot_def.target_line
 
             metric_specs = datafunctions.normalize_bar_metric_specs(
                 metric_specs_raw, default_aggregation=default_agg
@@ -232,32 +232,13 @@ class BarBoxMixin:
     # ------------------------------------------------------------------
 
     def _parse_boxplot_definition(self, plot_def):
-        """Normalize a box-plot definition into a consistent structure."""
-        if not isinstance(plot_def, (list, tuple)) or len(plot_def) < 4:
-            raise ValueError("Box plot definitions must have at least 4 items.")
-
-        _d = list(plot_def) + [None] * (6 - len(plot_def))
-        plot_name = _d[0]
-        channels = _d[1]
-        aggregation_mode = _d[2] if _d[2] is not None else "per_run"
-        axis_limits = _d[3]
-        gate_spec = _d[4] if datafunctions.is_gate_spec(_d[4]) else None
-        options = _d[5] if isinstance(_d[5], dict) else {}
-
-        # Legacy: gate/options could be swapped
-        if gate_spec is None and datafunctions.is_gate_spec(_d[5]):
-            gate_spec = _d[5]
-            options = {}
-        if not options and isinstance(_d[4], dict):
-            options = _d[4]
-
-        if channels is None:
-            channels = []
-        elif isinstance(channels, str):
-            channels = [channels]
-        else:
-            channels = list(channels)
-
+        """Extract the normalised fields from a BoxPlot dataclass."""
+        plot_name = plot_def.name
+        channels = list(plot_def.channels) if plot_def.channels else []
+        aggregation_mode = plot_def.aggregation_mode
+        axis_limits = plot_def.axis_limits
+        gate_spec = plot_def.gate
+        options = plot_def.options or {}
         return plot_name, channels, aggregation_mode, axis_limits, gate_spec, options
 
     def _collect_boxplot_point_series_from_data(self, channel, filtered_run_data):

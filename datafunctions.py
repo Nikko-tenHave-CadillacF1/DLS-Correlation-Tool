@@ -1,10 +1,15 @@
 """Shared data cleaning, filtering, and plotting helpers."""
 
+import difflib
+
 import pandas as pd
 import numpy as np
-from scipy.stats import linregress
+from scipy.stats import linregress, theilslopes
 from scipy.signal import butter, filtfilt, welch
 from matplotlib import patheffects as pe
+
+# NumPy 2.0 renamed ``np.trapz`` to ``np.trapezoid``; keep both call sites working.
+_np_trapezoid = getattr(np, "trapezoid", None) or getattr(np, "trapz")
 
 # Shared progress bar wrapper — import in generators as: from datafunctions import _tqdm
 try:
@@ -509,14 +514,14 @@ def aggregate_channel_for_bar(series, aggregation="last", sample_rate=100.0, tim
         if time_series is not None:
             times = _to_numeric_safe(pd.Series(time_series)).dropna()
             if len(times) == len(values):
-                return float(np.trapz(values, times))
+                return float(_np_trapezoid(values, times))
         dt = 1.0 / float(sample_rate) if sample_rate else 1.0
         return float(values.sum() * dt)
     if agg == "abs_integral":
         if time_series is not None:
             times = _to_numeric_safe(pd.Series(time_series)).dropna()
             if len(times) == len(values):
-                return float(np.trapz(values.abs(), times))
+                return float(_np_trapezoid(values.abs(), times))
         dt = 1.0 / float(sample_rate) if sample_rate else 1.0
         return float(values.abs().sum() * dt)
     if agg == "first":
@@ -625,11 +630,55 @@ def plot_scatter_with_1fit(
     y_var="",
     FIT_LINE_X_LIMITS=None,
     max_points=45000,
+    robust=False,
+    robust_threshold=3.0,
 ):
-    """Scatter + single linear trendline."""
+    """Scatter + single linear trendline.
+
+    When ``robust=True``, uses Theil-Sen regression with MAD outlier
+    rejection (#18). The 5th return value becomes a dict with diagnostics
+    rather than just the colour; callers may inspect ``info["outlier_mask"]``
+    to render the rejected samples.
+    """
     if len(x_data) == 0:
         print(f"[WARNING][datafunctions] No data for single fit: {label} ({x_var} vs {y_var}).")
         return False, None, None, None, None
+
+    if robust:
+        info = fit_robust_theilsen(x_data, y_data, outlier_k=robust_threshold)
+        if info is None:
+            print(f"[WARNING][datafunctions] Robust fit failed: {label} ({x_var} vs {y_var}).")
+            return False, None, None, None, None
+        # Plot the inliers normally and outliers as faint grey 'x'.
+        inlier_mask = ~info["outlier_mask"]
+        _plot_scatter_layer(
+            ax, np.asarray(x_data)[inlier_mask], np.asarray(y_data)[inlier_mask],
+            label, color, alpha, size, max_points=max_points,
+        )
+        if info["n_outliers"] > 0:
+            ax.scatter(
+                np.asarray(x_data)[info["outlier_mask"]],
+                np.asarray(y_data)[info["outlier_mask"]],
+                s=max(size * 0.7, 8),
+                marker="x", color="#9A9A9A", alpha=0.25, linewidth=0.8,
+                zorder=1, label="_nolegend_",
+            )
+        if FIT_LINE_X_LIMITS:
+            xmin, xmax = FIT_LINE_X_LIMITS
+        else:
+            xmin, xmax = np.min(x_data), np.max(x_data)
+        slope, interc = info["slope"], info["intercept"]
+        xr = np.linspace(xmin, xmax, 100)
+        yr = slope * xr + interc
+        _plot_scatter_fit_line(ax, xr, yr, color=color, linestyle="-", linewidth=1.6)
+        sign = "−" if interc < 0 else "+"
+        suffix = (
+            f"   [robust: {info['n_outliers']}/{info['n_total']} outliers]"
+            if info["n_outliers"] > 0 else "   [robust]"
+        )
+        equation = f"y = {_fmt_g(slope)} x {sign} {_fmt_g(abs(interc))}{suffix}"
+        # Stuff the diagnostics dict into the slot historically used for colour.
+        return True, slope, interc, equation, {"color": color, "robust_info": info}
 
     _plot_scatter_layer(ax, x_data, y_data, label, color, alpha, size, max_points=max_points)
 
@@ -666,11 +715,15 @@ def plot_scatter_with_multi_fit(
     fit_defs=None,
     fit_condition_data=None,
     max_points=45000,
+    robust=False,
+    robust_threshold=3.0,
 ):
     """Scatter + as many linear fit segments as provided.
 
     `fit_condition_data` may provide additional aligned channels used as
     fit-condition axes (for example, axis='SM').
+    When ``robust=True``, each segment uses Theil-Sen with MAD outlier
+    rejection independently.
     """
     if len(x_data) == 0:
         print(f"[WARNING][datafunctions] No data for multi-fit: {label} ({x_var} vs {y_var}).")
@@ -678,7 +731,8 @@ def plot_scatter_with_multi_fit(
 
     if not fit_defs:
         return plot_scatter_with_1fit(
-            ax, x_data, y_data, label, color, alpha, size, x_var, y_var, max_points=max_points,
+            ax, x_data, y_data, label, color, alpha, size, x_var, y_var,
+            max_points=max_points, robust=robust, robust_threshold=robust_threshold,
         )
 
     _plot_scatter_layer(ax, x_data, y_data, label, color, alpha, size, max_points=max_points)
@@ -687,6 +741,8 @@ def plot_scatter_with_multi_fit(
     intercepts_list = []
     eq_lines = []
     line_styles = ["-", "-", "-"]
+    total_outliers = 0
+    total_points = 0
 
     def _format_bound(value, is_lower=True, fallback=None):
         """Format range bounds compactly; use data min/max when bound is open."""
@@ -730,16 +786,39 @@ def plot_scatter_with_multi_fit(
 
         xb = x_data[mask]
         yb = y_data[mask]
-        try:
-            slope, interc, _, _, _ = linregress(xb, yb)
-        except ValueError:
-            print(
-                f"[WARNING][datafunctions] Not enough data for fit segment {idx + 1} "
-                f"of '{label}' ({x_var} vs {y_var}). Skipping segment."
-            )
-            slopes_list.append(None)
-            intercepts_list.append(None)
-            continue
+        seg_outlier_count = 0
+        if robust:
+            info = fit_robust_theilsen(xb, yb, outlier_k=robust_threshold)
+            if info is None:
+                print(
+                    f"[WARNING][datafunctions] Robust fit segment {idx + 1} failed for "
+                    f"'{label}' ({x_var} vs {y_var}). Skipping segment."
+                )
+                slopes_list.append(None)
+                intercepts_list.append(None)
+                continue
+            slope, interc = info["slope"], info["intercept"]
+            seg_outlier_count = info["n_outliers"]
+            total_outliers += seg_outlier_count
+            total_points += info["n_total"]
+            if seg_outlier_count > 0:
+                ax.scatter(
+                    xb[info["outlier_mask"]], yb[info["outlier_mask"]],
+                    s=max(size * 0.7, 8),
+                    marker="x", color="#9A9A9A", alpha=0.25, linewidth=0.8,
+                    zorder=1, label="_nolegend_",
+                )
+        else:
+            try:
+                slope, interc, _, _, _ = linregress(xb, yb)
+            except ValueError:
+                print(
+                    f"[WARNING][datafunctions] Not enough data for fit segment {idx + 1} "
+                    f"of '{label}' ({x_var} vs {y_var}). Skipping segment."
+                )
+                slopes_list.append(None)
+                intercepts_list.append(None)
+                continue
 
         xr = np.linspace(np.min(xb), np.max(xb), 50)
         yr = slope * xr + interc
@@ -769,16 +848,26 @@ def plot_scatter_with_multi_fit(
         lo = _format_bound(min_bound, is_lower=True, fallback=lo_fallback)
         hi = _format_bound(max_bound, is_lower=False, fallback=hi_fallback)
         eq_sign = "−" if interc < 0 else "+"
-        eq_lines.append(
+        seg_eq = (
             f"{axis_name} $\\in$ [{lo}, {hi}]   y = {_fmt_g(slope)} x {eq_sign} {_fmt_g(abs(interc))}"
         )
+        if robust and seg_outlier_count > 0:
+            seg_eq += f"   ({seg_outlier_count} outliers rejected)"
+        eq_lines.append(seg_eq)
         slopes_list.append(slope)
         intercepts_list.append(interc)
 
     if not eq_lines:
         return False, tuple(slopes_list), tuple(intercepts_list), None, color
 
-    return True, tuple(slopes_list), tuple(intercepts_list), "\n".join(eq_lines), color
+    meta = {
+        "color": color,
+        "robust_info": (
+            {"n_outliers": total_outliers, "n_total": total_points}
+            if robust else None
+        ),
+    }
+    return True, tuple(slopes_list), tuple(intercepts_list), "\n".join(eq_lines), meta
 
 
 def collect_multi_fit_condition_channels(fit_defs):
@@ -874,6 +963,26 @@ def apply_gate_to_dataframe(df, gate_spec):
                 gate_mask = col > high
             else:
                 gate_mask = pd.Series(False, index=col.index)
+        elif operator == 'robust':
+            # Keep values within `value` * MAD of the median. Uses the 1.4826
+            # scale factor so `value=3.0` ~ 3-sigma equivalent on Gaussian data
+            # but tolerant of outliers.
+            try:
+                k = float(value)
+            except (TypeError, ValueError):
+                print(f"[WARNING][datafunctions] Gate 'robust' needs a numeric k for '{channel}'. Skipping dataframe.")
+                return df.iloc[0:0].copy()
+            finite = col.dropna()
+            if finite.empty:
+                gate_mask = pd.Series(False, index=col.index)
+            else:
+                med = finite.median()
+                mad = (finite - med).abs().median() * 1.4826
+                if mad == 0 or not np.isfinite(mad):
+                    # Degenerate: keep only exact-median samples.
+                    gate_mask = (col == med)
+                else:
+                    gate_mask = (col - med).abs() <= (k * mad)
         else:
             print(f"[WARNING][datafunctions] Unsupported gate condition for channel '{channel}'. Skipping dataframe.")
             return df.iloc[0:0].copy()
@@ -1087,7 +1196,163 @@ def format_gate_text(gate_spec):
         if operator == "between" and isinstance(value, (list, tuple)) and len(value) == 2:
             low, high = value
             lines.append(f"{channel} $\\in$ [{low}, {high}]")
+        elif operator == "outside" and isinstance(value, (list, tuple)) and len(value) == 2:
+            low, high = value
+            lines.append(f"{channel} $\\notin$ [{low}, {high}]")
+        elif operator == "robust":
+            lines.append(f"|{channel} - median| $\\leq$ {value}$\\cdot$MAD")
         else:
             lines.append(f"{channel} {operator} {value}")
 
     return "\n".join(lines) if len(lines) > 1 else None
+
+
+# ================================================================
+# FUZZY CHANNEL NAME MATCHING (#10)
+# ================================================================
+
+def suggest_similar_channels(target, available, max_results=5, cutoff=0.5):
+    """Suggest channel names from `available` that resemble `target`.
+
+    Combines:
+      * Substring / prefix matching (case-insensitive)
+      * ``difflib.get_close_matches`` with a tunable cutoff
+
+    Returns a deduplicated, ranked list of suggestions (best first).
+    """
+    if not target or not available:
+        return []
+
+    target_lc = target.lower()
+    available_list = list(available)
+
+    # 1. Substring / prefix scoring — fast and catches DLS naming patterns.
+    scored = []
+    for ch in available_list:
+        ch_lc = ch.lower()
+        if ch_lc == target_lc:
+            continue
+        if ch_lc.startswith(target_lc) or target_lc.startswith(ch_lc):
+            scored.append((0, ch))
+        elif target_lc in ch_lc or ch_lc in target_lc:
+            scored.append((1, ch))
+
+    scored.sort(key=lambda t: (t[0], t[1].lower()))
+    substring_hits = [ch for _, ch in scored[:max_results]]
+
+    # 2. difflib fuzzy match — catches typos.
+    fuzzy_hits = difflib.get_close_matches(
+        target, available_list, n=max_results, cutoff=cutoff
+    )
+
+    # Merge preserving order; substring hits first because they tend to be
+    # more relevant for telemetry channel naming conventions.
+    seen = set()
+    merged = []
+    for ch in substring_hits + fuzzy_hits:
+        if ch not in seen and ch.lower() != target_lc:
+            seen.add(ch)
+            merged.append(ch)
+        if len(merged) >= max_results:
+            break
+    return merged
+
+
+# ================================================================
+# ROBUST REGRESSION (#18)
+# ================================================================
+
+def fit_robust_theilsen(x, y, outlier_k=3.0):
+    """Theil-Sen regression with MAD-based outlier rejection.
+
+    Returns a dict with keys:
+        slope, intercept, ci_low, ci_high   - Theil-Sen fit on inliers
+        outlier_mask                        - boolean array (True = outlier)
+        n_total, n_outliers                 - counts
+        pseudo_r2                           - 1 - (MAD residuals / MAD total),
+                                              clipped to [0, 1]; rough robust
+                                              analogue of R².
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    finite = np.isfinite(x) & np.isfinite(y)
+    xf, yf = x[finite], y[finite]
+    if xf.size < 3:
+        return None
+
+    # First pass on all finite data to estimate residual scale.
+    slope, intercept, lo, hi = theilslopes(yf, xf, 0.95)
+    resid = yf - (slope * xf + intercept)
+    mad_r = np.median(np.abs(resid - np.median(resid))) * 1.4826
+
+    if mad_r > 0 and np.isfinite(mad_r):
+        outlier_mask_f = np.abs(resid) > outlier_k * mad_r
+        # Refit on inliers if we have enough points left.
+        inliers = ~outlier_mask_f
+        if inliers.sum() >= 3:
+            slope, intercept, lo, hi = theilslopes(yf[inliers], xf[inliers], 0.95)
+            resid_in = yf[inliers] - (slope * xf[inliers] + intercept)
+            mad_r = np.median(np.abs(resid_in - np.median(resid_in))) * 1.4826
+    else:
+        outlier_mask_f = np.zeros_like(xf, dtype=bool)
+
+    mad_total = np.median(np.abs(yf - np.median(yf))) * 1.4826
+    if mad_total > 0 and np.isfinite(mad_total):
+        pseudo_r2 = float(np.clip(1.0 - (mad_r / mad_total) ** 2, 0.0, 1.0))
+    else:
+        pseudo_r2 = 0.0
+
+    # Re-expand outlier mask to full input length.
+    full_mask = np.zeros_like(x, dtype=bool)
+    full_mask[finite] = outlier_mask_f
+
+    return {
+        "slope": float(slope),
+        "intercept": float(intercept),
+        "ci_low": float(lo),
+        "ci_high": float(hi),
+        "outlier_mask": full_mask,
+        "n_total": int(finite.sum()),
+        "n_outliers": int(outlier_mask_f.sum()),
+        "pseudo_r2": pseudo_r2,
+    }
+
+
+# ================================================================
+# SAMPLE-RATE DETECTION (#17)
+# ================================================================
+
+def detect_sample_rate(df, default=100.0):
+    """Estimate samples-per-second from a loaded run dataframe.
+
+    Tries (in order):
+        1. ``tLap`` median diff
+        2. ``sLap``+``vCar`` (vCar in km/h)
+        3. fallback ``default``
+    Returns (rate_hz, source_label).
+    """
+    if "tLap" in df.columns:
+        t = pd.to_numeric(df["tLap"], errors="coerce").dropna()
+        if len(t) > 10:
+            dt = t.diff().dropna()
+            # Filter out lap-reset spikes (negative jumps) before taking median.
+            dt = dt[(dt > 0) & (dt < 1.0)]
+            if len(dt) > 5:
+                med = dt.median()
+                if med > 0 and np.isfinite(med):
+                    return float(1.0 / med), "tLap"
+    if "sLap" in df.columns and "vCar" in df.columns:
+        s = pd.to_numeric(df["sLap"], errors="coerce").dropna()
+        v = pd.to_numeric(df["vCar"], errors="coerce").reindex(s.index).dropna()
+        if len(v) > 50:
+            # vCar in km/h -> m/s; dt = ds / (v * 1000/3600)
+            ds = s.diff().dropna()
+            v_mps = v.loc[ds.index] / 3.6
+            dt = ds / v_mps.replace(0, np.nan)
+            dt = dt[(dt > 0) & (dt < 1.0)].dropna()
+            if len(dt) > 20:
+                med = dt.median()
+                if med > 0 and np.isfinite(med):
+                    return float(1.0 / med), "sLap+vCar"
+    return float(default), "default"
+
