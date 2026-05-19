@@ -850,21 +850,26 @@ class ScatterMixin:
                             )
 
             # ── Markers (#6) ──
+            # Only static (x-valued) markers are meaningful on scatter plots
+            # — condition markers depend on a time/distance series.
             if markers:
                 xl_m, xr_m = ax.get_xlim()
                 for m in markers:
+                    if m.condition is not None:
+                        continue  # condition markers are waveform-only
                     if not (xl_m <= m.x <= xr_m):
                         continue
-                    ax.axvline(m.x, color=m.color, linestyle=m.linestyle,
+                    mcolor = m.color or "#5E5E5E"
+                    ax.axvline(m.x, color=mcolor, linestyle=m.linestyle,
                                linewidth=1.2, alpha=0.7, zorder=2)
                     if m.label:
                         ax.text(
                             m.x, 1.01, m.label,
                             transform=ax.get_xaxis_transform(),
                             ha="center", va="bottom",
-                            fontsize=9, fontweight="bold", color=m.color,
+                            fontsize=9, fontweight="bold", color=mcolor,
                             bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
-                                      edgecolor=m.color, linewidth=0.8, alpha=0.9),
+                                      edgecolor=mcolor, linewidth=0.8, alpha=0.9),
                             zorder=12,
                         )
 

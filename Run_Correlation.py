@@ -35,7 +35,7 @@ RUNS = [
 ]
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
-EXPORT_TO_POWERPOINT  = True
+EXPORT_TO_POWERPOINT  = False
 POWERPOINT_TEMPLATE   = resolve_template_path("template.pptx")
 POWERPOINT_OUTPUT     = CORRELATION_OUTPUT_DIR / "Correlation_Report.pptx"
 # Slide number (1-based) where the first POWERPOINT_EXPORT_MAP entry is placed.
@@ -104,6 +104,35 @@ WAVEFORM_PLOT_DEFINITIONS = [
     #     subplot_heights=(0.4, 0.4, 0.4, 0.4),
     #     normalise=True,
     # ),
+
+    # ── Demo: markers on a waveform plot (#6) ───────────────────────────────────
+    # Two flavours, both shown here:
+    #   • Static markers (x=...)         — fixed x position, drawn on every run.
+    #   • Condition markers (condition=) — resolved per run; one marker is
+    #     emitted at the x_channel value of each rising edge of the condition.
+    #     ``edge='falling'`` or ``'both'`` flips the trigger; ``max_count`` caps
+    #     the number of markers per run (most-recent N kept).
+    WaveformPlot(
+        name="[Demo] Waveform Markers",
+        channels=('vCar', 'pBrakeF', ('rThrottle', 'SM')),
+        axis_limits=(None, None, ((0, 105), (0, 1.3))),
+        subplot_heights=(0.6, 0.4, 0.4),
+        markers=[
+            Marker(x=500,  label="T1 entry"),
+            Marker(x=1500, label="SM zone", color="#00B050", linestyle="--"),
+            Marker(x=2800, label="T-final apex", color="#FF6600", row=0),
+            # Per-run condition: tick the first sLap of every SM > 0.5 burst.
+            Marker(condition=('SM', '>', 0.5), edge="rising", label="SM>0.5"),
+            # Per-run condition with multiple criteria (AND): heavy braking AND wheels rolling.
+            Marker(
+                condition=[('pBrakeF', '>', 50), ('vCar', '>', 100)],
+                edge="rising",
+                label="hard brake",
+                max_count=3,
+                linestyle="-.",
+            ),
+        ],
+    ),
 ]
 
 # ─── SCATTER PLOTS ────────────────────────────────────────────────────────────

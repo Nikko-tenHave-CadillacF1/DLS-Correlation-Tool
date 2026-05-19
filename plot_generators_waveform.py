@@ -497,28 +497,130 @@ class WaveformMixin:
                     ax.xaxis.set_minor_locator(ticker.AutoMinorLocator(5))
                     self._apply_grid(ax, which="both", axis="x")
 
-            # ── Markers (#6): vertical reference lines at user-supplied x-values ──
+            # ── Markers (#6): vertical reference lines ────────────────────────
+            # Static markers (concrete x): drawn once per figure with a boxed
+            # label at the top edge (well-separated horizontally by x).
+            # Condition markers: resolved per-run (rising/falling edges of a
+            # gate condition), drawn in the run's colour at each transition. The
+            # label is placed rotated 90° INSIDE the plot, attached to the line
+            # at its first hit, so labels stay near their lines instead of
+            # piling up at the top corner. Vertical slot is keyed off the
+            # condition-marker index (not the run) so DRY/WET share a slot —
+            # colour disambiguates them, and hits at different x rarely overlap.
             if markers:
-                for m in markers:
+                static_markers = [m for m in markers if m.x is not None]
+                cond_markers   = [m for m in markers if m.condition is not None]
+
+                def _draw_line(ax_m, x_val, color, linestyle):
+                    ax_m.axvline(x_val, color=color, linestyle=linestyle,
+                                 linewidth=1.2, alpha=0.7, zorder=2)
+
+                def _draw_static_label(ax_m, x_val, color, label):
+                    ax_m.text(
+                        x_val, 1.01, label,
+                        transform=ax_m.get_xaxis_transform(),
+                        ha="center", va="bottom",
+                        fontsize=9, fontweight="bold", color=color,
+                        bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
+                                  edgecolor=color, linewidth=0.8, alpha=0.9),
+                        zorder=12,
+                    )
+
+                def _draw_inline_label(ax_m, x_val, color, label, y_frac):
+                    # Horizontal label offset a few points to the right of the
+                    # vertical line so the line itself stays unobscured. Anchor
+                    # x in data coords + y in axes-fraction via xaxis_transform,
+                    # then nudge by a pixel offset using ``offset points``.
+                    ax_m.annotate(
+                        label,
+                        xy=(x_val, y_frac),
+                        xycoords=ax_m.get_xaxis_transform(),
+                        xytext=(6, 0),
+                        textcoords="offset points",
+                        ha="left", va="center",
+                        fontsize=8, fontweight="bold", color=color,
+                        bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
+                                  edgecolor=color, linewidth=0.6, alpha=0.9),
+                        zorder=12,
+                    )
+
+                # Static markers ─ same x for every run.
+                for m in static_markers:
+                    color = m.color or "#5E5E5E"
                     rows_to_draw = (
                         [m.row]
                         if m.row is not None and 0 <= m.row < len(axes)
                         else list(range(len(axes)))
                     )
                     for ridx in rows_to_draw:
-                        ax_m = axes[ridx]
-                        ax_m.axvline(m.x, color=m.color, linestyle=m.linestyle,
-                                     linewidth=1.2, alpha=0.7, zorder=2)
-                        if m.label and ridx == 0:
-                            ax_m.text(
-                                m.x, 1.01, m.label,
-                                transform=ax_m.get_xaxis_transform(),
-                                ha="center", va="bottom",
-                                fontsize=9, fontweight="bold", color=m.color,
-                                bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
-                                          edgecolor=m.color, linewidth=0.8, alpha=0.9),
-                                zorder=12,
+                        _draw_line(axes[ridx], m.x, color, m.linestyle)
+                    # Label only on the topmost drawn row.
+                    if m.label:
+                        _draw_static_label(axes[rows_to_draw[0]], m.x, color, m.label)
+
+                # Condition markers ─ resolved per run on the original (un-clipped)
+                # dataframe so transitions outside x_limits are still detected.
+                if cond_markers:
+                    # Stagger vertical slot by marker index inside the topmost
+                    # row so multiple condition markers don't collide. Top slot
+                    # at 0.96, stepping down by 0.12 of the axes height (tight
+                    # enough to keep labels visually grouped near the top).
+                    n_slots   = max(len(cond_markers), 1)
+                    slot_step = 0.12 if n_slots > 1 else 0.0
+                    slot_y    = [0.96 - i * slot_step for i in range(n_slots)]
+
+                    plotted_run_names = [
+                        r["name"] for r in self.runs if r["name"].lower() in plotted_runs
+                    ]
+
+                    # First pass: draw every line in run colour.
+                    # Track the earliest x-hit per condition marker so we can
+                    # place a single neutral label per marker afterwards.
+                    earliest_hit = [None] * len(cond_markers)
+                    marker_rows  = [None] * len(cond_markers)
+                    for run_name in plotted_run_names:
+                        run_df = self.run_data.get(run_name.lower())
+                        if run_df is None or x_channel not in run_df.columns:
+                            continue
+                        run_color = next(
+                            (r["color"] for r in self.runs if r["name"] == run_name),
+                            "#5E5E5E",
+                        )
+                        for m_idx, m in enumerate(cond_markers):
+                            x_hits = datafunctions.resolve_condition_marker(
+                                m, run_df, x_channel,
                             )
+                            if not x_hits:
+                                continue
+                            color = m.color or run_color
+                            rows_to_draw = (
+                                [m.row]
+                                if m.row is not None and 0 <= m.row < len(axes)
+                                else list(range(len(axes)))
+                            )
+                            marker_rows[m_idx] = rows_to_draw
+                            for x_val in x_hits:
+                                for ridx in rows_to_draw:
+                                    _draw_line(axes[ridx], x_val, color, m.linestyle)
+                            if (earliest_hit[m_idx] is None
+                                    or x_hits[0] < earliest_hit[m_idx]):
+                                earliest_hit[m_idx] = x_hits[0]
+
+                    # Second pass: one inline label per condition marker, placed
+                    # at the earliest hit across runs. Colour is the marker's
+                    # explicit colour if set, otherwise a neutral grey so it
+                    # doesn't favour one run over the other.
+                    for m_idx, m in enumerate(cond_markers):
+                        if (not m.label
+                                or earliest_hit[m_idx] is None
+                                or marker_rows[m_idx] is None):
+                            continue
+                        label_color = m.color or "#3A3A3A"
+                        _draw_inline_label(
+                            axes[marker_rows[m_idx][0]],
+                            earliest_hit[m_idx], label_color, m.label,
+                            slot_y[m_idx],
+                        )
 
             # Legend above (default) or to the right of subplots
             run_handles = [

@@ -912,24 +912,29 @@ def build_fit_condition_data(df, index, fit_defs, plot_name="", run_name=""):
 # BOX PLOT UTILITIES
 # ================================================================
 
-def apply_gate_to_dataframe(df, gate_spec):
-    """Filter a dataframe by gate condition(s). Returns filtered copy (or view if no gate)."""
+def compute_gate_mask(df, gate_spec):
+    """Build the boolean mask that ``apply_gate_to_dataframe`` would use.
+
+    Returns a boolean ``pd.Series`` aligned to ``df.index``. Invalid or
+    missing-channel gates return an all-False mask (matching the
+    "skip dataframe" behaviour of ``apply_gate_to_dataframe``).
+    """
     if gate_spec is None:
-        return df
-    
+        return pd.Series(True, index=df.index)
+
     conditions = _normalize_gate_conditions(gate_spec)
     mask = pd.Series(True, index=df.index)
 
     for condition in conditions:
         if not isinstance(condition, (list, tuple)) or len(condition) != 3:
-            print("[WARNING][datafunctions] Invalid gate condition. Skipping dataframe.")
-            return df.iloc[0:0].copy()
+            print("[WARNING][datafunctions] Invalid gate condition.")
+            return pd.Series(False, index=df.index)
 
         channel, operator, value = condition
 
         if channel not in df.columns:
-            print(f"[WARNING][datafunctions] Gate channel '{channel}' missing. Skipping dataframe.")
-            return df.iloc[0:0].copy()
+            print(f"[WARNING][datafunctions] Gate channel '{channel}' missing.")
+            return pd.Series(False, index=df.index)
 
         col = pd.to_numeric(df[channel], errors="coerce")
 
@@ -954,7 +959,6 @@ def apply_gate_to_dataframe(df, gate_spec):
                 gate_mask &= col <= high
         elif operator == 'outside' and isinstance(value, (list, tuple)) and len(value) == 2:
             low, high = value
-            gate_mask = pd.Series(True, index=col.index)
             if low is not None and high is not None:
                 gate_mask = (col < low) | (col > high)
             elif low is not None:
@@ -964,14 +968,11 @@ def apply_gate_to_dataframe(df, gate_spec):
             else:
                 gate_mask = pd.Series(False, index=col.index)
         elif operator == 'robust':
-            # Keep values within `value` * MAD of the median. Uses the 1.4826
-            # scale factor so `value=3.0` ~ 3-sigma equivalent on Gaussian data
-            # but tolerant of outliers.
             try:
                 k = float(value)
             except (TypeError, ValueError):
-                print(f"[WARNING][datafunctions] Gate 'robust' needs a numeric k for '{channel}'. Skipping dataframe.")
-                return df.iloc[0:0].copy()
+                print(f"[WARNING][datafunctions] Gate 'robust' needs a numeric k for '{channel}'.")
+                return pd.Series(False, index=df.index)
             finite = col.dropna()
             if finite.empty:
                 gate_mask = pd.Series(False, index=col.index)
@@ -979,17 +980,70 @@ def apply_gate_to_dataframe(df, gate_spec):
                 med = finite.median()
                 mad = (finite - med).abs().median() * 1.4826
                 if mad == 0 or not np.isfinite(mad):
-                    # Degenerate: keep only exact-median samples.
                     gate_mask = (col == med)
                 else:
                     gate_mask = (col - med).abs() <= (k * mad)
         else:
-            print(f"[WARNING][datafunctions] Unsupported gate condition for channel '{channel}'. Skipping dataframe.")
-            return df.iloc[0:0].copy()
+            print(f"[WARNING][datafunctions] Unsupported gate condition for channel '{channel}'.")
+            return pd.Series(False, index=df.index)
 
         mask &= gate_mask.fillna(False)
 
+    return mask
+
+
+def apply_gate_to_dataframe(df, gate_spec):
+    """Filter a dataframe by gate condition(s). Returns filtered copy (or view if no gate)."""
+    if gate_spec is None:
+        return df
+    mask = compute_gate_mask(df, gate_spec)
+    if not mask.any():
+        return df.iloc[0:0].copy()
     return df[mask].copy()
+
+
+def resolve_condition_marker(marker, df, x_channel):
+    """Expand a condition-triggered Marker into concrete x-values for one run.
+
+    Returns a list of floats \u2014 the x_channel values at each rising / falling /
+    either edge of the gate condition. Honours ``marker.max_count``.
+    Returns ``[]`` if the condition cannot be evaluated (missing channel etc.)
+    or no transitions are found.
+    """
+    if marker.condition is None:
+        return []
+    if x_channel not in df.columns:
+        return []
+
+    mask = compute_gate_mask(df, marker.condition).astype(bool).to_numpy()
+    if mask.size < 2:
+        return []
+
+    # True rising / falling edges: only detect transitions WITHIN the series.
+    # A sample that is already True at index 0 does not count as a rising edge
+    # (the condition didn't "become true" — it started true). Likewise the last
+    # sample alone never counts as a falling edge.
+    diff = np.diff(mask.astype(np.int8))  # length N-1, indexed by the *new* sample
+    if marker.edge == "rising":
+        idx = np.flatnonzero(diff == 1) + 1
+    elif marker.edge == "falling":
+        idx = np.flatnonzero(diff == -1) + 1
+    else:  # both
+        idx = np.flatnonzero(diff != 0) + 1
+
+    if idx.size == 0:
+        return []
+
+    x_values = pd.to_numeric(df[x_channel], errors="coerce").to_numpy()
+    # Drop any indices where x is NaN.
+    x_hits = [float(x_values[i]) for i in idx if i < len(x_values) and np.isfinite(x_values[i])]
+
+    if marker.max_count is not None and len(x_hits) > marker.max_count:
+        x_hits = x_hits[: marker.max_count]
+    return x_hits
+
+
+
 
 
 def aggregate_channel_for_boxplot(

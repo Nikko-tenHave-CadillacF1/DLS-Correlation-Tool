@@ -39,7 +39,7 @@ python Run_Correlation.py --no-open
 | Flag | Effect |
 |------|--------|
 | `--only NAME [NAME ...]` | Generate only plots whose name matches (case-insensitive) |
-| `--types TYPE [TYPE ...]` | Generate only these plot types (`waveform`, `scatter`, `psd`, `histogram`, `bar`, `box`) |
+| `--types TYPE [TYPE ...]` | Generate only these plot types (`waveform`, `scatter`, `psd`, `histogram`, `bar`, `box`, `heatmap`) |
 | `--no-open` | Do not auto-open the output folder after completion |
 | `--dry-run` | Validate config and show what would be generated without creating plots |
 | `--list-plots` | Print all configured plot names, grouped by type |
@@ -68,7 +68,7 @@ Flags can be combined: `--types scatter --only "Front Heave" --no-open`.
 | `dataplotter.py` | Data loading, preprocessing, data-quality checks, and plot dispatch |
 | `plot_generators_waveform.py` | Waveform plot generation |
 | `plot_generators_scatter.py` | Scatter plot generation |
-| `plot_generators_misc.py` | PSD and histogram plot generation |
+| `plot_generators_misc.py` | PSD, histogram, and heatmap plot generation |
 | `plot_generators_bar_box.py` | Bar and box plot generation |
 | `plot_runtime.py` | `PlotJobConfig`, CLI parser, plot constructors, job runner, and PowerPoint export |
 | `datafunctions.py` | Filtering, fitting, aggregation, and gating helpers |
@@ -133,6 +133,8 @@ config = PlotJobConfig(
         psds=PSDS,
         histograms=HISTOGRAMS,
         bars=BARS,
+        boxes=BOXES,
+        heatmaps=HEATMAPS,
     ),
     channel_mappings=CHANNEL_MAPPINGS,
     channel_transforms=CHANNEL_TRANSFORMS,
@@ -148,7 +150,7 @@ if __name__ == "__main__":
     run_from_config(config, parse_plot_cli("Correlation plots"))
 ```
 
-`build_plot_groups()` accepts keyword-only arguments: `waveforms`, `scatters`, `psds`, `histograms`, `bars`, `boxes`. Omitted categories default to empty.
+`build_plot_groups()` accepts keyword-only arguments: `waveforms`, `scatters`, `psds`, `histograms`, `bars`, `boxes`, `heatmaps`. Omitted categories default to empty.
 
 ---
 
@@ -157,7 +159,10 @@ if __name__ == "__main__":
 All plot definitions use named-argument constructors imported from `plot_runtime`. These provide IDE autocomplete and validate parameters at import time.
 
 ```python
-from plot_runtime import WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot, BarPlot, BoxPlot
+from plot_runtime import (
+    WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot,
+    BarPlot, BoxPlot, HeatmapPlot, Marker,
+)
 ```
 
 ### Waveform
@@ -193,8 +198,34 @@ WaveformPlot(
     show_delta=False,
     # If True and exactly 2 runs are loaded, a thin difference row
     # (run_B − run_A) is appended below each primary row.
+    markers=[
+        # Vertical reference lines. Two flavours:
+        #   • Static  — fixed x position, drawn once on every run.
+        Marker(x=1500, label="T1 entry", color="#FF6600", linestyle="--"),
+        Marker(x=2800, label="T-final", row=0),  # row=0 → only on the top subplot
+        #   • Condition — per-run; one marker is emitted at the x_channel
+        #     value of each rising / falling / either transition of a gate
+        #     condition. The line is drawn in the run's colour so DRY and WET
+        #     are visually distinguishable without a run-name in the label.
+        Marker(condition=('SM', '>', 0.5), edge="rising", label="SM>0.5"),
+        Marker(
+            condition=[('pBrakeF', '>', 50), ('vCar', '>', 100)],
+            edge="rising",          # 'rising' | 'falling' | 'both'
+            label="hard brake",
+            max_count=3,             # cap markers per run (first N kept)
+            linestyle="-.",
+        ),
+    ],
 )
 ```
+
+Marker rules:
+- Each `Marker` requires **exactly one** of `x=...` (static) or `condition=...` (per-run).
+- `edge` only applies to condition markers: `"rising"` (default), `"falling"`, or `"both"`.
+- A condition that is already true at the first sample is **not** counted as a rising edge (true transition required).
+- `row=N` restricts the marker to the N-th subplot row; default draws on every row.
+- `color=None` (default): static markers fall back to grey, condition lines use the run colour.
+- Condition markers are silently skipped on non-waveform plot types (scatter/PSD/etc. accept only static `x=...` markers).
 
 ### Scatter
 
@@ -225,6 +256,14 @@ ScatterPlot(
     annotate_fit_at=250.0,
     # Draw a vertical dashed line at this x-value and annotate each run's
     # fit-line y-value at that x. Only works with single fits (best_fit=1).
+    robust=False,
+    # If True with best_fit=1, uses Theil-Sen + MAD outlier rejection.
+    # Outliers are drawn as faint grey 'x' markers and logged in the
+    # data-quality report. ``robust_threshold`` (default 3.0) sets the
+    # MAD multiplier for outlier rejection.
+    markers=[Marker(x=250, label="250 km/h")],
+    # Static vertical reference markers (condition= markers are ignored
+    # on scatter plots — they only make sense on time/distance axes).
 )
 ```
 
@@ -274,6 +313,25 @@ BoxPlot(
     channels=["xDamperFL", "xDamperFR"],
     aggregation_mode="per_run",   # "per_run" | "aggregated"
     gate=('vCar', '<', 120),
+)
+```
+
+### Heatmap
+
+Two-dimensional density or aggregation grids. One panel per run, with a shared
+colour scale so panels are directly comparable.
+
+```python
+HeatmapPlot(
+    name="gLat vs gLong density",
+    x_channel="gLat",
+    y_channel="gLong",
+    z_channel=None,             # None → 2D-histogram (counts per bin)
+    aggregation="mean",         # used only when z_channel is set:
+                                # "mean" | "median" | "std" | "sum" | "max" | "min"
+    bins=100,                   # int, or (nx, ny) for non-square grids
+    axis_limits=[(None, None), (None, None)],
+    gate=('SM', '<', 1),        # optional pre-filter
 )
 ```
 

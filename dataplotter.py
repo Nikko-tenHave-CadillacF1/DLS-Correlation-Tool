@@ -117,6 +117,12 @@ def collect_referenced_channels(plot_definitions):
             if kind == "waveform":
                 _add(plot_def.channels)
                 _add(plot_def.x_channel)
+                # Condition markers reference gate channels.
+                for m in getattr(plot_def, "markers", None) or []:
+                    if getattr(m, "condition", None) is not None:
+                        referenced.update(
+                            datafunctions.collect_gate_channels(m.condition)
+                        )
             elif kind == "scatter":
                 _add(plot_def.x_channel)
                 _add(plot_def.y_channel)
@@ -500,6 +506,11 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                         _extract_channels(plot_def.channels)
                         if plot_def.x_channel:
                             required_channels.add(plot_def.x_channel)
+                        for m in getattr(plot_def, "markers", None) or []:
+                            if getattr(m, "condition", None) is not None:
+                                required_channels.update(
+                                    datafunctions.collect_gate_channels(m.condition)
+                                )
                     elif kind == "scatter":
                         required_channels.add(plot_def.x_channel)
                         required_channels.add(plot_def.y_channel)

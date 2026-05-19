@@ -74,29 +74,74 @@ def _validate_one_gate(cond: Sequence[Any], where: str) -> None:
 
 @dataclass
 class Marker:
-    """A vertical reference at a specific x-value on any plot.
+    """A vertical reference line on a plot.
 
-    Used by WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot, HeatmapPlot.
+    Two modes:
+      * **Static** — supply ``x`` directly. Drawn once at that x-value, on every
+        plot type that supports markers (waveform / scatter / psd / histogram /
+        heatmap). Uses ``color`` if given, otherwise neutral grey.
+      * **Condition-triggered** — supply ``condition`` (same format as
+        ``ScatterPlot.gate``: ``('channel', 'op', value)`` or a list of those
+        AND-ed together). Resolved **per run** by the waveform generator: the
+        rising/falling edges of the boolean condition are detected and one
+        marker is emitted at the x-channel value of each transition. Drawn in
+        the run's colour unless ``color`` is set explicitly. Other plot types
+        ignore condition markers (their x-axis is not a time/distance series).
 
-    x:          x-axis value where the marker is drawn.
-    label:      optional text label shown near the marker.
-    color:      hex colour; defaults to dark grey.
-    linestyle:  matplotlib linestyle (default dashed).
-    row:        for waveforms only — row index to limit the marker to;
-                None = draw on every row.
+    Fields:
+      x:           x-value for static markers. Mutually exclusive with ``condition``.
+      condition:   gate spec (tuple or list of tuples) for condition markers.
+      edge:        which transition triggers a marker: 'rising' (False\u2192True),
+                   'falling' (True\u2192False), or 'both'. Default 'rising'.
+      max_count:   cap the number of markers emitted per run (most recent N
+                   transitions are kept). None = unlimited.
+      label:       optional text label drawn at the top.
+      color:       hex colour. ``None`` \u2192 grey for static markers, run colour
+                   for condition markers.
+      linestyle:   matplotlib linestyle (default dotted ':' so it visually
+                   distinguishes from reference lines).
+      row:         waveform-only \u2014 row index to limit the marker to;
+                   ``None`` draws on every row.
     """
 
-    x: float
+    x: Optional[float] = None
     label: Optional[str] = None
-    color: str = "#5E5E5E"
-    linestyle: str = "--"
+    color: Optional[str] = None
+    linestyle: str = ":"
     row: Optional[int] = None
+    condition: Any = None
+    edge: str = "rising"
+    max_count: Optional[int] = None
 
     def __post_init__(self) -> None:
-        try:
-            self.x = float(self.x)
-        except (TypeError, ValueError) as exc:
-            raise TypeError(f"Marker.x must be numeric, got {self.x!r}.") from exc
+        has_x = self.x is not None
+        has_cond = self.condition is not None
+        if has_x == has_cond:
+            raise ValueError(
+                "Marker requires exactly one of 'x' or 'condition' to be set "
+                f"(got x={self.x!r}, condition={self.condition!r})."
+            )
+        if has_x:
+            try:
+                self.x = float(self.x)
+            except (TypeError, ValueError) as exc:
+                raise TypeError(f"Marker.x must be numeric, got {self.x!r}.") from exc
+        if has_cond:
+            if self.edge not in ("rising", "falling", "both"):
+                raise ValueError(
+                    f"Marker.edge must be 'rising', 'falling', or 'both'. Got {self.edge!r}."
+                )
+            if self.max_count is not None:
+                try:
+                    self.max_count = int(self.max_count)
+                except (TypeError, ValueError) as exc:
+                    raise TypeError(
+                        f"Marker.max_count must be int or None, got {self.max_count!r}."
+                    ) from exc
+                if self.max_count <= 0:
+                    raise ValueError(
+                        f"Marker.max_count must be positive, got {self.max_count}."
+                    )
         if self.label is not None and not isinstance(self.label, str):
             raise TypeError(f"Marker.label must be str or None, got {self.label!r}.")
 
