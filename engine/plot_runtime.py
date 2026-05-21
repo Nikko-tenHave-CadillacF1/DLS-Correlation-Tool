@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import traceback
 import json
 from dataclasses import dataclass
@@ -12,6 +13,12 @@ from datetime import datetime
 from zipfile import ZipFile
 import xml.etree.ElementTree as ET
 from typing import Optional, Union
+
+# Ensure stdout/stderr can handle Unicode on Windows (cp1252 terminals).
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(errors="replace")
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(errors="replace")
 
 from .dataplotter import DataPlotter
 from .logger import log, configure as configure_logging
@@ -718,7 +725,7 @@ def run_plot_job(
         1 for p in plotter.plots_dir.glob("*.png")
         if p not in pre_mtimes or p.stat().st_mtime > pre_mtimes[p]
     )
-    print(f"\nGenerated {plot_count} plot(s) in {elapsed:.1f}s  \u2192  {plotter.plots_dir}")
+    print(f"\nGenerated {plot_count} plot(s) in {elapsed:.1f}s -> {plotter.plots_dir}")
 
     if powerpoint_template and powerpoint_output and export_map:
         print("\nExporting to PowerPoint...")

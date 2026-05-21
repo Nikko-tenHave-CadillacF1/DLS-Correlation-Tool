@@ -1,0 +1,87 @@
+INFO    | Run 'LTS' filtered by nLap: nlap=1 → NLap=1 (9489/11897 rows kept).
+WARNING | Per-run sample rates vary by 2.00x (100.0–200.0 Hz). This may affect PSD comparisons.
+WARNING | Missing dependency 'FzTyreFL' for calculated channel 'FzTyreF_Avg'.
+WARNING | Missing dependency 'xHubVertFL' for calculated channel 'xHubVertF_Avg'.
+WARNING | Missing dependency 'FzTyreRL' for calculated channel 'FzTyreR_Avg'.
+WARNING | Missing dependency 'xHubVertRL' for calculated channel 'xHubVertR_Avg'.
+WARNING | Missing dependency 'FzTyreFL' for calculated channel 'FzTyreF_Delta'.
+WARNING | Missing dependency 'xHubVertFL' for calculated channel 'xHubVertF_Delta'.
+WARNING | Missing dependency 'FzTyreRL' for calculated channel 'FzTyreR_Delta'.
+WARNING | Missing dependency 'xHubVertRL' for calculated channel 'xHubVertR_Delta'.
+WARNING | Missing dependency 'FPushrodFL' for calculated channel 'FPRodDeltaF'.
+WARNING | Missing dependency 'FPushrodRL' for calculated channel 'FPRodDeltaR'.
+WARNING | Missing dependency 'FPushrodFL' for calculated channel 'FPRodAvgF'.
+WARNING | Missing dependency 'FPushrodRL' for calculated channel 'FPRodAvgR'.
+WARNING | Missing dependency 'xDamperFL' for calculated channel 'xDamperDeltaF'.
+WARNING | Missing dependency 'xDamperRL' for calculated channel 'xDamperDeltaR'.
+WARNING | Missing dependency 'xDamperFL' for calculated channel 'xDamperAvgF'.
+WARNING | Missing dependency 'xDamperRL' for calculated channel 'xDamperAvgR'.
+WARNING | Missing dependency 'FzPlankF' for calculated channel 'PPlank_F'.
+WARNING | Missing dependency 'PPlank_F' for calculated channel 'EPlank_F'.
+WARNING | Missing dependency 'FzTyreFL' for calculated channel 'FzTyreF_Avg'.
+WARNING | Missing dependency 'xHubVertFL' for calculated channel 'xHubVertF_Avg'.
+WARNING | Missing dependency 'FzTyreRL' for calculated channel 'FzTyreR_Avg'.
+WARNING | Missing dependency 'xHubVertRL' for calculated channel 'xHubVertR_Avg'.
+WARNING | Missing dependency 'FzTyreFL' for calculated channel 'FzTyreF_Delta'.
+WARNING | Missing dependency 'xHubVertFL' for calculated channel 'xHubVertF_Delta'.
+WARNING | Missing dependency 'FzTyreRL' for calculated channel 'FzTyreR_Delta'.
+WARNING | Missing dependency 'xHubVertRL' for calculated channel 'xHubVertR_Delta'.
+WARNING | Cannot filter missing channel 'gVertF'.
+WARNING | Cannot filter missing channel 'gVertR'.
+WARNING | Cannot filter missing channel 'FzPlankF'.
+WARNING | Cannot filter missing channel 'EPlank_F'.
+WARNING | Cannot filter missing channel 'PPlank_F'.
+Waveform:   0%|          | 0/5 [00:00<?, ?plot/s]Waveform:  20%|██        | 1/5 [00:00<00:02,  1.80plot/s]Waveform:  40%|████      | 2/5 [00:01<00:01,  1.77plot/s]WARNING | Waveform channel 'FzPlankF' present in 1/2 runs. Plotting available runs only.
+WARNING | Waveform channel 'EPlank_F' present in 1/2 runs. Plotting available runs only.
+Waveform:  60%|██████    | 3/5 [00:01<00:01,  1.85plot/s]Waveform:  80%|████████  | 4/5 [00:02<00:00,  1.78plot/s]Waveform: 100%|██████████| 5/5 [00:02<00:00,  1.84plot/s]Waveform: 100%|██████████| 5/5 [00:02<00:00,  1.82plot/s]
+Scatter:   0%|          | 0/27 [00:00<?, ?plot/s]Scatter:   4%|▎         | 1/27 [00:00<00:11,  2.18plot/s]Scatter:   7%|▋         | 2/27 [00:00<00:10,  2.48plot/s]Scatter:  11%|█         | 3/27 [00:01<00:09,  2.65plot/s]Scatter:  15%|█▍        | 4/27 [00:01<00:08,  2.69plot/s]Scatter:  19%|█▊        | 5/27 [00:01<00:08,  2.62plot/s]Scatter:  22%|██▏       | 6/27 [00:02<00:07,  2.70plot/s]Scatter:  26%|██▌       | 7/27 [00:02<00:06,  2.92plot/s]Scatter:  30%|██▉       | 8/27 [00:02<00:06,  2.94plot/s]Scatter:  33%|███▎      | 9/27 [00:03<00:06,  2.91plot/s]Scatter:  37%|███▋      | 10/27 [00:03<00:05,  2.89plot/s]WARNING | Scatter 'Steering Moment': missing ['MSteerWheel'] in run 'oc'. Skipping.
+  Similar available: aSteerWheel, nWheelRR, nWheelRL
+Scatter:  41%|████      | 11/27 [00:03<00:05,  3.07plot/s]WARNING | Scatter 'Damper gLat front': missing ['xDamperDeltaF'] in run 'oc'. Skipping.
+Scatter:  44%|████▍     | 12/27 [00:04<00:04,  3.28plot/s]WARNING | Scatter 'Damper gLat rear': missing ['xDamperDeltaR'] in run 'oc'. Skipping.
+Scatter:  48%|████▊     | 13/27 [00:04<00:04,  3.33plot/s]WARNING | Scatter 'Pushrod gLat front': missing ['FPRodDeltaF'] in run 'oc'. Skipping.
+Scatter:  52%|█████▏    | 14/27 [00:04<00:03,  3.43plot/s]WARNING | Scatter 'Pushrod gLat rear': missing ['FPRodDeltaR'] in run 'oc'. Skipping.
+Scatter:  56%|█████▌    | 15/27 [00:04<00:03,  3.50plot/s]WARNING | Scatter 'Front Heave': missing ['xDamperAvgF', 'FPRodAvgF'] in run 'oc'. Skipping.
+Scatter:  59%|█████▉    | 16/27 [00:05<00:03,  3.51plot/s]WARNING | Scatter 'Front Roll': missing ['xDamperDeltaF', 'FPRodDeltaF'] in run 'oc'. Skipping.
+Scatter:  63%|██████▎   | 17/27 [00:05<00:02,  3.52plot/s]WARNING | Scatter 'Rear Heave': missing ['xDamperAvgR', 'FPRodAvgR'] in run 'oc'. Skipping.
+Scatter:  67%|██████▋   | 18/27 [00:05<00:02,  3.48plot/s]WARNING | Scatter 'Rear Roll': missing ['xDamperDeltaR', 'FPRodDeltaR'] in run 'oc'. Skipping.
+Scatter:  70%|███████   | 19/27 [00:06<00:02,  3.43plot/s]Scatter:  74%|███████▍  | 20/27 [00:06<00:02,  3.28plot/s]WARNING | Scatter 'Front Pushrod vCar': missing ['FPRodAvgF'] in run 'oc'. Skipping.
+Scatter:  78%|███████▊  | 21/27 [00:06<00:01,  3.41plot/s]WARNING | Scatter 'Rear Pushrod vCar': missing ['FPRodAvgR'] in run 'oc'. Skipping.
+Scatter:  81%|████████▏ | 22/27 [00:06<00:01,  3.55plot/s]Scatter:  85%|████████▌ | 23/27 [00:07<00:01,  2.99plot/s]Scatter:  89%|████████▉ | 24/27 [00:07<00:01,  2.73plot/s]Scatter:  93%|█████████▎| 25/27 [00:08<00:00,  2.74plot/s]Scatter:  96%|█████████▋| 26/27 [00:08<00:00,  2.76plot/s]WARNING | Scatter 'Plank power acceleration': missing ['PPlank_F'] in run 'oc'. Skipping.
+Scatter: 100%|██████████| 27/27 [00:08<00:00,  3.11plot/s]Scatter: 100%|██████████| 27/27 [00:08<00:00,  3.06plot/s]
+PSD:   0%|          | 0/6 [00:00<?, ?plot/s]WARNING | PSD 'Front Vertical Acceleration PSD': channel 'gVertF' missing in run 'oc'. Skipping.
+  Similar available: gVert
+PSD:  17%|█▋        | 1/6 [00:00<00:01,  3.26plot/s]WARNING | PSD 'Rear Vertical Acceleration PSD': channel 'gVertR' missing in run 'oc'. Skipping.
+  Similar available: gVert
+PSD:  33%|███▎      | 2/6 [00:00<00:01,  3.29plot/s]PSD:  50%|█████     | 3/6 [00:00<00:01,  2.98plot/s]PSD:  67%|██████▋   | 4/6 [00:01<00:00,  2.93plot/s]WARNING | PSD 'Front Heave PSD': channel 'FPRodAvgF' missing in run 'oc'. Skipping.
+WARNING | PSD 'Front Heave PSD': channel 'FPRodAvgR' missing in run 'oc'. Skipping.
+PSD:  83%|████████▎ | 5/6 [00:01<00:00,  2.69plot/s]WARNING | PSD 'Front Roll PSD': channel 'FPRodDeltaF' missing in run 'oc'. Skipping.
+WARNING | PSD 'Front Roll PSD': channel 'FPRodDeltaR' missing in run 'oc'. Skipping.
+PSD: 100%|██████████| 6/6 [00:02<00:00,  2.61plot/s]PSD: 100%|██████████| 6/6 [00:02<00:00,  2.78plot/s]
+Histogram:   0%|          | 0/1 [00:00<?, ?plot/s]Histogram: 100%|██████████| 1/1 [00:00<00:00,  5.23plot/s]Histogram: 100%|██████████| 1/1 [00:00<00:00,  5.23plot/s]
+Bar:   0%|          | 0/3 [00:00<?, ?plot/s]Bar:  33%|███▎      | 1/3 [00:00<00:00,  6.01plot/s]WARNING | Bar plot 'Plank Energy': missing channel 'EPlank_F' in run 'OC'.
+Bar:  67%|██████▋   | 2/3 [00:00<00:00,  5.83plot/s]Bar: 100%|██████████| 3/3 [00:00<00:00,  5.89plot/s]Bar: 100%|██████████| 3/3 [00:00<00:00,  5.89plot/s]
+INFO    | All plots saved to: C:\GitHub_Local\DLS-Correlation-Tool\Data\outputs\correlation\26R04MIA\plots
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import sys; sys.stderr = open('err.txt','w',encoding='utf-8'); exec(open('Run_Correlation.py').read())
+                                                                   ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<string>", line 206, in <module>
+  File "C:\GitHub_Local\DLS-Correlation-Tool\engine\plot_runtime.py", line 240, in run_workflow
+    return run_from_config(config, parse_plot_cli(cli_description or title))
+  File "C:\GitHub_Local\DLS-Correlation-Tool\engine\plot_runtime.py", line 371, in run_from_config
+    run_plot_job(
+    ~~~~~~~~~~~~^
+        title=config.title,
+        ^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+        open_output=open_output,
+        ^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\GitHub_Local\DLS-Correlation-Tool\engine\plot_runtime.py", line 721, in run_plot_job
+    print(f"\nGenerated {plot_count} plot(s) in {elapsed:.1f}s  \u2192  {plotter.plots_dir}")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nikko.tenhave\AppData\Local\Python\pythoncore-3.14-64\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2192' in position 33: character maps to <undefined>

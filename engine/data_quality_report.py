@@ -50,7 +50,7 @@ def build_quality_sections(
       * plain strings (rendered as bullet list), or
       * dicts with a ``"_table"`` key (rendered as a Markdown table).
     """
-    from dataplotter import collect_referenced_channels, estimate_slap_alignment
+    from .dataplotter import collect_referenced_channels, estimate_slap_alignment
 
     referenced = collect_referenced_channels(plot_definitions)
 

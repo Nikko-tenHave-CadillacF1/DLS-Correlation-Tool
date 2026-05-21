@@ -30,7 +30,7 @@ log = logging.getLogger(_LOG_NAME)
 
 # Default handler — writes to stderr so it doesn't mix with pipeline stdout.
 _handler = logging.StreamHandler(sys.stderr)
-_handler.setFormatter(logging.Formatter("%(levelname)-7s │ %(message)s"))
+_handler.setFormatter(logging.Formatter("%(levelname)-7s | %(message)s"))
 log.addHandler(_handler)
 log.setLevel(logging.INFO)  # default; configure() may lower to DEBUG
 
