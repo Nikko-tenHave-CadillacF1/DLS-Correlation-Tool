@@ -7,6 +7,8 @@ Split into focused modules:
   plot_generators_bar_box.py   — BarBoxMixin
 """
 
+from __future__ import annotations
+
 import matplotlib
 # Force the non-interactive Agg backend so the tool can run from terminals,
 # remote shells, and CI agents that lack a display. Must come before any
@@ -38,6 +40,7 @@ from plot_generators_waveform import WaveformMixin
 from plot_generators_scatter import ScatterMixin
 from plot_generators_misc import PsdHistMixin, HeatmapMixin
 from plot_generators_bar_box import BarBoxMixin
+from logger import log
 
 
 
@@ -326,25 +329,25 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
 
     def __init__(
         self,
-        root_folder,
-        runs,
-        plot_definitions=None,
-        channel_mappings=None,
-        channel_transforms=None,
-        calculated_channels=None,
-        filters=None,
-        fig_size=None,
-        units_map=None,
-        plot_aspect_ratios=None,
-        sample_rate=100,
-        scatter_dot_size=5,
-        scatter_transparency=0.7,
-        scatter_max_points=45000,
-        bar_secondary_axis_ratio=20.0,
-        box_plot_settings=None,
-        output_dir=None,
-        verbose=False,
-        output_dpi=300,
+        root_folder: str | Path,
+        runs: list[dict],
+        plot_definitions: tuple | None = None,
+        channel_mappings: dict | None = None,
+        channel_transforms: dict | None = None,
+        calculated_channels: dict | None = None,
+        filters: dict | None = None,
+        fig_size: dict | list | None = None,
+        units_map: dict | None = None,
+        plot_aspect_ratios: dict | None = None,
+        sample_rate: float = 100,
+        scatter_dot_size: float = 5,
+        scatter_transparency: float = 0.7,
+        scatter_max_points: int = 45000,
+        bar_secondary_axis_ratio: float = 20.0,
+        box_plot_settings: dict | None = None,
+        output_dir: str | Path | None = None,
+        verbose: bool = False,
+        output_dpi: int = 300,
     ):
         """Build a plotter instance and run the preprocessing pipeline."""
         if fig_size is None:
@@ -647,9 +650,9 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         insensitive = [c for c in columns if c.lower() == lower_target]
         if insensitive:
             if len(insensitive) > 1:
-                print(
-                    f"[WARNING][DataPlotter] Multiple {logical_name}-like columns found: "
-                    f"{', '.join(insensitive)}. Using '{insensitive[0]}'."
+                log.warning(
+                    "Multiple %s-like columns found: %s. Using '%s'.",
+                    logical_name, ', '.join(insensitive), insensitive[0],
                 )
             return insensitive[0]
         return None
@@ -726,7 +729,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             if raise_on_missing_column:
                 raise KeyError(msg + ".")
             else:
-                print(f"[WARNING][DataPlotter] {msg}. Skipping filter.")
+                log.warning("%s. Skipping filter.", msg)
                 return df
 
         series = df[run_col]
@@ -773,13 +776,13 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             if raise_on_empty_result:
                 raise ValueError(msg)
             else:
-                print(f"[WARNING][DataPlotter] {msg}")
+                log.warning("%s", msg)
                 return df
 
-        print(
-            f"[INFO][DataPlotter] Run '{run_label}' filtered by {column_logical_name}: "
-            f"{column_logical_name.lower()}={filter_spec} → {run_col}={target_value} "
-            f"({len(filtered)}/{len(df)} rows kept)."
+        log.info(
+            "Run '%s' filtered by %s: %s=%s → %s=%s (%d/%d rows kept).",
+            run_label, column_logical_name, column_logical_name.lower(),
+            filter_spec, run_col, target_value, len(filtered), len(df),
         )
         return filtered
 
@@ -814,9 +817,9 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     read_kwargs["columns"] = col_subset
 
                 if parquet_nrun is not None and parquet_nlap is not None:
-                    print(
-                        f"[INFO][DataPlotter] Run '{run_name.upper() if run_name else file_path.name}' "
-                        "provided both nrun and nlap; applying nrun filter and ignoring nlap."
+                    log.info(
+                        "Run '%s' provided both nrun and nlap; applying nrun filter and ignoring nlap.",
+                        run_name.upper() if run_name else file_path.name,
                     )
 
                 df = pd.read_parquet(file_path, **read_kwargs)
@@ -843,10 +846,10 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     available = [c for c in requested if c in df.columns]
                     missing = [c for c in requested if c not in df.columns]
                     if missing and self.verbose:
-                        print(
-                            f"[WARNING][DataPlotter] Parquet '{file_path.name}' missing "
-                            f"{len(missing)} channel(s): {', '.join(missing[:10])}"
-                            + (" ..." if len(missing) > 10 else "")
+                        log.debug(
+                            "Parquet '%s' missing %d channel(s): %s%s",
+                            file_path.name, len(missing), ', '.join(missing[:10]),
+                            " ..." if len(missing) > 10 else "",
                         )
                     if available:
                         df = df[available]
@@ -916,7 +919,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             return df, df.columns, units
 
         except Exception as e:
-            print(f"[ERROR][DataPlotter] Failed to load '{file_path}': {e}")
+            log.error("Failed to load '%s': %s", file_path, e)
             raise
 
     # ------------------------------------------------------------------
@@ -943,7 +946,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 df.drop(columns=drop_cols, inplace=True)
                 if self.verbose:
                     for col in drop_cols:
-                        print(f"  Dropped '{col}' from run '{run_name}' (string column)")
+                        log.debug("Dropped '%s' from run '%s' (string column)", col, run_name)
 
             # Batched DataFrame-wide linear interpolation; ~10× faster than per-column.
             if not df.empty:
@@ -980,7 +983,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
     # Data export (#7)
     # ------------------------------------------------------------------
 
-    def export_run_data(self, export_format="csv"):
+    def export_run_data(self, export_format: str = "csv") -> list[Path]:
         """Dump preprocessed per-run dataframes to disk.
 
         Drops to ``<plots_dir>/exported_data/<run>.{csv|parquet}``.
@@ -1001,13 +1004,13 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 try:
                     df.to_parquet(path, index=False)
                 except Exception as exc:
-                    print(f"[WARNING][DataPlotter] Parquet export failed for '{run_name}': {exc}. Falling back to CSV.")
+                    log.warning("Parquet export failed for '%s': %s. Falling back to CSV.", run_name, exc)
                     path = out_dir / f"{safe}.csv"
                     df.to_csv(path, index=False)
             written.append(path)
             if self.verbose:
-                print(f"  Exported: {path}")
-        print(f"Exported {len(written)} runs to {out_dir}")
+                log.debug("Exported: %s", path)
+        log.info("Exported %d runs to %s", len(written), out_dir)
         return written
 
     # ------------------------------------------------------------------
@@ -1105,7 +1108,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
     # Pipeline
     # ------------------------------------------------------------------
 
-    def load_data(self, root_folder):
+    def load_data(self, root_folder: str | Path) -> dict[str, pd.DataFrame]:
         """Load raw run files into memory."""
         root_folder = Path(root_folder)
         self._loaded = False
@@ -1122,9 +1125,9 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             file_path = root_folder / run["file"]
 
             if not file_path.exists():
-                print(
-                    f"[WARNING][DataPlotter] Missing data file for run '{run_name}': "
-                    f"{file_path}. Skipping run."
+                log.warning(
+                    "Missing data file for run '%s': %s. Skipping run.",
+                    run_name, file_path,
                 )
                 continue
 
@@ -1144,9 +1147,9 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     run_name=run_name,
                 )
             except Exception as exc:
-                print(
-                    f"[WARNING][DataPlotter] Failed to load run '{run_name}' from {file_path}: "
-                    f"{exc}. Skipping run."
+                log.warning(
+                    "Failed to load run '%s' from %s: %s. Skipping run.",
+                    run_name, file_path, exc,
                 )
                 self.run_required_cols.pop(run_name, None)
                 continue
@@ -1160,7 +1163,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         self._loaded = True
         return self.run_data
 
-    def preprocess_data(self):
+    def preprocess_data(self) -> None:
         """Apply mappings, transforms, calculated channels, and filters."""
         if not self._loaded:
             raise RuntimeError("Data must be loaded before preprocessing.")
@@ -1195,14 +1198,14 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             self.run_sample_rates[name] = (rate, source)
             detected_rates.append(rate)
             if self.verbose:
-                print(f"  [{name}] sample rate: {rate:.1f} Hz (source: {source})")
+                log.debug("[%s] sample rate: %.1f Hz (source: %s)", name, rate, source)
         if detected_rates:
             rmin, rmax = min(detected_rates), max(detected_rates)
             if rmin > 0 and (rmax / rmin) > 1.05:
-                print(
-                    f"[WARNING][DataPlotter] Per-run sample rates vary by "
-                    f"{rmax/rmin:.2f}x ({rmin:.1f}–{rmax:.1f} Hz). "
-                    f"This may affect PSD comparisons."
+                log.warning(
+                    "Per-run sample rates vary by %.2fx (%.1f–%.1f Hz). "
+                    "This may affect PSD comparisons.",
+                    rmax / rmin, rmin, rmax,
                 )
 
         for run in self.runs:
@@ -1476,7 +1479,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
     # Plot dispatcher
     # ------------------------------------------------------------------
 
-    def plot_data(self, plot_types=None, plot_names=None):
+    def plot_data(self, plot_types: list[str] | None = None, plot_names: list[str] | None = None) -> None:
         """Run all (or filtered) plot generators.
 
         plot_types: list of 'waveform','scatter','psd','histogram','bar','box','heatmap' or None.
@@ -1498,7 +1501,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             requested = {t.lower() for t in plot_types}
             generators = [(name, fn) for name, fn in all_generators if name in requested]
             if not generators:
-                print(f"[WARNING][DataPlotter] No plot types matched from: {plot_types!r}")
+                log.warning("No plot types matched from: %r", plot_types)
                 return
         else:
             generators = all_generators
@@ -1518,5 +1521,5 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             if plot_names is not None:
                 self.PLOT_DEFINITIONS = original_defs
 
-        print(f"\nAll plots saved to: {self.plots_dir}")
+        log.info("All plots saved to: %s", self.plots_dir)
 

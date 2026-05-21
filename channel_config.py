@@ -39,6 +39,22 @@ def resolve_template_path(filename: str = "template.pptx") -> Path:
     return TEMPLATES_DIR / filename
 
 
+def get_workflow_dirs(workflow: str, event: str = None) -> tuple:
+    """Return (input_dir, output_dir) for any workflow name, creating folders if needed.
+
+    If event is provided, directories are nested: Data/inputs/<workflow>/<event>/
+    """
+    if event:
+        input_dir = _DATA / "inputs" / workflow / event
+        output_dir = _DATA / "outputs" / workflow / event
+    else:
+        input_dir = _DATA / "inputs" / workflow
+        output_dir = _DATA / "outputs" / workflow
+    input_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return input_dir, output_dir
+
+
 # ─── CHANNEL MAPPINGS ────────────────────────────────────────────────────────
 # Maps raw source column names to canonical names used in plot definitions.
 # Add entries here when a data source uses non-standard column names.
@@ -48,6 +64,7 @@ CHANNEL_MAPPINGS = {
         "rSLMActive": "SM",
         "aUndersteer_aSlip": "aUndersteerFromSlip",
         "dtLap_drGripFactorTotal": "Grip Sens.",
+        "sRun": "sLap",
     },
     "DIL": {
         "BSLMActiveCan": "SM",
@@ -72,6 +89,10 @@ CHANNEL_MAPPINGS = {
         "rThrottlePedal": "rThrottle",
         "EPlankLTS_Lap": "EPlankF",
         "PPlankWearF": "PPlankF",
+        "zWheelCentreChassisFL": "xHubVertFL",
+        "zWheelCentreChassisFR": "xHubVertFR",
+        "zWheelCentreChassisRL": "xHubVertRL",
+        "zWheelCentreChassisRR": "xHubVertRR",
     },
     "CAR": {
         "BNSLMEnablingStatusEnabled": "SM",
@@ -226,6 +247,17 @@ CORRELATION_CALCULATED = {
     "PPlank_F":           lambda df: 0.001 * np.maximum(0.1 * df["FzPlankF"] * (df["vCar"] / 3.6), 0),
     "EPlank_F":           lambda df: cumulative_trapezoid(df["PPlank_F"], dx=0.01, initial=0),
     "tLap_Calc":          lambda df: cumulative_trapezoid(np.ones_like(df["vCar"]), dx=0.01, initial=0),
+
+    # OC Only:
+    "FzTyreF_Avg":      lambda df: (df["FzTyreFL"] + df["FzTyreFR"]) / 2,
+    "xHubVertF_Avg":    lambda df: (df["xHubVertFL"] + df["xHubVertFR"]) / 2,
+    "FzTyreR_Avg":      lambda df: (df["FzTyreRL"] + df["FzTyreRR"]) / 2,
+    "xHubVertR_Avg":    lambda df: (df["xHubVertRL"] + df["xHubVertRR"]) / 2,
+
+    "FzTyreF_Delta":    lambda df: df["FzTyreFL"] - df["FzTyreFR"],
+    "xHubVertF_Delta":  lambda df: df["xHubVertFL"] - df["xHubVertFR"],
+    "FzTyreR_Delta":    lambda df: df["FzTyreRL"] - df["FzTyreRR"],
+    "xHubVertR_Delta":  lambda df: df["xHubVertRL"] - df["xHubVertRR"],
 }
 
 BOXPLOT_CALCULATED = {

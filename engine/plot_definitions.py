@@ -96,6 +96,9 @@ class Marker:
       max_count:   cap the number of markers emitted per run (most recent N
                    transitions are kept). None = unlimited.
       label:       optional text label drawn at the top.
+      show_label:  if False, suppress drawing the label text (the line is
+                   still drawn). Useful to reduce clutter when the condition
+                   being annotated is obvious from context. Default True.
       color:       hex colour. ``None`` \u2192 grey for static markers, run colour
                    for condition markers.
       linestyle:   matplotlib linestyle (default dotted ':' so it visually
@@ -106,6 +109,7 @@ class Marker:
 
     x: Optional[float] = None
     label: Optional[str] = None
+    show_label: bool = True
     color: Optional[str] = None
     linestyle: str = ":"
     row: Optional[int] = None

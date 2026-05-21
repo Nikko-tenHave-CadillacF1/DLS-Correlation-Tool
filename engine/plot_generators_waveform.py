@@ -4,9 +4,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 from matplotlib.lines import Line2D
-import datafunctions
-from datafunctions import _tqdm
-from logger import log
+from . import datafunctions
+from .datafunctions import _tqdm
+from .logger import log
 
 
 class WaveformMixin:

@@ -10,7 +10,7 @@ from scipy.stats import linregress, theilslopes
 from scipy.signal import butter, filtfilt, welch
 from matplotlib import patheffects as pe
 
-from logger import log
+from .logger import log
 
 # NumPy 2.0 renamed ``np.trapz`` to ``np.trapezoid``; keep both call sites working.
 _np_trapezoid = getattr(np, "trapezoid", None) or getattr(np, "trapz")

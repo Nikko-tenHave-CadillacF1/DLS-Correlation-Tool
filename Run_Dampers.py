@@ -1,6 +1,11 @@
 """Damper workflow — edit RUNS and plot definitions to configure your analysis."""
 
-from plot_runtime import run_workflow, WaveformPlot, ScatterPlot
+from channel_config import get_workflow_dirs
+from engine import run_workflow, WaveformPlot, ScatterPlot
+
+WORKFLOW_NAME = "dampers"
+EVENT = "26R04MIA"
+_INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 
@@ -57,9 +62,11 @@ SCATTER_PLOT_DEFINITIONS = [
 
 if __name__ == "__main__":
     run_workflow(
-        "dampers",
+        WORKFLOW_NAME,
         title="DAMPER PLOT ANALYSIS",
         runs=RUNS,
+        root_folder=_INPUT_DIR,
+        output_dir=_OUTPUT_DIR,
         waveforms=WAVEFORM_PLOT_DEFINITIONS,
         scatters=SCATTER_PLOT_DEFINITIONS,
         fig_size={"waveform": (9.5, 8), "scatter": (10, 8), "psd": (10, 8), "histogram": (10, 8), "bar": (10, 6)},

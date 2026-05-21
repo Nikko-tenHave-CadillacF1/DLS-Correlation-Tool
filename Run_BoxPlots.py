@@ -1,6 +1,11 @@
 """Box plot workflow — edit RUNS and BOX_PLOT_DEFINITIONS to configure your analysis."""
 
-from plot_runtime import run_workflow, BoxPlot
+from channel_config import get_workflow_dirs
+from engine import run_workflow, BoxPlot
+
+WORKFLOW_NAME = "boxplots"
+EVENT = "26T01BCN"
+_INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 
@@ -28,8 +33,10 @@ BOX_PLOT_DEFINITIONS = [
 
 if __name__ == "__main__":
     run_workflow(
-        "boxplots",
+        WORKFLOW_NAME,
         title="BOX PLOT ANALYSIS",
         runs=RUNS,
+        root_folder=_INPUT_DIR,
+        output_dir=_OUTPUT_DIR,
         boxes=BOX_PLOT_DEFINITIONS,
     )

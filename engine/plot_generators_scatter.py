@@ -3,9 +3,9 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import datafunctions
-from datafunctions import _tqdm
-from logger import log
+from . import datafunctions
+from .datafunctions import _tqdm
+from .logger import log
 
 
 def _resolve_scatter_style(point_count, base_size, base_alpha):

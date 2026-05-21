@@ -14,9 +14,10 @@ Parquet input files require at least one of: `pyarrow`, `fastparquet` (both incl
 
 ## Quickstart
 
-1. Drop input files into the appropriate folder under `Data/inputs/`
-2. Edit `RUNS` in the relevant `Run_*.py` file to point at your files
-3. Run the script
+1. Drop input files into `Data/inputs/<workflow>/<event>/` (folders are auto-created)
+2. Edit `WORKFLOW_NAME` and `EVENT` in the relevant `Run_*.py` file
+3. Edit `RUNS` to point at your files
+4. Run the script
 
 ```powershell
 python Run_Correlation.py
@@ -24,7 +25,9 @@ python Run_BoxPlots.py
 python Run_Dampers.py
 ```
 
-Plots are saved to `Data/outputs/<workflow>/plots/`. The output folder opens automatically on completion.
+Plots are saved to `Data/outputs/<workflow>/<event>/plots/`. The output folder opens automatically on completion.
+
+To start a new workflow from scratch, copy `Run_Template.py` and change `WORKFLOW_NAME` and `EVENT` — all directories are created automatically.
 
 ### CLI Options
 
@@ -56,9 +59,10 @@ Flags can be combined: `--types scatter --only "Front Heave" --no-open`.
 
 | File | Purpose |
 |---|---|
-| `Run_Correlation.py` | Runs, plot definitions, and PowerPoint export settings for the correlation workflow |
-| `Run_BoxPlots.py` | Runs and box plot definitions for the box-plot workflow |
-| `Run_Dampers.py` | Runs, waveform, and scatter definitions for the damper workflow |
+| `Run_Template.py` | Reference template — copy this to start a new workflow |
+| `Run_Correlation.py` | Runs, plot definitions, and PowerPoint export for correlation |
+| `Run_BoxPlots.py` | Runs and box plot definitions |
+| `Run_Dampers.py` | Runs, waveform, and scatter definitions for damper analysis |
 | `channel_config.py` | Project-wide settings: folder paths, channel mappings, unit labels, transforms, calculated channels, filters, and render settings |
 
 ### Engine files (do not edit)
@@ -80,17 +84,49 @@ Flags can be combined: `--types scatter --only "Front Heave" --no-open`.
 ```
 Data/
   inputs/
-    correlation/    ← correlation input files
-    boxplots/       ← box-plot input files
-    dampers/        ← damper input files
-  templates/        ← PowerPoint template files (.pptx)
+    correlation/          ← correlation input files, organised by event
+      26R04MIA/
+      26R03SUZ/
+      misc/               ← files without a clear event
+    boxplots/
+      26T01BCN/
+      26R01MEL/
+    dampers/
+      26R04MIA/
+  templates/              ← PowerPoint template files (.pptx)
   outputs/
-    correlation/plots/
-    boxplots/plots/
-    dampers/plots/
+    correlation/
+      26R04MIA/plots/     ← generated plots and reports
+    boxplots/
+      26T01BCN/plots/
+    dampers/
+      26R04MIA/plots/
 ```
 
-All directories are created automatically on first run.
+All directories are created automatically on first run via `get_workflow_dirs(workflow, event)`.
+
+### Cross-event comparisons
+
+To compare runs from different events, set `EVENT = None` so the root folder
+becomes `Data/inputs/<workflow>/`, then prefix filenames with the event subfolder:
+
+```python
+WORKFLOW_NAME = "correlation"
+EVENT = None
+_INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
+
+RUNS = [
+    {"name": "MIA LTS", "file": "26R04MIA/my_mia_file.parquet", "color": "#0083BF", "type": "DLS", "nlap": 1},
+    {"name": "SUZ LTS", "file": "26R03SUZ/my_suz_file.parquet", "color": "#D70000", "type": "DLS", "nlap": 1},
+]
+```
+
+Outputs go to `Data/outputs/correlation/plots/`. For a named output folder, override the
+output directory:
+
+```python
+_, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, "MIA_vs_SUZ")
+```
 
 ---
 
@@ -102,7 +138,7 @@ In any `Run_*.py` file, `RUNS` is a list of dicts:
 RUNS = [
     {
         "name":  "Baseline",              # display label used in all plots
-        "file":  "my_run.parquet",        # path relative to the workflow's input folder
+        "file":  "my_run.parquet",        # path relative to Data/inputs/<workflow>/<event>/
         "color": "#D70000",               # hex colour for this run's traces
         "type":  "OC",                    # OC | CAR | DLS | DIL
         "nrun":  1,                       # (parquet only) rank-based run selection

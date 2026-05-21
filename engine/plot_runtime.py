@@ -13,8 +13,8 @@ from zipfile import ZipFile
 import xml.etree.ElementTree as ET
 from typing import Optional, Union
 
-from dataplotter import DataPlotter
-from logger import log, configure as configure_logging
+from .dataplotter import DataPlotter
+from .logger import log, configure as configure_logging
 
 
 # Default figure sizes keyed by plot type for clarity.
@@ -161,7 +161,7 @@ def validate_export_map(plot_definitions: tuple, export_map: Optional[dict]) -> 
         return []
 
     # Collect all filenames that will be generated
-    from plot_definitions import PLOT_TYPE_ORDER as type_prefixes
+    from .plot_definitions import PLOT_TYPE_ORDER as type_prefixes
     generated_names: set[str] = set()
 
     for group_idx, group in enumerate(plot_definitions):
@@ -351,7 +351,7 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
 
     # --- Handle --check-only (data quality report only) ---
     if cli_args is not None and getattr(cli_args, "check_only", False):
-        from data_quality_report import (
+        from .data_quality_report import (
             build_quality_sections, write_data_quality_report, print_quality_summary,
         )
         sections = build_quality_sections(
@@ -425,7 +425,7 @@ def parse_plot_cli(description: str = "Run plotting job"):
 
 def _print_plot_list(plot_definitions):
     """Print all configured plot names grouped by type."""
-    from plot_definitions import PLOT_TYPE_ORDER as type_names
+    from .plot_definitions import PLOT_TYPE_ORDER as type_names
     print("\nConfigured Plots:")
     print("-" * 50)
     total = 0
@@ -447,7 +447,7 @@ def _print_dry_run(config, runs, export_map):
     in each run (peeking at the file schema where possible) and estimates the
     on-disk size of the resulting PNG.
     """
-    from plot_definitions import PLOT_TYPE_ORDER as type_names
+    from .plot_definitions import PLOT_TYPE_ORDER as type_names
     print("\n" + "=" * 60)
     print(f"{'DRY RUN':^60}")
     print("=" * 60)
@@ -690,7 +690,7 @@ def run_plot_job(
     print("=" * 80 + "\n")
 
     # --- Data quality report (before plotting) ---
-    from data_quality_report import (
+    from .data_quality_report import (
         build_quality_sections, write_data_quality_report, print_quality_summary,
     )
     sections = build_quality_sections(
@@ -761,7 +761,7 @@ def run_plot_job(
 # keep working unchanged. The dataclass ``__post_init__`` performs validation
 # that previously lived in this file (#9, #23, #24).
 
-from plot_definitions import (  # noqa: E402
+from .plot_definitions import (  # noqa: E402
     Marker,
     WaveformPlot,
     ScatterPlot,
