@@ -683,15 +683,7 @@ class ScatterMixin:
                                 })
 
             # Axis limits
-            has_x_limits = has_y_limits = False
-            if axis_limits:
-                (xmin, xmax), (ymin, ymax) = axis_limits
-                if xmin is not None or xmax is not None:
-                    ax.set_xlim(left=xmin, right=xmax)
-                    has_x_limits = True
-                if ymin is not None or ymax is not None:
-                    ax.set_ylim(bottom=ymin, top=ymax)
-                    has_y_limits = True
+            has_x_limits, has_y_limits = self._apply_2d_axis_limits(ax, axis_limits)
 
             self._add_axis_edge_padding(
                 ax,
@@ -853,26 +845,7 @@ class ScatterMixin:
             # ── Markers (#6) ──
             # Only static (x-valued) markers are meaningful on scatter plots
             # — condition markers depend on a time/distance series.
-            if markers:
-                xl_m, xr_m = ax.get_xlim()
-                for m in markers:
-                    if m.condition is not None:
-                        continue  # condition markers are waveform-only
-                    if not (xl_m <= m.x <= xr_m):
-                        continue
-                    mcolor = m.color or "#5E5E5E"
-                    ax.axvline(m.x, color=mcolor, linestyle=m.linestyle,
-                               linewidth=1.2, alpha=0.7, zorder=2)
-                    if m.label and m.show_label:
-                        ax.text(
-                            m.x, 1.01, m.label,
-                            transform=ax.get_xaxis_transform(),
-                            ha="center", va="bottom",
-                            fontsize=9, fontweight="bold", color=mcolor,
-                            bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
-                                      edgecolor=mcolor, linewidth=0.8, alpha=0.9),
-                            zorder=12,
-                        )
+            self._draw_static_markers(ax, markers)
 
             plt.tight_layout(pad=0.25)
             fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")

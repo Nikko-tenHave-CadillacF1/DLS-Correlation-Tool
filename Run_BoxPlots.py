@@ -1,5 +1,8 @@
 """Box plot workflow — edit RUNS and BOX_PLOT_DEFINITIONS to configure your analysis."""
 
+from bootstrap import ensure_dependencies
+ensure_dependencies()
+
 from channel_config import get_workflow_dirs
 from engine import run_workflow, BoxPlot
 

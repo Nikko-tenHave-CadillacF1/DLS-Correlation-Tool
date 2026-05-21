@@ -23,3 +23,4 @@ from engine.plot_runtime import (  # noqa: F401
     BoxPlot,
     HeatmapPlot,
 )
+from engine.datafunctions import calc_channel  # noqa: F401

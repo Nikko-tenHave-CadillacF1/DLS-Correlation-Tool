@@ -7,10 +7,14 @@ scipy>=1.7.0            # `scipy.stats.theilslopes` is used for robust fits.
 
 # ─── Optional ────────────────────────────────────────────────────────────────
 # Parquet input: at least one engine is required when reading .parquet files.
-pyarrow>=15.0.0;       python_version < "3.14"
-fastparquet>=2024.11.0; python_version < "3.14"
+# Both have wheels for Python 3.14 as of late-2025; if your platform lacks one,
+# the other will be auto-selected at runtime.
+pyarrow>=15.0.0
+fastparquet>=2024.11.0
 
-# PowerPoint export (Windows only). Required only when EXPORT_TO_POWERPOINT=True.
+# PowerPoint export. python-pptx is cross-platform (preferred); pywin32 is
+# only used as a fallback on Windows when python-pptx isn't available.
+python-pptx>=0.6.23
 pywin32>=306; sys_platform == "win32"
 
 # Progress bars during plot generation. The tool runs without it.

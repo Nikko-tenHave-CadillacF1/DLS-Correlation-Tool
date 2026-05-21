@@ -1,5 +1,8 @@
 """Correlation workflow — edit RUNS and plot definitions to configure your analysis."""
 
+from bootstrap import ensure_dependencies
+ensure_dependencies()
+
 from channel_config import get_workflow_dirs, resolve_template_path
 from engine import (
     run_workflow, Slide,

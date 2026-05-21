@@ -4,11 +4,29 @@ Generate engineering plots from multiple telemetry runs and optionally export a 
 
 ## Setup
 
+The tool is **plug-and-play**: every `Run_*.py` script auto-bootstraps a local
+`.venv` and installs dependencies the first time you run it. There is no need
+to open a terminal or call `pip` manually.
+
 ```powershell
+python Run_Correlation.py        # creates .venv, installs deps, then runs
+```
+
+If you prefer to set things up explicitly:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
 Parquet input files require at least one of: `pyarrow`, `fastparquet` (both included in `requirements.txt`).
+
+Set `DLS_SKIP_BOOTSTRAP=1` in your environment to disable the auto-installer
+(useful in CI or shared/managed Python environments).
+
+See also [tools/README.md](tools/README.md) for helper utilities (data
+organisation, config validation, etc.).
 
 ---
 

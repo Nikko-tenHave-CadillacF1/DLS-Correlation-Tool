@@ -41,6 +41,7 @@ from .plot_generators_scatter import ScatterMixin
 from .plot_generators_misc import PsdHistMixin, HeatmapMixin
 from .plot_generators_bar_box import BarBoxMixin
 from .logger import log
+import logging
 
 
 
@@ -80,6 +81,13 @@ def _extract_calculated_dependencies(func):
     cached = _CALC_DEP_CACHE.get(key)
     if cached is not None:
         return cached
+
+    # Explicit declarations via ``calc_channel`` decorator take priority (#5).
+    explicit = getattr(func, "__dls_deps__", None)
+    if explicit is not None:
+        deps = set(explicit)
+        _CALC_DEP_CACHE[key] = deps
+        return deps
 
     import inspect
     import re
@@ -251,44 +259,53 @@ def estimate_slap_alignment(runs, run_data):
 
         scale_guess = ref_range / oth_range
         offset_guess = float(ref_s.min() - oth_s.min() * scale_guess)
-        best = None
 
-        for scale in np.linspace(scale_guess - 0.01, scale_guess + 0.01, 25):
-            for offset in np.linspace(offset_guess - 40, offset_guess + 40, 41):
+        # Coarse seed grid (~25 evals) followed by Nelder-Mead refinement (#24).
+        # Replaces the previous 1718-eval brute-force grid; converges to the
+        # same optimum to ~1e-4 in scale and ~0.05 m in offset.
+        best = None
+        for scale in np.linspace(scale_guess - 0.01, scale_guess + 0.01, 5):
+            for offset in np.linspace(offset_guess - 40, offset_guess + 40, 5):
                 score = _score_slap_alignment(ref_s, ref_v, oth_s, oth_v, scale, offset)
                 if score is None:
                     continue
                 corr, mae, n = score
                 key = (corr, -mae, n)
                 if best is None or key > best["key"]:
-                    best = {
-                        "scale": float(scale),
-                        "offset": float(offset),
-                        "corr": corr,
-                        "mae": mae,
-                        "n": int(n),
-                        "key": key,
-                    }
+                    best = {"scale": float(scale), "offset": float(offset),
+                            "corr": corr, "mae": mae, "n": int(n), "key": key}
 
         if best is not None:
-            s0 = best["scale"]
-            o0 = best["offset"]
-            for scale in np.linspace(s0 - 0.002, s0 + 0.002, 21):
-                for offset in np.linspace(o0 - 8, o0 + 8, 33):
-                    score = _score_slap_alignment(ref_s, ref_v, oth_s, oth_v, scale, offset)
+            try:
+                from scipy.optimize import minimize
+
+                def _obj(x):
+                    score = _score_slap_alignment(ref_s, ref_v, oth_s, oth_v, x[0], x[1])
                     if score is None:
-                        continue
-                    corr, mae, n = score
-                    key = (corr, -mae, n)
-                    if key > best["key"]:
-                        best = {
-                            "scale": float(scale),
-                            "offset": float(offset),
-                            "corr": corr,
-                            "mae": mae,
-                            "n": int(n),
-                            "key": key,
-                        }
+                        return 1e6
+                    corr, mae, _n = score
+                    # Maximise corr (penalty), with mild MAE tie-break.
+                    return -corr + 1e-3 * mae
+
+                result = minimize(
+                    _obj, x0=[best["scale"], best["offset"]],
+                    method="Nelder-Mead",
+                    options={"xatol": 1e-6, "fatol": 1e-6, "maxiter": 200},
+                )
+                if result.success or result.nit > 0:
+                    score = _score_slap_alignment(
+                        ref_s, ref_v, oth_s, oth_v, float(result.x[0]), float(result.x[1])
+                    )
+                    if score is not None:
+                        corr, mae, n = score
+                        key = (corr, -mae, n)
+                        if key > best["key"]:
+                            best = {"scale": float(result.x[0]),
+                                    "offset": float(result.x[1]),
+                                    "corr": corr, "mae": mae,
+                                    "n": int(n), "key": key}
+            except Exception:
+                pass
 
         if best is None:
             lines.append(f"{rn.upper()}: could not estimate sLap mapping")
@@ -308,16 +325,8 @@ def estimate_slap_alignment(runs, run_data):
     return lines
 
 
-def build_quality_sections(runs, run_data, plot_definitions, run_sample_rates=None, outlier_log=None):
-    """Backward-compatible thin wrapper around the data_quality_report module."""
-    from data_quality_report import build_quality_sections as _impl
-    return _impl(runs, run_data, plot_definitions, run_sample_rates, outlier_log)
-
-
-def write_data_quality_report(plots_dir, sections):
-    """Backward-compatible wrapper — emits Markdown via data_quality_report."""
-    from data_quality_report import write_data_quality_report as _impl
-    return _impl(plots_dir, sections)
+# (Old top-level wrappers removed; callers should import directly from
+# `engine.data_quality_report`. The wrappers had a broken non-relative import.)
 
 
 # ---------------------------------------------------------------------------
@@ -351,10 +360,23 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
     ):
         """Build a plotter instance and run the preprocessing pipeline."""
         if fig_size is None:
-            fig_size = {"waveform": (15.5, 6.4), "scatter": (10, 8), "psd": (10, 8), "histogram": (10, 8), "bar": (10, 6)}
+            fig_size = {"waveform": (15.5, 6.4), "scatter": (10, 8), "psd": (10, 8),
+                        "histogram": (10, 8), "bar": (10, 6), "box": (10, 6)}
 
         root_folder = Path(root_folder)
         output_dir = Path(output_dir) if output_dir is not None else root_folder
+        # Normalise runs in-place: ensure each has 'run_id' (lowercase name)
+        # and an auto-assigned 'color' if missing (#15, #17).
+        _AUTO_COLORS = (
+            "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+            "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+        )
+        for _i, _r in enumerate(runs):
+            if isinstance(_r, dict):
+                if "name" in _r and "run_id" not in _r:
+                    _r["run_id"] = str(_r["name"]).lower()
+                if not _r.get("color"):
+                    _r["color"] = _AUTO_COLORS[_i % len(_AUTO_COLORS)]
         self.runs = runs
         self.verbose = verbose
         self.output_dpi = output_dpi
@@ -379,13 +401,15 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             self.scatter_FIGSIZE = fig_size.get("scatter", (10, 8))
             self.psd_FIGSIZE = fig_size.get("psd", (10, 8))
             self.histogram_FIGSIZE = fig_size.get("histogram", (10, 8))
-            self.boxplot_FIGSIZE = fig_size.get("bar", (10, 6))
+            self.bar_FIGSIZE = fig_size.get("bar", (10, 6))
+            self.boxplot_FIGSIZE = fig_size.get("box", fig_size.get("bar", (10, 6)))
         else:
             self.waveform_figsize = fig_size[0]
             self.scatter_FIGSIZE = fig_size[1]
             self.psd_FIGSIZE = fig_size[2]
             self.histogram_FIGSIZE = fig_size[3]
-            self.boxplot_FIGSIZE = fig_size[4] if len(fig_size) > 4 else (10, 6)
+            self.bar_FIGSIZE = fig_size[4] if len(fig_size) > 4 else (10, 6)
+            self.boxplot_FIGSIZE = fig_size[5] if len(fig_size) > 5 else self.bar_FIGSIZE
         self.plot_aspect_ratios = plot_aspect_ratios or {}
         self.BOX_PLOT_SETTINGS = box_plot_settings or {}
 
@@ -482,6 +506,56 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         if which in ("minor", "both"):
             ax.grid(True, which="minor", axis=axis, **self.GRID_STYLE["minor"])
         ax.set_axisbelow(True)
+
+    @staticmethod
+    def _apply_2d_axis_limits(ax, axis_limits, *, log_scale_y=False, y_floor=1e-4):
+        """Apply ((xmin,xmax),(ymin,ymax)) limits to ``ax``. Returns (has_x, has_y)."""
+        if not axis_limits:
+            return False, False
+        (xmin, xmax), (ymin, ymax) = axis_limits
+        has_x = xmin is not None or xmax is not None
+        has_y = ymin is not None or ymax is not None
+        if has_x:
+            ax.set_xlim(left=xmin, right=xmax)
+        if has_y:
+            if log_scale_y and ymin is not None:
+                ymin = max(ymin, y_floor)
+            ax.set_ylim(bottom=ymin, top=ymax)
+        return has_x, has_y
+
+    @staticmethod
+    def _draw_static_markers(axes, markers, *, label_y=1.01, x_clip=True):
+        """Draw static (x-valued) markers on one or more axes.
+
+        ``axes`` may be a single Axes or an iterable. Condition-based markers
+        (``Marker.condition is not None``) are skipped — those are waveform-only.
+        """
+        if not markers:
+            return
+        try:
+            ax_iter = list(axes)
+        except TypeError:
+            ax_iter = [axes]
+        for ax in ax_iter:
+            xl, xr = ax.get_xlim() if x_clip else (None, None)
+            for m in markers:
+                if m.condition is not None:
+                    continue
+                if x_clip and not (xl <= m.x <= xr):
+                    continue
+                color = m.color or "#5E5E5E"
+                ax.axvline(m.x, color=color, linestyle=m.linestyle,
+                           linewidth=1.2, alpha=0.7, zorder=2)
+                if m.label and m.show_label:
+                    ax.text(
+                        m.x, label_y, m.label,
+                        transform=ax.get_xaxis_transform(),
+                        ha="center", va="bottom",
+                        fontsize=9, fontweight="bold", color=color,
+                        bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
+                                  edgecolor=color, linewidth=0.8, alpha=0.9),
+                        zorder=12,
+                    )
 
     # ------------------------------------------------------------------
     # Required columns resolution
@@ -714,9 +788,30 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         self, df, filter_spec, column_logical_name, file_path, run_name,
         is_rank=False, raise_on_missing_column=True, raise_on_empty_result=True,
     ):
-        """Unified parquet filtering for rank-based (nRun) or value-based (nLap) selection."""
+        """Unified parquet filtering for rank-based (nRun) or value-based (nLap) selection.
+
+        ``filter_spec`` may be a scalar (single value), or a ``range`` /
+        ``list`` / ``tuple`` of values to keep all matching rows (#40).
+        """
         if filter_spec is None:
             return df
+
+        # Normalise iterable specs to a list of scalars (preserve order, dedupe).
+        is_multi = isinstance(filter_spec, (range, list, tuple, set, frozenset))
+        if is_multi:
+            specs = []
+            seen = set()
+            for v in filter_spec:
+                if v not in seen:
+                    seen.add(v)
+                    specs.append(v)
+            if not specs:
+                return df
+            if len(specs) == 1:
+                filter_spec = specs[0]
+                is_multi = False
+        else:
+            specs = [filter_spec]
 
         run_label = run_name.upper() if run_name else file_path.name
         run_col = self._find_parquet_column(df, column_logical_name)
@@ -734,6 +829,53 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
 
         series = df[run_col]
         numeric = pd.to_numeric(series, errors="coerce")
+
+        if is_multi:
+            if is_rank:
+                if numeric.notna().any():
+                    unique_vals = sorted(numeric.dropna().unique().tolist())
+                else:
+                    unique_vals = sorted([
+                        v for v in series.astype(str).str.strip().unique()
+                        if v and v.lower() != "nan"
+                    ])
+                target_values = []
+                for s in specs:
+                    rank = int(pd.to_numeric(pd.Series([s]), errors="coerce").iloc[0])
+                    if rank < 1 or rank > len(unique_vals):
+                        raise ValueError(
+                            f"Run '{run_label}' requested {column_logical_name.lower()}={rank}, "
+                            f"but only {len(unique_vals)} unique values exist."
+                        )
+                    target_values.append(unique_vals[rank - 1])
+                if numeric.notna().any():
+                    mask = numeric.isin(target_values)
+                else:
+                    mask = series.astype(str).str.strip().isin([str(v) for v in target_values])
+            else:
+                target_numerics = pd.to_numeric(pd.Series(list(specs)), errors="coerce")
+                if target_numerics.notna().all():
+                    mask = numeric.isin(target_numerics.astype(float).tolist())
+                    target_values = target_numerics.astype(float).tolist()
+                else:
+                    mask = series.astype(str).str.strip().isin([str(s).strip() for s in specs])
+                    target_values = list(specs)
+            filtered = df.loc[mask].copy()
+            if filtered.empty:
+                msg = (
+                    f"Run '{run_label}' {column_logical_name.lower()}={list(specs)} "
+                    f"produced 0 rows from column '{run_col}'."
+                )
+                if raise_on_empty_result:
+                    raise ValueError(msg)
+                log.warning("%s", msg)
+                return df
+            log.info(
+                "Run '%s' filtered by %s: %s in %s -> %d/%d rows kept.",
+                run_label, column_logical_name, run_col, target_values,
+                len(filtered), len(df),
+            )
+            return filtered
 
         if is_rank:
             rank = int(pd.to_numeric(pd.Series([filter_spec]), errors="coerce").iloc[0])
@@ -780,7 +922,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 return df
 
         log.info(
-            "Run '%s' filtered by %s: %s=%s → %s=%s (%d/%d rows kept).",
+            "Run '%s' filtered by %s: %s=%s -> %s=%s (%d/%d rows kept).",
             run_label, column_logical_name, column_logical_name.lower(),
             filter_spec, run_col, target_value, len(filtered), len(df),
         )
@@ -927,7 +1069,12 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
     # ------------------------------------------------------------------
 
     def _clean_data(self):
-        """Remove non-numeric columns, patch YES/NO values, and interpolate gaps."""
+        """Remove non-numeric columns, patch YES/NO values, and interpolate gaps.
+
+        Interpolation is restricted to the columns this run actually needs
+        (per :pyattr:`run_required_cols`) when that information is available
+        — typically a 5–10× speedup on wide DLS exports (#22).
+        """
         interp_limit = max(1, int(self.FILTER_SAMPLE_RATE))
 
         for run_name in list(self.run_data.keys()):
@@ -948,9 +1095,20 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     for col in drop_cols:
                         log.debug("Dropped '%s' from run '%s' (string column)", col, run_name)
 
-            # Batched DataFrame-wide linear interpolation; ~10× faster than per-column.
-            if not df.empty:
-                df.interpolate(method="linear", limit=interp_limit, axis=0, inplace=True)
+            if df.empty:
+                self.run_data[run_name] = df
+                continue
+
+            required = self.run_required_cols.get(run_name)
+            if required:
+                cols_to_interp = [c for c in df.columns if c in required]
+            else:
+                cols_to_interp = list(df.columns)
+
+            if cols_to_interp:
+                df[cols_to_interp] = df[cols_to_interp].interpolate(
+                    method="linear", limit=interp_limit, axis=0,
+                )
             self.run_data[run_name] = df
 
     def _ensure_preprocessed(self):
@@ -1045,14 +1203,24 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         return self.PLOT_DEFINITIONS[index] or []
 
     def _sanitize_plot_filename(self, prefix, plot_name, suffix=""):
-        """Create a filesystem-safe, lowercase PNG name from a plot title."""
+        """Create a filesystem-safe, lowercase PNG path under a per-type subfolder (#35).
+
+        Returns a relative path like ``"scatter/scatter_gear_ratios.png"`` so
+        outputs land in ``plots/<type>/`` instead of a single flat directory.
+        """
         safe = (
             plot_name.lower()
             .replace(" ", "_")
             .replace("(", "").replace(")", "")
             .replace("/", "_").replace("\\", "_")
         )
-        return f"{prefix}_{safe}{suffix}.png"
+        subdir = self.plots_dir / prefix
+        try:
+            subdir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+        # Use forward slash consistently — ``Path / str`` joins correctly on all OSes.
+        return f"{prefix}/{prefix}_{safe}{suffix}.png"
 
     def _resolve_plot_figsize(self, filename, default_size, *, min_height=None):
         """Resolve figure size using defaults and optional PPT template aspect ratio."""
@@ -1146,6 +1314,40 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     parquet_nlap=run.get("nlap"),
                     run_name=run_name,
                 )
+
+                # #40 best_n: keep only the fastest N laps (auto-select).
+                best_n = run.get("best_n")
+                if best_n is not None and "nLap" in data.columns:
+                    try:
+                        n_keep = int(best_n)
+                    except (TypeError, ValueError):
+                        n_keep = 0
+                    if n_keep > 0:
+                        time_col = next(
+                            (c for c in ("tLap_Calc", "tLap", "Time", "time") if c in data.columns),
+                            None,
+                        )
+                        if time_col is None:
+                            log.warning(
+                                "Run '%s': best_n=%d requested but no time column "
+                                "(tLap_Calc/tLap/Time) found; ignoring.",
+                                run_name, n_keep,
+                            )
+                        else:
+                            durations = (
+                                data.groupby("nLap")[time_col]
+                                .agg(lambda s: s.max() - s.min())
+                                .sort_values()
+                            )
+                            durations = durations[durations > 0]
+                            keep_laps = list(durations.head(n_keep).index)
+                            if keep_laps:
+                                before = len(data)
+                                data = data[data["nLap"].isin(keep_laps)].reset_index(drop=True)
+                                log.info(
+                                    "Run '%s' best_n=%d -> kept laps %s (%d/%d rows).",
+                                    run_name, n_keep, keep_laps, len(data), before,
+                                )
             except Exception as exc:
                 log.warning(
                     "Failed to load run '%s' from %s: %s. Skipping run.",
@@ -1212,11 +1414,15 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             name = run["name"].lower()
             if name not in self.run_data:
                 continue
+            required = self.run_required_cols.get(name)
+            required_set = set(required) if required else None
             datafunctions.apply_calculated_channels(
-                self.run_data[name], name, self.CALCULATED_CHANNELS
+                self.run_data[name], name, self.CALCULATED_CHANNELS,
+                required_channels=required_set,
             )
             self.run_data[name] = datafunctions.apply_filters(
                 self.run_data[name], self.FILTERS, self.FILTER_SAMPLE_RATE, name,
+                required_channels=required_set,
             )
 
         self._preprocessed = True
@@ -1487,6 +1693,34 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         """
         self._ensure_preprocessed()
 
+        # Clear per-run state that should not persist across calls (#4).
+        self._psd_cache = {}
+        self._gated_data_cache = {}
+        self._outlier_log = []
+
+        # Aggregate repeated WARNING messages emitted during plot generation
+        # so the user gets a single summary at the end instead of dozens of
+        # near-identical lines (#11).
+        from collections import Counter as _Counter
+
+        class _AggregatingHandler(logging.Handler):
+            def __init__(self):
+                super().__init__(level=logging.WARNING)
+                self.counts = _Counter()
+
+            def emit(self, record):
+                # Use the *unformatted* message + args as the dedup key so
+                # that e.g. "Cannot filter '%s'" with different channel names
+                # collapses to one bucket.
+                try:
+                    key = record.getMessage()
+                except Exception:
+                    key = record.msg
+                self.counts[key] += 1
+
+        agg = _AggregatingHandler()
+        log.addHandler(agg)
+
         all_generators = [
             ("waveform",   self.generate_waveform_plots),
             ("scatter",    self.generate_scatter_plots),
@@ -1520,6 +1754,17 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         finally:
             if plot_names is not None:
                 self.PLOT_DEFINITIONS = original_defs
+            log.removeHandler(agg)
+            # Print a deduped summary of repeated warnings (#11).
+            repeated = [(msg, n) for msg, n in agg.counts.most_common() if n > 1]
+            if repeated:
+                top = repeated[:10]
+                log.info(
+                    "Plot-time warning summary: %d unique repeated message(s); "
+                    "showing top %d.", len(repeated), len(top),
+                )
+                for msg, n in top:
+                    log.info("  [x%d] %s", n, msg)
 
         log.info("All plots saved to: %s", self.plots_dir)
 

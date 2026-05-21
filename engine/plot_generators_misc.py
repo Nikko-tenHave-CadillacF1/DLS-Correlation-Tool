@@ -110,18 +110,9 @@ class PsdHistMixin:
                 plt.close(fig)
                 continue
 
-            has_x_limits = has_y_limits = False
-            if axis_limits:
-                (xmin, xmax), (ymin, ymax) = axis_limits
-                if xmin is not None or xmax is not None:
-                    ax.set_xlim(left=xmin, right=xmax)
-                    has_x_limits = True
-                if ymin is not None or ymax is not None:
-                    if log_scale and ymin is not None:
-                        ymin = max(ymin, 1e-4)
-                    ax.set_ylim(bottom=ymin, top=ymax)
-                    has_y_limits = True
-
+            has_x_limits, has_y_limits = self._apply_2d_axis_limits(
+                ax, axis_limits, log_scale_y=log_scale,
+            )
             default_y_pad = 0 if log_scale else 0.04
             self._add_axis_edge_padding(
                 ax,
@@ -188,28 +179,7 @@ class PsdHistMixin:
                                           alpha=0.92, edgecolor=color_e, linewidth=0.8),
                             )
 
-            # ── Markers (#6) ──
-            # Only static (x-valued) markers apply to PSD plots.
-            if markers:
-                xl_m, xr_m = ax.get_xlim()
-                for m in markers:
-                    if m.condition is not None:
-                        continue  # condition markers are waveform-only
-                    if not (xl_m <= m.x <= xr_m):
-                        continue
-                    mcolor = m.color or "#5E5E5E"
-                    ax.axvline(m.x, color=mcolor, linestyle=m.linestyle,
-                               linewidth=1.2, alpha=0.7, zorder=2)
-                    if m.label and m.show_label:
-                        ax.text(
-                            m.x, 1.01, m.label,
-                            transform=ax.get_xaxis_transform(),
-                            ha="center", va="bottom",
-                            fontsize=9, fontweight="bold", color=mcolor,
-                            bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
-                                      edgecolor=mcolor, linewidth=0.8, alpha=0.9),
-                            zorder=12,
-                        )
+            self._draw_static_markers(ax, markers)
 
             plt.tight_layout(pad=0.25)
             fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")
@@ -272,16 +242,13 @@ class PsdHistMixin:
             combined = np.concatenate(all_values)
             bins = datafunctions.compute_nice_histogram_bins(combined, num_bins=30)
 
-            if axis_limits:
-                (xmin, xmax), (ymin, ymax) = axis_limits
-                if xmin is not None or xmax is not None:
-                    ax.set_xlim(left=xmin, right=xmax)
-                if xmin is not None and xmax is not None:
-                    bins = datafunctions.compute_equal_width_bins_in_limits(xmin, xmax, bins)
-                if ymin is not None or ymax is not None:
-                    if log_scale and ymin is not None:
-                        ymin = max(ymin, 1e-6)
-                    ax.set_ylim(bottom=ymin, top=ymax)
+            has_x_limits, has_y_limits = self._apply_2d_axis_limits(
+                ax, axis_limits, log_scale_y=log_scale, y_floor=1e-6,
+            )
+            if has_x_limits and axis_limits[0][0] is not None and axis_limits[0][1] is not None:
+                bins = datafunctions.compute_equal_width_bins_in_limits(
+                    axis_limits[0][0], axis_limits[0][1], bins,
+                )
 
             hist_data, hist_weights, hist_colors, hist_labels = [], [], [], []
             dt = 1.0 / self.FILTER_SAMPLE_RATE
@@ -322,12 +289,6 @@ class PsdHistMixin:
                     ax.grid(True, which="minor", axis="x", **self.GRID_STYLE["minor"])
                 ax.grid(True, which="major", axis="x", **self.GRID_STYLE["major"])
 
-            has_x_limits = bool(
-                axis_limits and (axis_limits[0][0] is not None or axis_limits[0][1] is not None)
-            )
-            has_y_limits = bool(
-                axis_limits and (axis_limits[1][0] is not None or axis_limits[1][1] is not None)
-            )
             self._add_axis_edge_padding(
                 ax,
                 x_pad_ratio=(0 if has_x_limits else 0.02),
@@ -343,28 +304,7 @@ class PsdHistMixin:
 
             self._add_standard_legend(ax, loc="best")
 
-            # ── Markers (#6) ──
-            # Only static (x-valued) markers apply to histograms.
-            if markers:
-                xl_m, xr_m = ax.get_xlim()
-                for m in markers:
-                    if m.condition is not None:
-                        continue  # condition markers are waveform-only
-                    if not (xl_m <= m.x <= xr_m):
-                        continue
-                    mcolor = m.color or "#5E5E5E"
-                    ax.axvline(m.x, color=mcolor, linestyle=m.linestyle,
-                               linewidth=1.2, alpha=0.7, zorder=2)
-                    if m.label and m.show_label:
-                        ax.text(
-                            m.x, 1.01, m.label,
-                            transform=ax.get_xaxis_transform(),
-                            ha="center", va="bottom",
-                            fontsize=9, fontweight="bold", color=mcolor,
-                            bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
-                                      edgecolor=mcolor, linewidth=0.8, alpha=0.9),
-                            zorder=12,
-                        )
+            self._draw_static_markers(ax, markers)
 
             plt.tight_layout(pad=0.25)
             fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.05, facecolor="white", bbox_inches="tight")
@@ -532,18 +472,7 @@ class HeatmapMixin:
                 ax.spines["right"].set_visible(False)
 
                 # Markers (#6) — static only (heatmap x-axis is a value axis)
-                if markers:
-                    for m in markers:
-                        if m.condition is not None:
-                            continue
-                        mcolor = m.color or "#5E5E5E"
-                        ax.axvline(m.x, color=mcolor, linestyle=m.linestyle,
-                                   linewidth=1.2, alpha=0.7, zorder=5)
-                        if m.label and m.show_label:
-                            ax.text(m.x, y_hi, f" {m.label}",
-                                    ha="left", va="top",
-                                    fontsize=8, fontweight="bold", color=mcolor,
-                                    zorder=12)
+                self._draw_static_markers(ax, markers, x_clip=False)
 
             # Shared colourbar on the right
             cbar = fig.colorbar(im, ax=list(axes), shrink=0.85, pad=0.02)

@@ -28,11 +28,26 @@ from typing import Optional
 _LOG_NAME = "dls_correlation"
 log = logging.getLogger(_LOG_NAME)
 
+# Make stderr safe for Unicode characters even when the underlying console
+# uses cp1252 (Windows) or stderr is redirected to a file.
+if sys.stderr is not None and hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(errors="replace")
+    except Exception:
+        pass
+if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
+
 # Default handler — writes to stderr so it doesn't mix with pipeline stdout.
 _handler = logging.StreamHandler(sys.stderr)
 _handler.setFormatter(logging.Formatter("%(levelname)-7s | %(message)s"))
 log.addHandler(_handler)
 log.setLevel(logging.INFO)  # default; configure() may lower to DEBUG
+# Don't bubble to root (avoids duplicate prints if user code calls basicConfig).
+log.propagate = False
 
 
 def configure(*, verbose: bool = False, log_file: Optional[str] = None) -> None:
@@ -100,7 +115,7 @@ class DiagnosticCollector:
             return "No diagnostics."
         lines = []
         for entry in self.entries:
-            prefix = {"warning": "⚠", "error": "✗", "info": "·"}.get(entry.level, "?")
+            prefix = {"warning": "!", "error": "X", "info": "-"}.get(entry.level, "?")
             lines.append(f"  {prefix} [{entry.source}] {entry.message}")
         counts = f"{len(self.errors)} error(s), {len(self.warnings)} warning(s)"
         return f"Diagnostics ({counts}):\n" + "\n".join(lines)

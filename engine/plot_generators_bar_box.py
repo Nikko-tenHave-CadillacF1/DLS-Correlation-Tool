@@ -43,7 +43,7 @@ class BarBoxMixin:
                 log.debug("Creating bar plot: %s", plot_name)
 
             filename = self._sanitize_plot_filename("bar", plot_name)
-            figsize = self._resolve_plot_figsize(filename, self.histogram_FIGSIZE)
+            figsize = self._resolve_plot_figsize(filename, self.bar_FIGSIZE)
             fig, ax = plt.subplots(figsize=figsize)
 
             x = np.arange(len(metric_specs))

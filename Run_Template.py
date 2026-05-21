@@ -19,6 +19,9 @@ Usage:
   python Run_Template.py --only "Driver Input" "GG Plot"  # by name
 """
 
+from bootstrap import ensure_dependencies
+ensure_dependencies()
+
 from channel_config import get_workflow_dirs, resolve_template_path
 from engine import (
     run_workflow, Slide,

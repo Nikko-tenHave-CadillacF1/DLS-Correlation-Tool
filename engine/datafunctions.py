@@ -12,6 +12,31 @@ from matplotlib import patheffects as pe
 
 from .logger import log
 
+
+def calc_channel(*deps):
+    """Decorator to annotate a calculated-channel lambda with explicit deps (#5).
+
+    Use when the channel body is too dynamic for the regex-based dependency
+    extractor in :class:`DataPlotter` (e.g. f-string column names, indirect
+    lookups). Example::
+
+        CALCULATED = {
+            "EngineEff": calc_channel("nEngine", "tThrottle")(
+                lambda df: df["nEngine"] * df["tThrottle"] / 1000.0
+            ),
+        }
+
+    The dependency list is attached as the ``__dls_deps__`` attribute and
+    consumed by ``DataPlotter._extract_calculated_dependencies``.
+    """
+    def _wrap(fn):
+        try:
+            fn.__dls_deps__ = tuple(deps)
+        except (AttributeError, TypeError):
+            pass
+        return fn
+    return _wrap
+
 # NumPy 2.0 renamed ``np.trapz`` to ``np.trapezoid``; keep both call sites working.
 _np_trapezoid = getattr(np, "trapezoid", None) or getattr(np, "trapz")
 
@@ -171,8 +196,14 @@ def apply_transformations(df: pd.DataFrame, source_type: str, channel_transforms
 # CALCULATED CHANNELS
 # ================================================================
 
-def apply_calculated_channels(df: pd.DataFrame, source_type: str, calculated_channels: dict | None) -> pd.DataFrame:
-    """Compute derived channels from lambda(df) definitions."""
+def apply_calculated_channels(df: pd.DataFrame, source_type: str, calculated_channels: dict | None,
+                              required_channels: set | None = None) -> pd.DataFrame:
+    """Compute derived channels from lambda(df) definitions.
+
+    If ``required_channels`` is provided, only channels in that set (and their
+    transitive dependencies on other calculated channels) are computed.  Missing
+    dependency warnings are demoted to debug for unrequested channels.
+    """
     if calculated_channels is None:
         return df
 
@@ -184,17 +215,50 @@ def apply_calculated_channels(df: pd.DataFrame, source_type: str, calculated_cha
     if not isinstance(calc_set, dict):
         return df
 
-    calculated_channels = []
+    # Restrict to requested channels (+ transitive calc-channel deps).
+    target_names = None
+    if required_channels is not None:
+        target_names = {n for n in required_channels if n in calc_set}
+        # Iteratively expand to include any calc-channel referenced by lambda source.
+        if target_names:
+            try:
+                import inspect as _inspect, re as _re
+                changed = True
+                while changed:
+                    changed = False
+                    for name in list(target_names):
+                        fn = calc_set.get(name)
+                        if fn is None:
+                            continue
+                        try:
+                            src = _inspect.getsource(fn)
+                        except (OSError, TypeError):
+                            continue
+                        for tok in _re.findall(r"['\"]([A-Za-z_][\w]*)['\"]", src):
+                            if tok in calc_set and tok not in target_names:
+                                target_names.add(tok)
+                                changed = True
+            except Exception:
+                pass
+
+    calculated_channels_done = []
 
     for channel_name, func in calc_set.items():
+        is_required = (target_names is None) or (channel_name in target_names)
         try:
             df[channel_name] = _to_numeric_safe(func(df))
-            calculated_channels.append(channel_name)
+            calculated_channels_done.append(channel_name)
         except KeyError as e:
-            log.warning("Missing dependency %s for calculated channel '%s'.", e, channel_name)
+            if is_required:
+                log.warning("Missing dependency %s for calculated channel '%s'.", e, channel_name)
+            else:
+                log.debug("Skipped optional calc channel '%s' (missing dep %s).", channel_name, e)
         except Exception as e:
-            log.warning("Could not compute calculated channel '%s': %s", channel_name, e)
-    log.debug("Added %d calculated channels for %s", len(calculated_channels), source_type.upper())
+            if is_required:
+                log.warning("Could not compute calculated channel '%s': %s", channel_name, e)
+            else:
+                log.debug("Skipped optional calc channel '%s': %s", channel_name, e)
+    log.debug("Added %d calculated channels for %s", len(calculated_channels_done), source_type.upper())
     return df
 
 
@@ -242,7 +306,8 @@ def _apply_butterworth_filter_to_data(data, cutoff, order: int, sample_rate: flo
     return filtered_data, True
 
 
-def apply_filters(df: pd.DataFrame, filters: dict | None, sample_rate: float, source_type: str) -> pd.DataFrame:
+def apply_filters(df: pd.DataFrame, filters: dict | None, sample_rate: float, source_type: str,
+                  required_channels: set | None = None) -> pd.DataFrame:
     """Apply Butterworth filters. Per-channel configs override the 'all' fallback.
 
     Each filter entry may contain an optional ``"type"`` key (``"low"``,
@@ -265,7 +330,10 @@ def apply_filters(df: pd.DataFrame, filters: dict | None, sample_rate: float, so
             continue
 
         if channel not in df.columns:
-            log.warning("Cannot filter missing channel '%s'.", channel)
+            if required_channels is None or channel in required_channels:
+                log.warning("Cannot filter missing channel '%s'.", channel)
+            else:
+                log.debug("Skipped filter on missing optional channel '%s'.", channel)
             continue
 
         channels_to_skip.append(channel)
@@ -465,10 +533,13 @@ def normalize_bar_metric_specs(metric_specs, default_aggregation="last"):
         return []
 
     normalized = []
-    valid_aggs = {
-        "sum", "mean", "min", "max", "median", "integral",
-        "abs_sum", "abs_integral", "first", "last",
-    }
+    try:
+        from .plot_definitions import _VALID_BAR_AGGS as valid_aggs
+    except Exception:
+        valid_aggs = {
+            "sum", "mean", "min", "max", "median", "integral",
+            "abs_sum", "abs_integral", "first", "last",
+        }
 
     for item in metric_specs:
         if isinstance(item, str):

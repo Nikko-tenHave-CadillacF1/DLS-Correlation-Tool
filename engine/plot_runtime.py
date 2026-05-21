@@ -91,7 +91,7 @@ def Slide(layout: str, *plot_refs: str) -> dict:
 
 
 def _plot_ref_to_filename(ref: str) -> str:
-    """Convert 'type/Plot Name' to 'type_plot_name.png'."""
+    """Convert 'type/Plot Name' to 'type/type_plot_name.png' (per-type subfolder, #35)."""
     if "/" in ref:
         prefix, name = ref.split("/", 1)
     else:
@@ -103,8 +103,8 @@ def _plot_ref_to_filename(ref: str) -> str:
         .replace("(", "").replace(")", "")
         .replace("/", "_").replace("\\", "_")
     )
-    return f"{prefix.lower()}_{safe}.png"
-
+    pref = prefix.lower()
+    return f"{pref}/{pref}_{safe}.png"
 
 def _resolve_export_map(export_map, plot_definitions, start_slide=1):
     """Resolve export_map: if it's a list of Slide dicts, convert to numbered dict.
@@ -145,9 +145,10 @@ def validate_config(config: PlotJobConfig) -> list[str]:
         else:
             file_path = config.root_folder / run["file"]
             if not file_path.exists():
-                issues.append(f"Run '{label}': file not found → {file_path}")
+                issues.append(f"Run '{label}': file not found -> {file_path}")
         if not run.get("color"):
-            issues.append(f"Run '{label}': missing 'color' key.")
+            # Color is now optional — DataPlotter auto-assigns from a palette (#15).
+            pass
         run_type = run.get("type")
         if run_type and run_type not in _VALID_RUN_TYPES:
             issues.append(
@@ -281,7 +282,7 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
     if issues:
         print("\n[ERROR] Configuration validation failed:")
         for issue in issues:
-            print(f"  ✗ {issue}")
+            print(f"  X  {issue}")
         raise SystemExit(1)
 
     if resolved_export_map:
@@ -388,7 +389,70 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
 
 
 def parse_plot_cli(description: str = "Run plotting job"):
-    """CLI parser for Run_*.py entry points with filtering and diagnostic modes."""
+    """CLI parser for Run_*.py entry points with filtering and diagnostic modes.
+
+    Supports two invocation styles:
+
+    1. **Legacy flat flags (default):**
+        ``Run_Correlation.py --only foo --types waveform --check-only``
+
+    2. **Subcommands (#12):**
+        ``Run_Correlation.py run --only foo --types waveform``
+        ``Run_Correlation.py check``        (alias for --check-only)
+        ``Run_Correlation.py list``         (alias for --list-plots)
+        ``Run_Correlation.py dry-run``      (alias for --dry-run)
+        ``Run_Correlation.py export csv``   (alias for --export-data csv)
+
+    Both styles produce the same ``Namespace`` shape so downstream code
+    is unchanged.
+    """
+    import sys as _sys
+    SUBCOMMANDS = {"run", "check", "list", "dry-run", "export"}
+    argv = _sys.argv[1:]
+    use_subcommands = bool(argv) and argv[0] in SUBCOMMANDS
+
+    if use_subcommands:
+        parser = argparse.ArgumentParser(description=description)
+        sub = parser.add_subparsers(dest="command", required=True)
+
+        def _add_common(p):
+            p.add_argument("--only", nargs="+", metavar="NAME")
+            p.add_argument("--types", nargs="+", metavar="TYPE")
+            p.add_argument("--runs", nargs="+", metavar="RUN")
+            p.add_argument("--no-open", action="store_true", default=False)
+            p.add_argument("--x-axis", dest="x_axis", default=None, metavar="CHANNEL")
+
+        p_run = sub.add_parser("run", help="Generate plots (default).")
+        _add_common(p_run)
+        p_run.add_argument(
+            "--export-data", dest="export_data", default=None,
+            choices=("csv", "parquet"),
+        )
+
+        p_check = sub.add_parser("check", help="Run data-quality checks only.")
+        _add_common(p_check)
+
+        p_list = sub.add_parser("list", help="List configured plots and exit.")
+        _add_common(p_list)
+
+        p_dry = sub.add_parser("dry-run", help="Preview plots without running.")
+        _add_common(p_dry)
+
+        p_exp = sub.add_parser("export", help="Export preprocessed data.")
+        _add_common(p_exp)
+        p_exp.add_argument("format", choices=("csv", "parquet"), nargs="?", default="csv")
+
+        ns = parser.parse_args()
+        # Normalise to legacy fields.
+        ns.dry_run = (ns.command == "dry-run")
+        ns.list_plots = (ns.command == "list")
+        ns.check_only = (ns.command == "check")
+        if ns.command == "export":
+            ns.export_data = ns.format
+        elif ns.command != "run":
+            ns.export_data = getattr(ns, "export_data", None)
+        return ns
+
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--only", nargs="+", metavar="NAME",
@@ -442,7 +506,18 @@ def _print_plot_list(plot_definitions):
         label = type_names[i] if i < len(type_names) else f"group_{i}"
         print(f"\n  {label.upper()} ({len(group)}):")
         for plot_def in group:
-            print(f"    • {getattr(plot_def, 'name', plot_def)}")
+            name = getattr(plot_def, "name", plot_def)
+            try:
+                refs = _plot_referenced_channels(plot_def)
+            except Exception:
+                refs = []
+            if refs:
+                # Cap channel list at 8 for readability.
+                shown = ", ".join(refs[:8])
+                more = f" (+{len(refs) - 8} more)" if len(refs) > 8 else ""
+                print(f"    *  {name}  [{shown}{more}]")
+            else:
+                print(f"    *  {name}")
             total += 1
     print(f"\n  Total: {total} plot(s)")
 
@@ -463,7 +538,7 @@ def _print_dry_run(config, runs, export_map):
     print(f"  Output:  {config.output_dir}")
     print(f"\n  Runs ({len(runs)}):")
     for run in runs:
-        print(f"    \u2022 {run['name']} ({run.get('type', '?')}) \u2014 {run.get('file', '?')}")
+        print(f"    *  {run['name']} ({run.get('type', '?')}) -- {run.get('file', '?')}")
 
     # Peek the file schemas to flag missing channels per run.
     available_by_run = {}
@@ -516,12 +591,12 @@ def _print_dry_run(config, runs, export_map):
                 if missing:
                     missing_per_run.append(f"{run['name']}: {', '.join(missing[:5])}{' ...' if len(missing) > 5 else ''}")
             extra = f"  [missing in: {' | '.join(missing_per_run)}]" if missing_per_run else ""
-            print(f"      \u2022 {name}{extra}")
+            print(f"      *  {name}{extra}")
             total += 1
             # Crude PNG size estimate: w*h*dpi^2 px, ~3 bytes/px before compression
             # then divide by ~6 to account for PNG/zlib compression on telemetry plots.
             est_bytes += int(figsize_default[0] * figsize_default[1] * dpi * dpi * 3 / 6)
-    print(f"    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
+    print(f"    ---------")
     print(f"    total: {total}")
     if total:
         print(f"    estimated on-disk size: ~{est_bytes/1024/1024:.0f} MB")
@@ -572,13 +647,9 @@ def _plot_referenced_channels(plot_def) -> list:
 
 
 def _print_quality_summary(sections):
-    """Print a brief summary of data quality findings."""
-    print("\n  Data Quality Summary:")
-    print("  " + "-" * 40)
-    for title, values in sections:
-        status = "✓" if not values else f"⚠ {len(values)}"
-        print(f"    {status}  {title}")
-    print()
+    """Backward-compat thin wrapper; canonical impl lives in data_quality_report."""
+    from .data_quality_report import print_quality_summary as _impl
+    _impl(sections)
 
 
 def build_plot_groups(
@@ -778,19 +849,6 @@ from .plot_definitions import (  # noqa: E402
     BoxPlot,
     HeatmapPlot,
 )
-
-
-# Legacy helpers kept for any external callers — accept the same args as before
-# but raise familiar exceptions.
-
-def _require_str(value, param_name: str):
-    if not isinstance(value, str) or not value.strip():
-        raise TypeError(f"'{param_name}' must be a non-empty string. Got: {value!r}")
-
-
-def _require_nonempty(value, param_name: str):
-    if not value:
-        raise ValueError(f"'{param_name}' must not be empty. Got: {value!r}")
 
 
 # ================================================================
@@ -1052,24 +1110,185 @@ def get_template_plot_aspect_ratios(template_path, export_map):
 # MAIN EXPORT FUNCTION
 # ================================================================
 
+def _export_via_pptx(template_path, output_path, plots_dir, export_map):
+    """Cross-platform PowerPoint export using python-pptx (#42).
+
+    Mirrors the layout logic of the COM-based path but works on macOS/Linux
+    and on Windows machines without PowerPoint installed.
+    """
+    from pptx import Presentation
+    from pptx.util import Emu
+    from PIL import Image as _PILImage  # python-pptx already pulls Pillow in
+
+    prs = Presentation(str(template_path))
+    slide_width = int(prs.slide_width)   # EMU
+    slide_height = int(prs.slide_height)
+
+    def _iter_pic_elements(slide):
+        """Yield every <p:pic> element on the slide, including those inside placeholders."""
+        sp_tree = slide.shapes._spTree
+        # Use lxml's findall on the spTree subtree.
+        return list(sp_tree.iter("{http://schemas.openxmlformats.org/drawingml/2006/main}pic")) + \
+               list(sp_tree.iter("{http://schemas.openxmlformats.org/presentationml/2006/main}pic"))
+
+    def _picture_boxes(slide):
+        """Extract (left, top, width, height) in EMU for every picture on the slide."""
+        boxes = []
+        for pic in _iter_pic_elements(slide):
+            xfrm = pic.find(".//{http://schemas.openxmlformats.org/drawingml/2006/main}xfrm")
+            if xfrm is None:
+                continue
+            ext = xfrm.find("{http://schemas.openxmlformats.org/drawingml/2006/main}ext")
+            off = xfrm.find("{http://schemas.openxmlformats.org/drawingml/2006/main}off")
+            if ext is None:
+                continue
+            try:
+                w = int(ext.get("cx", 0))
+                h = int(ext.get("cy", 0))
+                left = int(off.get("x", 0)) if off is not None else 0
+                top = int(off.get("y", 0)) if off is not None else 0
+            except (TypeError, ValueError):
+                continue
+            if w > 0 and h > 0:
+                boxes.append((left, top, w, h))
+        return sorted(boxes, key=lambda b: (b[0], b[1]))
+
+    def _delete_pictures(slide):
+        """Remove every <p:pic> element from the slide."""
+        for pic in _iter_pic_elements(slide):
+            parent = pic.getparent()
+            if parent is not None:
+                parent.remove(pic)
+
+    def _add_picture_fit(slide, image_path, left, top, width, height, fill_factor=1.0):
+        # Read native aspect via Pillow so we can preserve it ourselves.
+        try:
+            with _PILImage.open(image_path) as im:
+                img_w, img_h = im.size
+        except Exception:
+            img_w, img_h = (1, 1)
+        if img_w <= 0 or img_h <= 0:
+            img_w, img_h = (1, 1)
+
+        # Both `width`/`height` are EMU; compute scale that fits within the box,
+        # then center. fill_factor>1 expands slightly to remove whitespace bands.
+        scale = min(width / img_w, height / img_h) * fill_factor
+        new_w = int(img_w * scale)
+        new_h = int(img_h * scale)
+        new_l = int(left + (width - new_w) / 2)
+        new_t = int(top + (height - new_h) / 2)
+        slide.shapes.add_picture(
+            str(image_path),
+            Emu(new_l), Emu(new_t),
+            width=Emu(new_w), height=Emu(new_h),
+        )
+
+    def _is_misc_plot(img_file: str) -> bool:
+        # Filenames are now `<type>/<type>_<name>.png` (per-type subfolders, #35).
+        # Treat scatter/psd/histogram/bar as "misc" requiring extra padding.
+        base = img_file.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        return base.startswith(("scatter_", "psd_", "histogram_", "bar_"))
+
+    for slide_num, config in export_map.items():
+        idx = int(slide_num) - 1
+        if idx < 0 or idx >= len(prs.slides):
+            log.warning("Slide %s out of range (template has %d slides). Skipping.",
+                        slide_num, len(prs.slides))
+            continue
+        slide = prs.slides[idx]
+        layout = config.get("layout", "main_plot")
+        image_files = config.get("images", [])
+        if not image_files:
+            continue
+
+        existing = _picture_boxes(slide)
+
+        # Resolve target boxes BEFORE deleting (COM path also reads first, deletes second).
+        used_template_boxes = False
+        if layout == "main_plot" and len(image_files) == 1:
+            target_boxes = [_get_main_plot_box(existing, slide_width, slide_height)]
+            used_template_boxes = bool(existing)
+        elif layout == "double_plot" and len(image_files) == 2:
+            target_boxes = _get_double_plot_boxes(existing, slide_width, slide_height)
+            used_template_boxes = len(existing) >= 2
+        else:
+            # Fallback: reuse whatever placeholders exist, otherwise compute via ratios.
+            target_boxes = existing or [
+                _resolve_box(layout, slide_width, slide_height,
+                             slot_index=i, slot_count=len(image_files))
+                for i in range(len(image_files))
+            ]
+            used_template_boxes = bool(existing)
+
+        _delete_pictures(slide)
+
+        for i, img_file in enumerate(image_files):
+            img_path = (Path(plots_dir) / img_file).resolve()
+            if not img_path.exists():
+                log.warning("Missing plot for slide %s: %s", slide_num, img_file)
+                continue
+
+            if i < len(target_boxes):
+                left, top, w, h = target_boxes[i]
+            else:
+                left, top, w, h = _resolve_box(
+                    layout, slide_width, slide_height,
+                    slot_index=i, slot_count=len(image_files),
+                )
+
+            # Trust template placeholder dimensions exactly (designer-chosen).
+            # Only expand when falling back to ratio-based DOUBLE_PLOT_LAYOUT
+            # (which is intentionally oversized to remove whitespace bands).
+            if used_template_boxes:
+                fill_factor = 1.0
+            elif layout == "double_plot" and _is_misc_plot(img_file):
+                fill_factor = 1.2
+            else:
+                fill_factor = 1.0
+
+            _add_picture_fit(slide, img_path, left, top, w, h, fill_factor)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    prs.save(str(output_path))
+
+
 def export_report_to_powerpoint(template_path, output_path, plots_dir, export_map, visible=False):
     """
     Insert generated plots into a PowerPoint template according to export_map.
-    """
-    try:
-        import win32com.client
-    except ImportError as exc:
-        raise ImportError(
-            "pywin32 is required for PowerPoint export. Install with:\n"
-            "    pip install pywin32"
-        ) from exc
 
+    Tries python-pptx first (cross-platform); falls back to win32com on
+    Windows when python-pptx is unavailable.
+    """
     template_path = Path(template_path).resolve()
     plots_dir = Path(plots_dir).resolve()
     output_path = Path(output_path).resolve()
 
     if not template_path.exists():
         raise FileNotFoundError(f"PowerPoint template not found: {template_path}")
+
+    # Preferred: python-pptx (cross-platform, no PowerPoint app needed).
+    try:
+        import pptx  # noqa: F401
+        import PIL  # noqa: F401
+        _export_via_pptx(template_path, output_path, plots_dir, export_map)
+        log.info("PowerPoint exported via python-pptx: %s", output_path)
+        return
+    except ImportError:
+        log.debug("python-pptx not available; falling back to win32com.")
+    except Exception as exc:
+        log.warning(
+            "python-pptx export failed (%s); falling back to win32com.", exc,
+        )
+
+    try:
+        import win32com.client
+    except ImportError as exc:
+        raise ImportError(
+            "Neither python-pptx nor pywin32 is available for PowerPoint export.\n"
+            "Install one of:\n"
+            "    pip install python-pptx   # cross-platform (preferred)\n"
+            "    pip install pywin32       # Windows only"
+        ) from exc
 
     # PowerPoint COM object
     ppt = win32com.client.Dispatch("PowerPoint.Application")
@@ -1089,15 +1308,19 @@ def export_report_to_powerpoint(template_path, output_path, plots_dir, export_ma
 
             picture_boxes = _get_picture_boxes(slide)
 
+            used_template_boxes = False
             if layout == "main_plot" and len(image_list) == 1:
                 target_boxes = [_get_main_plot_box(picture_boxes, slide_width, slide_height)]
+                used_template_boxes = bool(picture_boxes)
             elif layout == "double_plot" and len(image_list) == 2:
                 target_boxes = _get_double_plot_boxes(picture_boxes, slide_width, slide_height)
+                used_template_boxes = len(picture_boxes) >= 2
             else:
                 target_boxes = picture_boxes or [
                     _resolve_box(layout, slide_width, slide_height, slot_index=i, slot_count=len(image_list))
                     for i in range(len(image_list))
                 ]
+                used_template_boxes = bool(picture_boxes)
 
             _replace_slide_pictures(slide)
 
@@ -1118,10 +1341,14 @@ def export_report_to_powerpoint(template_path, output_path, plots_dir, export_ma
                         slot_count=len(image_list),
                     )
 
-                # Aggressive padding for scatter/PSD in double-layout
+                # Aggressive padding for scatter/PSD in double-layout — only when
+                # falling back to ratio-based layout (DOUBLE_PLOT_LAYOUT is oversized
+                # to remove whitespace bands). Trust template placeholder boxes 1:1.
+                _basename = img.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
                 if (
-                    layout == "double_plot"
-                    and img.startswith(("scatter_", "psd_", "histogram_", "bar_"))
+                    not used_template_boxes
+                    and layout == "double_plot"
+                    and _basename.startswith(("scatter_", "psd_", "histogram_", "bar_"))
                 ):
                     fill_factor = 1.2
                 else:

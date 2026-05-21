@@ -192,7 +192,7 @@ class WaveformMixin:
             )
 
             if not prepared_rows:
-                log.warning("No valid channels for '%s' — skipping.", plot_name)
+                log.warning("No valid channels for '%s' -- skipping.", plot_name)
                 continue
 
             filename = self._sanitize_plot_filename("waveform", plot_name)
