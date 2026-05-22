@@ -83,82 +83,39 @@ class ScatterMixin:
 
     def _select_trendline_anchor(self, ax, equations_list, avoid_corner=None,
                                    n_text_lines=0):
-        """Place text in the least-crowded position (corners + mid-edges).
+        """Pick the data-clearest of the 4 standard info-box corners.
 
-        avoid_corner: optional (halign, valign) tuple; that corner is excluded
-        so the fit box never lands on top of the legend.
-        n_text_lines: estimated number of text lines in the box — used to scale
-        the exclusion zone height proportionally (more lines → taller box).
+        Uses the same corner set and shared anchor coordinates as the gate-info
+        text and the legend, so info boxes naturally line up on shared edges.
+
+        avoid_corner: optional (halign, valign) tuple to exclude (e.g. legend).
+        n_text_lines: estimated number of text lines — scales the density
+        exclusion region so taller fit boxes prefer roomier corners.
         """
+        # Scale exclusion region based on expected box size
+        w_frac = min(0.35, 0.22 + max(0, n_text_lines - 2) * 0.015)
+        h_frac = 0.28 * min(1.5, 1.0 + max(0, n_text_lines - 4) * 0.06)
+
+        # Build density-aware sample of the actual fit points (not all axis data)
+        xs = np.concatenate([np.asarray(xv) for _, _, _, xv, _, _ in equations_list]) \
+            if equations_list else np.array([])
+        ys = np.concatenate([np.asarray(yv) for _, _, _, _, yv, _ in equations_list]) \
+            if equations_list else np.array([])
         x0, x1 = ax.get_xlim()
         y0, y1 = ax.get_ylim()
-        xs, ys = [], []
-        for _, _, _, xv, yv, _ in equations_list:
-            xs.extend(xv)
-            ys.extend(yv)
-        xs = np.array(xs)
-        ys = np.array(ys)
 
-        # Expanded candidate set: 4 corners + 2 top/bottom center + 2 mid-edges
-        candidates = {
-            "tl": (0.03, 0.97, "left",   "top"),
-            "tr": (0.97, 0.97, "right",  "top"),
-            "bl": (0.03, 0.07, "left",   "bottom"),
-            "br": (0.97, 0.07, "right",  "bottom"),
-            "tc": (0.50, 0.97, "center", "top"),
-            "bc": (0.50, 0.07, "center", "bottom"),
-            "ml": (0.03, 0.50, "left",   "center"),
-            "mr": (0.97, 0.50, "right",  "center"),
-        }
+        def _density(corner):
+            if xs.size == 0:
+                return 0
+            return self._count_points_in_region(
+                xs, ys, x0, x1, y0, y1, corner[0], corner[1], w_frac, h_frac
+            )
 
-        # Scale exclusion zone based on content size
-        base_w_frac = 0.22
-        base_h_frac = 0.28
-        if n_text_lines > 4:
-            # Taller box for many lines — scale height up to 50% more
-            h_scale = min(1.5, 1.0 + (n_text_lines - 4) * 0.06)
-            base_h_frac *= h_scale
-        # Wider zone for equations (long text)
-        w_frac = min(0.35, base_w_frac + max(0, n_text_lines - 2) * 0.015)
-        h_frac = base_h_frac
-
-        def _count_pts(key):
-            xa, ya, hal, val = candidates[key]
-            w = (x1 - x0) * w_frac
-            h = (y1 - y0) * h_frac
-            x_abs = x0 + xa * (x1 - x0)
-            if hal == "left":
-                x_min = x_abs
-            elif hal == "right":
-                x_min = x_abs - w
-            else:  # center
-                x_min = x_abs - w / 2
-            x_max = x_min + w
-            if val == "top":
-                y_min = y0 + ya * (y1 - y0) - h
-                y_max = y0 + ya * (y1 - y0)
-            elif val == "bottom":
-                y_min = y0 + ya * (y1 - y0)
-                y_max = y0 + ya * (y1 - y0) + h
-            else:  # center (mid-edge)
-                y_min = y0 + ya * (y1 - y0) - h / 2
-                y_max = y0 + ya * (y1 - y0) + h / 2
-            return ((xs >= x_min) & (xs <= x_max) & (ys >= y_min) & (ys <= y_max)).sum()
-
-        best = min(candidates.keys(), key=_count_pts)
-
-        # If the best candidate clashes with the legend corner, pick the next
-        # least-crowded one that doesn't clash.
-        if avoid_corner is not None:
-            avoid_hal, avoid_val = avoid_corner
-            ordered = sorted(candidates.keys(), key=_count_pts)
-            for key in ordered:
-                _, _, hal, val = candidates[key]
-                if not (hal == avoid_hal and val == avoid_val):
-                    best = key
-                    break
-
-        return candidates[best]
+        corners = [c for c in self._INFO_CORNER_XY if c != avoid_corner]
+        corners.sort(key=_density)
+        halign, valign = corners[0]
+        x_anchor, y_anchor = self._INFO_CORNER_XY[(halign, valign)]
+        return x_anchor, y_anchor, halign, valign
 
     # ------------------------------------------------------------------
     # Fit info display — per-segment boxes (Proposal A)

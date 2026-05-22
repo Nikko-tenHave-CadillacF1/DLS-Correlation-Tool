@@ -10,7 +10,7 @@ from engine import (
 )
 
 WORKFLOW_NAME = "correlation"
-EVENT = "26R04MIA"
+EVENT = "26R05MTL"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
@@ -19,18 +19,18 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 RUNS = [
     # {"name": "v37", "file": "...", "color": "#0051FF", "nrun": 1, "type": "OC"},
     {
-        "name": "LTS",
-        "file": r"26R04MIA  PER Q1R3_LTS_Iteration_3.parquet",
-        "color": "#0083BF",
+        "name": "DLS - RED",
+        "file": r"26R05MTL  11  FP1  PER_DLS.parquet",
+        "color": "#BF0000",
         "nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
         "type": "DLS",
     },
     {
-        "name": "OC",
-        "file": r"nonlinear_both_X_corner.parquet",
-        "color": "#51FF00",
-        #"nrun": 1, # selects the run with the lowest nRun value (best lap) for each plot type
-        "type": "OC",
+        "name": "DLS - BLUE",
+        "file": r"26R05MTL  77  FP1  BOT_DLS.parquet",
+        "color": "#0000BF",
+        "nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
+        "type": "DLS",
     },
 
 ]
@@ -115,10 +115,10 @@ SCATTER_PLOT_DEFINITIONS = [
     
     ## CAR SUSPENSION CORRELATION
     ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF",
-                best_fit=[('y', -6000, None), ('y', None, -6000)]),
+                best_fit=[('y', -10000, None), ('y', None, -10000)]),
     ScatterPlot("Front Roll",              "xDamperDeltaF", "FPRodDeltaF",          best_fit=[('x', None, None)]),
     ScatterPlot("Rear Heave",              "xDamperAvgR",   "FPRodAvgR",
-                best_fit=[('y', None, None)]),
+                best_fit=[('y', None, 13000), ('y', 13000, 25000), ('y', 25000, None)]),
     ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)]),
 
     ## OC SUSPENSION CORRELATION

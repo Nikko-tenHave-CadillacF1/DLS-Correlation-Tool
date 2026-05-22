@@ -1459,7 +1459,12 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 text.set_color(color)
 
     def _legend_corner(self, legend):
-        """Return the (halign, valign) corner string of a placed legend, or None."""
+        """Return the (halign, valign) corner string of a placed legend, or None.
+
+        Falls back to inferring the corner from the legend's rendered bounding
+        box (in axes-fraction coords) when the location is ``"best"`` or cannot
+        otherwise be parsed.
+        """
         if legend is None:
             return None
         loc_map = {
@@ -1471,30 +1476,82 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             "lower center": ("center", "bottom"),
         }
         try:
-            loc_str = legend._loc_real if hasattr(legend, "_loc_real") else None
-            # matplotlib stores the numeric code; map it via _loc
-            if loc_str is None:
-                for name, code in legend.codes.items():
-                    if code == legend._loc:
-                        loc_str = name
-                        break
+            loc_code = legend._loc
+            for name, code in legend.codes.items():
+                if code == loc_code and name in loc_map:
+                    return loc_map[name]
+        except Exception:
+            pass
+
+        # Fallback: derive from rendered bbox center (works for loc="best").
+        return self._legend_corner_from_bbox(legend)
+
+    def _legend_corner_from_bbox(self, legend):
+        """Infer (halign, valign) from a legend's rendered axes-fraction bbox."""
+        bbox = self._legend_axes_bbox(legend)
+        if bbox is None:
+            return None
+        cx = 0.5 * (bbox[0] + bbox[2])
+        cy = 0.5 * (bbox[1] + bbox[3])
+        halign = "left" if cx < 1 / 3 else ("right" if cx > 2 / 3 else "center")
+        valign = "bottom" if cy < 1 / 3 else ("top" if cy > 2 / 3 else "center")
+        return (halign, valign)
+
+    def _legend_axes_bbox(self, legend):
+        """Return the legend's bbox in axes-fraction coordinates, or None.
+
+        Forces a canvas draw if needed so ``get_window_extent`` is valid.
+        """
+        if legend is None:
+            return None
+        ax = getattr(legend, "axes", None)
+        if ax is None:
+            return None
+        try:
+            fig = ax.figure
+            renderer = fig.canvas.get_renderer() if hasattr(fig.canvas, "get_renderer") else None
+            if renderer is None:
+                fig.canvas.draw()
+                renderer = fig.canvas.get_renderer()
+            win_bbox = legend.get_window_extent(renderer)
+            inv = ax.transAxes.inverted()
+            (x0, y0) = inv.transform((win_bbox.x0, win_bbox.y0))
+            (x1, y1) = inv.transform((win_bbox.x1, win_bbox.y1))
+            return (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
         except Exception:
             return None
-        return loc_map.get(loc_str)
 
     # Ordered preference lists for legend corner when another corner is taken.
-    _LEGEND_CORNER_PREFS = {
-        ("left",   "top"):    ["upper right", "lower right", "lower center", "lower left",  "upper center", "upper left"],
-        ("right",  "top"):    ["upper left",  "lower left",  "lower center", "lower right", "upper center", "upper right"],
-        ("left",   "bottom"): ["lower right", "upper right", "upper center", "upper left",  "lower center", "lower left"],
-        ("right",  "bottom"): ["lower left",  "upper left",  "upper center", "upper right", "lower center", "lower right"],
-        ("center", "top"):    ["upper right", "upper left",  "lower right",  "lower left",  "lower center", "upper center"],
-        ("center", "bottom"): ["lower right",  "lower left", "upper right",  "upper left",  "upper center", "lower center"],
-        ("left",   "center"): ["upper right", "lower right", "upper left",   "lower left",  "upper center", "lower center"],
-        ("right",  "center"): ["upper left",  "lower left",  "upper right",  "lower right", "upper center", "lower center"],
+    # ------------------------------------------------------------------
+    # Info-box placement: 4 corners with shared anchor coordinates.
+    # All text boxes (fit info, gate info) use these XY positions, and the
+    # legend is anchored to the same coordinates via bbox_to_anchor +
+    # borderaxespad=0 — so two boxes sharing a row/column line up on the
+    # same axes-fraction edge automatically.
+    # ------------------------------------------------------------------
+    _INFO_CORNER_XY = {
+        ("left",   "top"):    (0.02, 0.98),
+        ("right",  "top"):    (0.98, 0.98),
+        ("left",   "bottom"): (0.02, 0.02),
+        ("right",  "bottom"): (0.98, 0.02),
+        ("center", "top"):    (0.50, 0.98),
+        ("center", "bottom"): (0.50, 0.02),
+        ("left",   "center"): (0.02, 0.50),
+        ("right",  "center"): (0.98, 0.50),
     }
 
-    # Map matplotlib loc strings to (halign, valign) for density scoring
+    _CORNER_TO_LOC = {
+        ("left",   "top"):    "upper left",
+        ("right",  "top"):    "upper right",
+        ("left",   "bottom"): "lower left",
+        ("right",  "bottom"): "lower right",
+        ("center", "top"):    "upper center",
+        ("center", "bottom"): "lower center",
+        ("left",   "center"): "center left",
+        ("right",  "center"): "center right",
+    }
+
+    # Map matplotlib loc strings to (halign, valign).
     _LOC_TO_CORNER = {
         "upper right":  ("right",  "top"),
         "upper left":   ("left",   "top"),
@@ -1502,6 +1559,8 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         "lower left":   ("left",   "bottom"),
         "upper center": ("center", "top"),
         "lower center": ("center", "bottom"),
+        "center left":  ("left",   "center"),
+        "center right": ("right",  "center"),
     }
 
     def _sample_ax_data(self, ax):
@@ -1542,25 +1601,37 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             y_min, y_max = y_abs - h / 2, y_abs + h / 2
         return int(((xs >= x_min) & (xs <= x_max) & (ys >= y_min) & (ys <= y_max)).sum())
 
-    def _score_legend_position(self, ax, loc_str):
-        """Score a legend position by data density — lower is better."""
-        corner = self._LOC_TO_CORNER.get(loc_str)
-        if corner is None:
-            return 0
-        halign, valign = corner
+    def _rank_info_corners(self, ax, w_frac=0.22, h_frac=0.28):
+        """Rank the 4 info-box corners from least to most data-dense.
+
+        Returns a list of (halign, valign) tuples ordered by ascending point
+        count in each corner region. Used by fit-info, legend, and gate-info
+        placement so they all share the same density model and corner set.
+        """
         xs, ys = self._sample_ax_data(ax)
-        if xs.size == 0:
-            return 0
         x0, x1 = ax.get_xlim()
         y0, y1 = ax.get_ylim()
-        return self._count_points_in_region(xs, ys, x0, x1, y0, y1, halign, valign)
+        corners = list(self._INFO_CORNER_XY.keys())
+        if xs.size == 0:
+            return corners
+        return sorted(
+            corners,
+            key=lambda c: self._count_points_in_region(
+                xs, ys, x0, x1, y0, y1, c[0], c[1], w_frac, h_frac
+            ),
+        )
 
     def _add_standard_legend(self, ax, handles=None, labels=None, loc="best",
                               bbox_to_anchor=None, ncol=1, avoid_corner=None):
         """Add a consistently styled axis legend and colorize labels.
 
         avoid_corner: optional (halign, valign) tuple from the fit-info anchor;
-        the legend is placed in the least data-dense non-conflicting corner.
+        the legend is placed at the least data-dense non-conflicting corner.
+
+        When the resolved location is one of the 4 standard corners, the legend
+        is anchored at the shared corner coordinate (``_INFO_CORNER_XY``) with
+        ``borderaxespad=0`` so its frame edges line up with the fit-info and
+        gate-info text boxes (which use the same anchor points).
         """
         if handles is None or labels is None:
             handles, labels = ax.get_legend_handles_labels()
@@ -1568,17 +1639,13 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             return None
 
         if avoid_corner is not None and bbox_to_anchor is None:
-            prefs = self._LEGEND_CORNER_PREFS.get(avoid_corner)
-            if prefs:
-                # Pick the least data-dense position from the preference list
-                loc = min(prefs, key=lambda p: self._score_legend_position(ax, p))
-            else:
-                loc = "best"
+            ranked = [c for c in self._rank_info_corners(ax) if c != avoid_corner]
+            corner = ranked[0] if ranked else None
+            loc = self._CORNER_TO_LOC.get(corner, "best") if corner else "best"
 
-        legend = ax.legend(
-            handles, labels,
-            loc=loc,
-            bbox_to_anchor=bbox_to_anchor,
+        # If loc names a standard corner, anchor it at the shared corner XY so
+        # the legend frame aligns with text-box info panels.
+        legend_kwargs = dict(
             fancybox=True,
             framealpha=0.92,
             edgecolor="#3C3C3C",
@@ -1587,6 +1654,15 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             ncol=ncol,
             prop={"family": self.PLOT_FONT["family"], "weight": "bold", "size": self.PLOT_FONT["legend_size"]},
         )
+        corner = self._LOC_TO_CORNER.get(loc) if isinstance(loc, str) else None
+        if corner is not None and bbox_to_anchor is None:
+            legend_kwargs["bbox_to_anchor"] = self._INFO_CORNER_XY[corner]
+            legend_kwargs["bbox_transform"] = ax.transAxes
+            legend_kwargs["borderaxespad"] = 0
+        else:
+            legend_kwargs["bbox_to_anchor"] = bbox_to_anchor
+
+        legend = ax.legend(handles, labels, loc=loc, **legend_kwargs)
         legend.get_frame().set_linewidth(1.4)
         legend.set_zorder(10)
         self._colorize_legend_labels(legend)
@@ -1624,50 +1700,28 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         return legend
 
     def _display_gate_info(self, ax, text, legend=None, trend_anchor=None):
-        """Place gate-info callout in a free corner, avoiding fit box and legend.
+        """Place gate-info callout at a free corner using shared corner anchors.
 
-        Bottom positions use y=0.07 to provide clearance from tick labels and
-        the x-axis label. Mid-edge positions are included for additional options.
+        Picks the data-clearest of the 4 standard corners that doesn't collide
+        with the fit-info box or the legend. Because all info boxes share the
+        same XY anchor points (``_INFO_CORNER_XY``), two boxes in the same row
+        or column line up automatically.
         """
-        all_positions = [
-            (0.03, 0.97, "left",   "top"),
-            (0.97, 0.97, "right",  "top"),
-            (0.03, 0.07, "left",   "bottom"),
-            (0.97, 0.07, "right",  "bottom"),
-            (0.50, 0.97, "center", "top"),
-            (0.50, 0.07, "center", "bottom"),
-            (0.03, 0.50, "left",   "center"),
-            (0.97, 0.50, "right",  "center"),
-        ]
-
-        # --- Step 1: exclude known-occupied positions deterministically --------
         occupied = set()
-
-        # Fit-info box corner
         if trend_anchor is not None:
             _, trend_halign, trend_valign, _ = trend_anchor
             occupied.add((trend_halign, trend_valign))
 
-        # Legend corner
+        # Determine the legend's corner — by its loc, falling back to its
+        # rendered bbox center for loc="best".
         legend_corner = self._legend_corner(legend)
         if legend_corner is not None:
             occupied.add(legend_corner)
 
-        free = [c for c in all_positions if (c[2], c[3]) not in occupied]
-        candidates = free if free else all_positions
-
-        # --- Step 2: pick the least data-dense corner (sampled) ----------------
-        xs, ys = self._sample_ax_data(ax)
-        x0, x1 = ax.get_xlim()
-        y0, y1 = ax.get_ylim()
-
-        def _data_density(c):
-            _, _, hal, val = c
-            return self._count_points_in_region(xs, ys, x0, x1, y0, y1, hal, val, 0.22, 0.28)
-
-        chosen = min(candidates, key=_data_density)
-
-        x_anchor, y_anchor, halign, valign = chosen
+        ranked = self._rank_info_corners(ax)
+        free = [c for c in ranked if c not in occupied]
+        halign, valign = (free[0] if free else ranked[0])
+        x_anchor, y_anchor = self._INFO_CORNER_XY[(halign, valign)]
         ax.text(
             x_anchor, y_anchor, text,
             transform=ax.transAxes, fontsize=9.5,
