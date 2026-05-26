@@ -357,6 +357,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         output_dir: str | Path | None = None,
         verbose: bool = False,
         output_dpi: int = 300,
+        resample_rate: float | None = None,
     ):
         """Build a plotter instance and run the preprocessing pipeline."""
         if fig_size is None:
@@ -390,6 +391,18 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         self.units_map = units_map
         self.FILTER_SAMPLE_RATE = sample_rate
         self.FILTERS = filters
+        # When resample_rate is given, use it as the canonical filter design
+        # rate too so that resampling output and filter cutoffs are aligned.
+        if resample_rate is not None:
+            try:
+                rr = float(resample_rate)
+            except (TypeError, ValueError):
+                rr = 0.0
+            self.RESAMPLE_RATE = rr
+            if rr > 0:
+                self.FILTER_SAMPLE_RATE = rr
+        else:
+            self.RESAMPLE_RATE = float(sample_rate) if sample_rate else 0.0
 
         self.SCATTER_DOT_SIZE = scatter_dot_size
         self.SCATTER_TRANSPARENCY = scatter_transparency
@@ -627,8 +640,11 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                             )
 
         # Always pull sLap and tLap if the dataset has them — needed for axis
-        # rendering and sample-rate detection.
-        for support in ("sLap", "tLap", "vCar"):
+        # rendering and sample-rate detection.  TimeIntoExport is the
+        # monotonic wall-clock column on CAR exports (HH:MM:SS.mmm strings);
+        # it's the only reliable rate source when tLap is missing and sLap is
+        # zero-order-held.
+        for support in ("sLap", "tLap", "vCar", "TimeIntoExport"):
             required_channels.add(support)
 
         # Resolve calculated channel dependencies
@@ -1081,9 +1097,19 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             df = datafunctions.convert_yes_no_to_binary(self.run_data[run_name])
 
             # Drop string columns and sanitize numeric ones up-front.
+            # Special-case ``TimeIntoExport`` (CAR HH:MM:SS.mmm strings) —
+            # convert to seconds so the sample-rate detector can use it.
             drop_cols = []
             for col in list(df.columns):
-                if df[col].dtype == "object":
+                # Special-case ``TimeIntoExport`` regardless of whether the
+                # column came in as object/str/string dtype.
+                if col == "TimeIntoExport" and not pd.api.types.is_numeric_dtype(df[col]):
+                    td = pd.to_timedelta(df[col].astype(str).str.strip(),
+                                         errors="coerce")
+                    if td.notna().any():
+                        df[col] = td.dt.total_seconds()
+                        continue
+                if df[col].dtype == "object" or pd.api.types.is_string_dtype(df[col]):
                     non_nan = df[col].dropna()
                     if any(isinstance(x, str) for x in non_nan):
                         drop_cols.append(col)
@@ -1132,6 +1158,18 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         if df is None or channel not in df.columns:
             return None, None
         signal = np.asarray(df[channel], dtype=float)
+        # Warn when the available (finite) sample count forces Welch to use a
+        # much shorter segment than requested — frequency resolution and
+        # averaging suffer, but the plot will still be drawn.
+        finite_n = int(np.isfinite(signal).sum())
+        if finite_n < nperseg and finite_n >= 8:
+            effective = min(nperseg, finite_n)
+            if effective < max(64, nperseg // 4):
+                log.warning(
+                    "PSD '%s'/'%s': only %d finite samples — nperseg capped from %d to %d "
+                    "(coarse frequency resolution, low averaging).",
+                    run_name, channel, finite_n, nperseg, effective,
+                )
         rate = self.run_sample_rates.get(run_name, (self.FILTER_SAMPLE_RATE, "default"))[0]
         freq, power = datafunctions.calculate_psd(signal, rate, nperseg=nperseg)
         self._psd_cache[key] = (freq, power)
@@ -1384,6 +1422,19 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             )
 
         self._clean_data()
+
+        # Resample to a uniform rate (channel_config.RESAMPLE_RATE) so that
+        # filter cutoffs designed at self.FILTER_SAMPLE_RATE are consistent
+        # channel-to-channel and run-to-run. No-op if the resample rate is
+        # 0/None or matches the source rate within 0.5%.
+        if self.RESAMPLE_RATE and self.RESAMPLE_RATE > 0:
+            for run in self.runs:
+                name = run["name"].lower()
+                if name not in self.run_data:
+                    continue
+                self.run_data[name] = datafunctions.resample_to_uniform_rate(
+                    self.run_data[name], self.RESAMPLE_RATE, run_name=name,
+                )
 
         # Detect per-run sample rates (#17). The global self.FILTER_SAMPLE_RATE
         # is preserved for filter design (which expects a single value); per-run

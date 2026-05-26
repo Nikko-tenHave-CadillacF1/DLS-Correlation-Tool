@@ -224,8 +224,20 @@ class ScatterMixin:
                 errors[lbl] = ((baseline_slope - slope) / slope) * 100
         return errors
 
+    @staticmethod
+    def _format_pct_error(pct, as_factor=False):
+        """Format a gradient delta either as a signed percentage or as an
+        absolute multiplicative factor (1 + pct/100, e.g. +10% -> 'x 1.100').
+        """
+        if pct is None:
+            return "n/a"
+        if as_factor:
+            return f"x {1.0 + pct / 100.0:.3f}"
+        return f"{pct:+.1f}%"
+
     def _display_fit_info(self, ax, eq_list, show_equations, show_error,
-                           fit_labels=None, avoid_corner=None):
+                           fit_labels=None, avoid_corner=None,
+                           error_as_factor=False):
         """Unified renderer: per-segment boxes (≤ threshold segs) or compact box.
 
         Returns anchor tuple (x, halign, valign, [y_positions]) for downstream
@@ -256,15 +268,18 @@ class ScatterMixin:
             return self._display_compact_fit_box(
                 ax, segments, show_equations, show_error, baseline_label,
                 x_anchor, y_anchor, halign, valign,
+                error_as_factor=error_as_factor,
             )
         return self._display_segment_boxes(
             ax, segments, show_equations, show_error, baseline_label,
             x_anchor, y_anchor, halign, valign,
+            error_as_factor=error_as_factor,
         )
 
     def _display_segment_boxes(
         self, ax, segments, show_equations, show_error, baseline_label,
         x_anchor, y_anchor, halign, valign,
+        error_as_factor=False,
     ):
         """One rounded box per segment. Each run equation in its run color.
 
@@ -322,13 +337,11 @@ class ScatterMixin:
                 if show_equations:
                     text = eq_part
                     if show_error and not is_baseline and run_label in pct_errors:
-                        pct = pct_errors[run_label]
-                        pct_str = "n/a" if pct is None else f"{pct:+.1f}%"
+                        pct_str = self._format_pct_error(pct_errors[run_label], error_as_factor)
                         text += f" $\\rightarrow$ $\\delta$ = {pct_str}"
                     line_items.append((text, run_color))
                 elif show_error and not is_baseline:
-                    pct = pct_errors.get(run_label)
-                    pct_str = "n/a" if pct is None else f"{pct:+.1f}%"
+                    pct_str = self._format_pct_error(pct_errors.get(run_label), error_as_factor)
                     line_items.append((f"$\\delta$ = {pct_str}", run_color))
 
             if not line_items:
@@ -392,6 +405,7 @@ class ScatterMixin:
     def _display_compact_fit_box(
         self, ax, segments, show_equations, show_error, baseline_label,
         x_anchor, y_anchor, halign, valign,
+        error_as_factor=False,
     ):
         """Single compact box for plots with many segments (> COMPACT_SEGMENT_THRESHOLD).
 
@@ -416,13 +430,11 @@ class ScatterMixin:
                 if show_equations:
                     part = f"{run_label} m={self._fmt_coeff(slope)}"
                     if show_error and not is_baseline and run_label in pct_errors:
-                        pct = pct_errors[run_label]
-                        pct_str = "n/a" if pct is None else f"{pct:+.1f}%"
+                        pct_str = self._format_pct_error(pct_errors[run_label], error_as_factor)
                         part += f" ({pct_str})"
                     parts.append(part)
                 elif show_error and not is_baseline:
-                    pct = pct_errors.get(run_label)
-                    pct_str = "n/a" if pct is None else f"{pct:+.1f}%"
+                    pct_str = self._format_pct_error(pct_errors.get(run_label), error_as_factor)
                     parts.append(f"{run_label} {pct_str}")
 
             min_parts = 2 if condition else 1
@@ -472,6 +484,7 @@ class ScatterMixin:
             gate_spec = plot_def.gate
             show_equations = plot_def.show_equations
             show_error = plot_def.show_error
+            error_as_factor = getattr(plot_def, "error_as_factor", False)
             color_gate = plot_def.color_gate
             annotate_fit_at = plot_def.annotate_fit_at
             markers = plot_def.markers
@@ -680,7 +693,8 @@ class ScatterMixin:
                         best_fit, x_var=x_var, y_var=y_var, data_bounds=data_bounds
                     )
                 anchor = self._display_fit_info(
-                    ax, eq_list, show_equations, show_error, fit_labels=fit_labels
+                    ax, eq_list, show_equations, show_error, fit_labels=fit_labels,
+                    error_as_factor=error_as_factor,
                 )
 
             fit_corner = (anchor[1], anchor[2]) if anchor else None
@@ -692,22 +706,22 @@ class ScatterMixin:
                     self._display_gate_info(ax, gate_text, legend=legend, trend_anchor=anchor)
 
             # ── color_gate legend patch ───────────────────────────────────
-            if color_gate is not None and len(color_gate) >= 4:
+            if color_gate is not None and len(color_gate) >= 4 and legend is not None:
                 import matplotlib.patches as mpatches
                 cg_label = datafunctions.format_gate_text(color_gate[:3]) or str(color_gate[:3])
                 patch = mpatches.Patch(color=color_gate[3], label=f"Gate: {cg_label}")
-                existing = legend.legend_handles if legend else []
-                existing_labels = [t.get_text() for t in legend.get_texts()] if legend else []
-                rebuilt = ax.legend(
-                    handles=list(existing) + [patch],
+                existing = list(legend.legend_handles)
+                existing_labels = [t.get_text() for t in legend.get_texts()]
+                # Remove the old legend, then rebuild via _add_standard_legend so
+                # the corner-anchored placement (avoiding the fit-info box) is
+                # preserved instead of falling back to matplotlib's loc="best".
+                legend.remove()
+                legend = self._add_standard_legend(
+                    ax,
+                    handles=existing + [patch],
                     labels=existing_labels + [f"Gate: {cg_label}"],
-                    fancybox=True, framealpha=0.92,
-                    edgecolor="#3C3C3C", borderpad=0.55, handlelength=1.8,
-                    prop={"family": "Montserrat", "weight": "bold", "size": 12},
+                    avoid_corner=fit_corner,
                 )
-                rebuilt.get_frame().set_linewidth(1.4)
-                rebuilt.set_zorder(10)
-                self._colorize_legend_labels(rebuilt)
 
             # ── annotate_fit_at ───────────────────────────────────────────
             if annotate_fit_at is not None and fit_line_params:

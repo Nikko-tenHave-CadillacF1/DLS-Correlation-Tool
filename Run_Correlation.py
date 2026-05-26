@@ -19,16 +19,16 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 RUNS = [
     # {"name": "v37", "file": "...", "color": "#0051FF", "nrun": 1, "type": "OC"},
     {
-        "name": "DLS - RED",
-        "file": r"26R05MTL  11  FP1  PER_DLS.parquet",
-        "color": "#BF0000",
-        "nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
-        "type": "DLS",
+        "name": "CAR",
+        "file": r"26R05MTL_260523_MAC26-01_PER_Q_R02PARTIAL_1.txt",
+        "color": "#BF6C00",
+        #"nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
+        "type": "CAR",
     },
     {
-        "name": "DLS - BLUE",
-        "file": r"26R05MTL  77  FP1  BOT_DLS.parquet",
-        "color": "#0000BF",
+        "name": "DLS",
+        "file": r"26R05MTL  11  Quali  Run 2 2  Stint 1 Q1 R2 nC5_DLS_1.parquet",
+        "color": "#0069BF",
         "nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
         "type": "DLS",
     },
@@ -112,7 +112,15 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("Damper gLat rear",        "gLat",          "xDamperDeltaR",        best_fit=[('x', None, None)]),
     ScatterPlot("Pushrod gLat front",      "gLat",          "FPRodDeltaF",          best_fit=[('x', None, None)]),
     ScatterPlot("Pushrod gLat rear",       "gLat",          "FPRodDeltaR",          best_fit=[('x', None, None)]),
-    
+
+    # ## CAR ABSOLUTE OFFSETS
+    # ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF",
+    #             best_fit=[('y', -10000, None), ('y', None, -10000)], error_as_factor=True),
+    # ScatterPlot("Front Roll",              "xDamperDeltaF", "FPRodDeltaF",          best_fit=[('x', None, None)], error_as_factor=True),
+    # ScatterPlot("Rear Heave",              "xDamperAvgR",   "FPRodAvgR",
+    #             best_fit=[('y', None, 13000), ('y', 13000, 25000), ('y', 25000, None)], error_as_factor=True),
+    # ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)], error_as_factor=True),
+
     ## CAR SUSPENSION CORRELATION
     ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF",
                 best_fit=[('y', -10000, None), ('y', None, -10000)]),
@@ -131,18 +139,18 @@ SCATTER_PLOT_DEFINITIONS = [
     
     ScatterPlot("Roll angle gLat",         "gLat",          "aRoll",                best_fit=[('x', None, None)]),
     ScatterPlot("Front Pushrod vCar",      "vCar",          "FPRodAvgF",
-                best_fit=[('gLat_Abs', 0, 1)], gate=[('SM', '<', 1)]),
+                best_fit=[('gLat_Abs', 0, 1)], gate=[('SM', '<', 1), ("pBrakeF", '<', 1)]),
     ScatterPlot("Rear Pushrod vCar",       "vCar",          "FPRodAvgR",
-                best_fit=[('gLat_Abs', 0, 1)], gate=[('SM', '<', 1)]),
-    ScatterPlot("Front Ride vCar",         "vCar",          "hRideF",               best_fit=[('SM', 0, 0.5)],
+                best_fit=[('gLat_Abs', 0, 1)], gate=[('SM', '<', 1), ("pBrakeF", '<', 1)]),
+    ScatterPlot("Front Ride vCar",         "vCar",          "hRideF",  best_fit=[('SM', 0, 0.5)],             
                 axis_limits=[(None, None), (None, 40)],
                 annotate_fit_at=(100,200,300)),
-    ScatterPlot("Rear Ride vCar",          "vCar",          "hRideR",               best_fit=[('SM', 0, 0.5)],
+    ScatterPlot("Rear Ride vCar",          "vCar",          "hRideR",  best_fit=[('SM', 0, 0.5)],            
                 axis_limits=[(None, None), (None, 75)],
                 annotate_fit_at=(100,200,300)),
     ScatterPlot("Ride Height Compare",         "hRideF",    "hRideR",               best_fit=0),
     ScatterPlot("Ride Height Compare Gated",   "hRideF",    "hRideR",
-                best_fit=0, gate=('SM', '<', 1)),
+                best_fit=0, gate=[('SM', '<', 1)]),
     ScatterPlot("Plank power acceleration",    "gLong (raw)", "PPlank_F",           best_fit=0),
 ]
 
@@ -154,6 +162,10 @@ PSD_PLOT_DEFINITIONS = [
     PsdPlot("Rear Ride PSD",                   "hRideR (raw)", axis_limits=[(0, 20), (1e-4, None)], annotate_at=(5, 15)),
     PsdPlot("Front Heave PSD",                 ["FPRodAvgF", "FPRodAvgR"],    axis_limits=[(0, 20), (1e-4, None)], annotate_at=(5, 15)),
     PsdPlot("Front Roll PSD",                  ["FPRodDeltaF", "FPRodDeltaR"],  axis_limits=[(0, 20), (1e-4, None)], annotate_at=(5, 15)),
+    PsdPlot("FL gHub PSD",                  "gHubVertFL",    axis_limits=[(0, 20), (1e-3, None)], annotate_at=(5, 15)),
+    PsdPlot("FR gHub PSD",                  "gHubVertFR",    axis_limits=[(0, 20), (1e-3, None)], annotate_at=(5, 15)),
+    PsdPlot("RL gHub PSD",                  "gHubVertRL",    axis_limits=[(0, 20), (1e-3, None)], annotate_at=(5, 15)),
+    PsdPlot("RR gHub PSD",                  "gHubVertRR",    axis_limits=[(0, 20), (1e-3, None)], annotate_at=(5, 15)),
 ]
 
 # ─── HISTOGRAM PLOTS ──────────────────────────────────────────────────────────

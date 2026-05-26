@@ -244,7 +244,7 @@ CORRELATION_CALCULATED = {
     "PMGUK_Deploy (MJ)":  lambda df: (df["PMGUK"] / 1000 * (df["PMGUK"] > 0).astype(float)).abs(),
     "PMGUK_Charge (MJ)":  lambda df: (df["PMGUK"] / 1000 * (df["PMGUK"] < 0).astype(float)).abs(),
     # Plank wear
-    "PPlank_F":           lambda df: 0.001 * np.maximum(0.1 * df["FzPlankF"] * (df["vCar"] / 3.6), 0),
+    "PPlank_F":           lambda df: 0.001 * np.maximum(0.1 * df["FzPlankF"] * (df["vCar"] / 3.6), 0)*(df["FzPlankF"] > 500).astype(float),
     "EPlank_F":           lambda df: cumulative_trapezoid(df["PPlank_F"], dx=0.01, initial=0),
     "tLap_Calc":          lambda df: cumulative_trapezoid(np.ones_like(df["vCar"]), dx=0.01, initial=0),
 
@@ -274,11 +274,20 @@ DAMPER_CALCULATED = {
 }
 
 
+# ─── RESAMPLING ───────────────────────────────────────────────────────────────
+# All input channels are resampled to this uniform rate (Hz) BEFORE any
+# filtering is applied. This guarantees filter cutoffs are consistent
+# channel-to-channel and run-to-run regardless of the source logging rate.
+# Set to 0 (or None) to disable resampling and use the native sample rate.
+RESAMPLE_RATE = 100.0
+
+
 # ─── FILTERS ──────────────────────────────────────────────────────────────────
 # cutoff=0 disables filtering for that channel.
 # "all" is a fallback applied to any channel not explicitly listed.
 # Optional "type" key: "low" (default), "high", or "bandpass".
 # For bandpass, cutoff is a two-element list [low_hz, high_hz].
+# Filters are applied AFTER resampling — see RESAMPLE_RATE above.
 
 # Base filter settings shared across workflows. Override per-workflow below.
 _BASE_FILTERS = {
@@ -303,6 +312,10 @@ CORRELATION_FILTERS = {
     "gLong (raw)":   {"cutoff": 0,  "order": 2},
     "hRideF (raw)":  {"cutoff": 0,  "order": 2},
     "hRideR (raw)":  {"cutoff": 0,  "order": 2},
+    "gHubVertFL":   {"cutoff": 0,  "order": 2},
+    "gHubVertFR":   {"cutoff": 0,  "order": 2},
+    "gHubVertRL":   {"cutoff": 0,  "order": 2},
+    "gHubVertRR":   {"cutoff": 0,  "order": 2},
     "hRideF (high)": {"cutoff": 0.5,  "order": 4, "type": "high"},
     "hRideR (high)": {"cutoff": 0.5,  "order": 4, "type": "high"},
     "PPUTotal":      {"cutoff": 0,  "order": 2},

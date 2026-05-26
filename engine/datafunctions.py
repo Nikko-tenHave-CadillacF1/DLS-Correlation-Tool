@@ -7,7 +7,7 @@ import difflib
 import pandas as pd
 import numpy as np
 from scipy.stats import linregress, theilslopes
-from scipy.signal import butter, filtfilt, welch
+from scipy.signal import butter, filtfilt, welch, resample_poly
 from matplotlib import patheffects as pe
 
 from .logger import log
@@ -1447,13 +1447,187 @@ def fit_robust_theilsen(x, y, outlier_k=3.0):
 # SAMPLE-RATE DETECTION (#17)
 # ================================================================
 
+def _rational_ratio(target: float, src: float,
+                    max_denom: int = 1000) -> tuple[int, int]:
+    """Approximate ``target / src`` as a reduced integer ratio (up, down)."""
+    from math import gcd
+    # Multiply by 1000 then round, then reduce. Good enough for sample rates.
+    up = max(1, int(round(target * 1000)))
+    down = max(1, int(round(src * 1000)))
+    g = gcd(up, down) or 1
+    up //= g
+    down //= g
+    if up > max_denom or down > max_denom:
+        # Fall back to rounded integer Hz values
+        up = max(1, int(round(target)))
+        down = max(1, int(round(src)))
+        g = gcd(up, down) or 1
+        up //= g
+        down //= g
+    return up, down
+
+
+def resample_to_uniform_rate(df: pd.DataFrame, target_rate: float,
+                             time_col: str = "tLap",
+                             run_name: str | None = None) -> pd.DataFrame:
+    """Resample every numeric channel to a uniform ``target_rate`` (Hz).
+
+    Pipeline:
+      1. Estimate the source rate from ``time_col`` (median positive dt).
+      2. If src ≈ target (within 0.5 %) the frame is returned unchanged.
+      3. Otherwise each numeric column is resampled with
+         :func:`scipy.signal.resample_poly`, which applies an FIR
+         anti-alias / interpolation filter — preventing the aliasing
+         that naive linear interpolation produces on downsampling and
+         the stair-step harmonics it leaves on upsampling.
+
+    NaNs are filled by linear interpolation before polyphase resampling
+    so the FIR filter has no holes; an all-NaN column becomes an all-NaN
+    column of the new length. Non-numeric columns use nearest-neighbour.
+
+    Called BEFORE filter design so that Butterworth cutoffs at
+    ``target_rate`` are consistent channel-to-channel and run-to-run.
+    """
+    if df is None or df.empty:
+        return df
+    try:
+        target_rate = float(target_rate)
+    except (TypeError, ValueError):
+        return df
+    if target_rate <= 0:
+        return df
+    if time_col not in df.columns:
+        log.debug("resample: skipped (no '%s' column) for %s",
+                  time_col, run_name or "<run>")
+        return df
+
+    t = pd.to_numeric(df[time_col], errors="coerce").to_numpy(dtype=float)
+    n_old = len(df)
+    if n_old < 4 or not np.isfinite(t).any():
+        return df
+
+    # Estimate source rate from the median positive dt (handles per-lap resets).
+    dt = np.diff(t)
+    valid_dt = (dt > 0) & (dt < 1.0) & np.isfinite(dt)
+    if valid_dt.sum() < 5:
+        log.debug("resample: skipped (irregular '%s') for %s",
+                  time_col, run_name or "<run>")
+        return df
+    med_dt = float(np.median(dt[valid_dt]))
+    if not np.isfinite(med_dt) or med_dt <= 0:
+        return df
+    src_rate = 1.0 / med_dt
+
+    # Already at target — skip work.
+    if abs(src_rate - target_rate) / target_rate < 0.005:
+        log.debug("resample: %s already at %.2f Hz (target %.2f) — skipped",
+                  run_name or "<run>", src_rate, target_rate)
+        return df
+
+    up, down = _rational_ratio(target_rate, src_rate)
+    if up == down:
+        return df
+
+    n_new = int(np.floor(n_old * up / down))
+    if n_new < 2:
+        return df
+
+    # Columns that must NOT pass through the polyphase FIR.
+    #   - Time/distance columns reset to 0 at lap boundaries (sawtooth) — the
+    #     anti-alias filter would ring at every reset, distorting the time axis.
+    #   - Lap counters are integer step functions — must stay integer-valued.
+    # These are interpolated against the resampled time grid directly.
+    _LINEAR_INTERP_COLS = {"tlap", "slap"}
+    _NEAREST_COLS = {"nlap"}
+    idx_old = np.arange(n_old)
+    t_src_uniform = idx_old / src_rate
+    t_new_uniform = np.arange(n_new) / target_rate
+
+    out: dict[str, np.ndarray] = {}
+    for col in df.columns:
+        s = df[col]
+        col_key = col.lower() if isinstance(col, str) else ""
+        if pd.api.types.is_numeric_dtype(s):
+            y = pd.to_numeric(s, errors="coerce").to_numpy(dtype=float)
+            nan_mask = ~np.isfinite(y)
+            if nan_mask.all():
+                out[col] = np.full(n_new, np.nan)
+                continue
+            if nan_mask.any():
+                # Fill holes so the polyphase filter has no NaN.
+                valid = ~nan_mask
+                y = np.interp(idx_old, idx_old[valid], y[valid])
+            # Control columns bypass polyphase (see comment above).
+            if col_key in _LINEAR_INTERP_COLS:
+                y_new = np.interp(t_new_uniform, t_src_uniform, y)
+                out[col] = y_new
+                continue
+            if col_key in _NEAREST_COLS:
+                idx_new = np.clip(
+                    np.round(t_new_uniform * src_rate).astype(int), 0, n_old - 1
+                )
+                out[col] = y[idx_new]
+                continue
+            try:
+                y_new = resample_poly(y, up, down)
+            except Exception as exc:  # pragma: no cover - extreme edge cases
+                log.warning("resample: %s column '%s' fell back to linear (%s)",
+                            run_name or "<run>", col, exc)
+                y_new = np.interp(t_new_uniform, t_src_uniform, y)
+            # resample_poly may return slightly different length; align.
+            if len(y_new) != n_new:
+                if len(y_new) > n_new:
+                    y_new = y_new[:n_new]
+                else:
+                    y_new = np.concatenate(
+                        (y_new, np.full(n_new - len(y_new), y_new[-1] if len(y_new) else 0.0))
+                    )
+            out[col] = y_new
+        else:
+            # Nearest-neighbour for non-numeric columns.
+            if n_new == 1:
+                idx_new = np.array([0])
+            else:
+                idx_new = np.round(
+                    np.linspace(0, n_old - 1, n_new)
+                ).astype(int)
+            out[col] = s.to_numpy()[np.clip(idx_new, 0, n_old - 1)]
+
+    new_df = pd.DataFrame(out)
+    log.info("[%s] resampled %d -> %d rows (%.1f Hz -> %.1f Hz, ratio %d/%d)",
+             run_name or "run", n_old, len(new_df), src_rate, target_rate, up, down)
+    return new_df
+
+
+def _parse_time_into_export(series: pd.Series) -> pd.Series:
+    """Parse a TimeIntoExport-style column to seconds.
+
+    Accepts numeric series (seconds), or strings in ``HH:MM:SS[.mmm]`` /
+    ``MM:SS[.mmm]`` / ``SS[.mmm]`` form. Anything unparseable becomes NaN.
+    """
+    if pd.api.types.is_numeric_dtype(series):
+        return pd.to_numeric(series, errors="coerce")
+    # String → seconds.  Use pandas' timedelta parser, which handles
+    # "HH:MM:SS.fff" and "MM:SS.fff" (after prepending "0:") robustly.
+    s = series.astype(str).str.strip()
+    td = pd.to_timedelta(s, errors="coerce")
+    if td.notna().any():
+        return td.dt.total_seconds()
+    # Last resort: try plain float
+    return pd.to_numeric(s, errors="coerce")
+
+
 def detect_sample_rate(df, default=100.0):
     """Estimate samples-per-second from a loaded run dataframe.
 
     Tries (in order):
         1. ``tLap`` median diff
-        2. ``sLap``+``vCar`` (vCar in km/h)
-        3. fallback ``default``
+        2. ``TimeIntoExport`` (monotonic wall-clock, parsed as seconds
+           or ``HH:MM:SS.mmm`` strings) median diff — the most reliable
+           source on CAR exports where ``sLap`` is ZOH-held below the
+           true grid rate.
+        3. ``sLap``+``vCar`` (vCar in km/h)
+        4. fallback ``default``
     Returns (rate_hz, source_label).
     """
     if "tLap" in df.columns:
@@ -1466,6 +1640,15 @@ def detect_sample_rate(df, default=100.0):
                 med = dt.median()
                 if med > 0 and np.isfinite(med):
                     return float(1.0 / med), "tLap"
+    if "TimeIntoExport" in df.columns:
+        t = _parse_time_into_export(df["TimeIntoExport"]).dropna()
+        if len(t) > 10:
+            dt = t.diff().dropna()
+            dt = dt[(dt > 0) & (dt < 1.0)]
+            if len(dt) > 5:
+                med = dt.median()
+                if med > 0 and np.isfinite(med):
+                    return float(1.0 / med), "TimeIntoExport"
     if "sLap" in df.columns and "vCar" in df.columns:
         s = pd.to_numeric(df["sLap"], errors="coerce").dropna()
         v = pd.to_numeric(df["vCar"], errors="coerce").reindex(s.index).dropna()

@@ -55,6 +55,7 @@ class PsdHistMixin:
             plotted_any = False
             multi = len(channels_list) > 1
             psd_curves = []  # (run_color, freq_array, power_array) for annotate_at
+            nyquist_lines = {}  # {fs/2: color}  — populated as runs are plotted
             for run in self.runs:
                 run_name = run["name"].lower()
                 if run_name not in self.run_data:
@@ -82,7 +83,6 @@ class PsdHistMixin:
                         )
                         continue
 
-                    signal = np.asarray(signal, dtype=float)
                     freq, power = self._cached_psd(run_name, ch, nperseg)
                     if freq is None:
                         log.warning(
@@ -101,6 +101,14 @@ class PsdHistMixin:
                     )
                     psd_curves.append((run["color"], freq, power))
                     plotted_any = True
+                # Track the run's Nyquist for annotation (one line per unique rate).
+                rate_info = self.run_sample_rates.get(
+                    run_name, (self.FILTER_SAMPLE_RATE, "default")
+                )
+                fs = float(rate_info[0]) if rate_info and rate_info[0] else 0.0
+                if fs > 0:
+                    nyq = round(fs / 2.0, 3)
+                    nyquist_lines.setdefault(nyq, run["color"])
 
             if not plotted_any:
                 log.warning(
@@ -144,9 +152,14 @@ class PsdHistMixin:
                         continue
                     ax.axvline(f_at, color="#5E5E5E", linestyle="--", linewidth=1.2, alpha=0.7, zorder=2)
 
-                    # Collect annotation points at this frequency
+                    # Collect annotation points at this frequency.
+                    # Skip curves whose Nyquist is below f_at — there is no
+                    # real spectral content there, so annotating the nearest
+                    # (final) bin would be misleading.
                     ann_items = []
                     for (run_color, freq_arr, power_arr) in psd_curves:
+                        if len(freq_arr) == 0 or f_at > freq_arr[-1]:
+                            continue
                         idx = np.argmin(np.abs(freq_arr - f_at))
                         p_at = power_arr[idx]
                         ann_items.append((p_at, run_color))
@@ -180,6 +193,32 @@ class PsdHistMixin:
                             )
 
             self._draw_static_markers(ax, markers)
+
+            # ── Nyquist line(s) — one per unique run sample rate ─────────
+            # With resampling enabled all runs share one rate → one grey line.
+            # If users disable RESAMPLE_RATE, per-run rates differ and each
+            # is drawn in its run colour for clarity.
+            if nyquist_lines:
+                xl, xr = ax.get_xlim()
+                single = len(nyquist_lines) == 1
+                for nyq, color in nyquist_lines.items():
+                    if not (xl <= nyq <= xr):
+                        continue
+                    line_color = "#5E5E5E" if single else color
+                    ax.axvline(
+                        nyq, color=line_color, linestyle=(0, (5, 3)),
+                        linewidth=1.1, alpha=0.7, zorder=2,
+                    )
+                    label = "f_nyq"
+                    ax.text(
+                        nyq, 1.01, label,
+                        transform=ax.get_xaxis_transform(),
+                        ha="center", va="bottom",
+                        fontsize=8, fontweight="bold", color=line_color,
+                        bbox=dict(boxstyle="round,pad=0.18", facecolor="white",
+                                  edgecolor=line_color, linewidth=0.8, alpha=0.9),
+                        zorder=12,
+                    )
 
             plt.tight_layout(pad=0.25)
             fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")

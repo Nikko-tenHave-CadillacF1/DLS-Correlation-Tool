@@ -53,6 +53,7 @@ class PlotJobConfig:
     channel_transforms: Optional[dict] = None
     calculated_channels: Optional[dict] = None
     filters: Optional[dict] = None
+    resample_rate: Optional[float] = None
     units_map: Optional[dict] = None
     fig_size: Optional[Union[list, dict]] = None
     scatter_max_points: int = 45000
@@ -355,6 +356,7 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
         output_dir=config.output_dir,
         verbose=config.verbose,
         output_dpi=config.output_dpi,
+        resample_rate=config.resample_rate,
     )
 
     # --- Handle --check-only (data quality report only) ---
@@ -696,7 +698,6 @@ def workflow_config(
         CHANNEL_MAPPINGS, UNITS_MAP, CHANNEL_TRANSFORMS,
         SCATTER_MAX_POINTS, BAR_SECONDARY_AXIS_RATIO, BOX_PLOT_SETTINGS,
     )
-
     _WORKFLOW_MAP = {
         "correlation": ("CORRELATION_INPUT_DIR", "CORRELATION_OUTPUT_DIR",
                         "CORRELATION_CALCULATED", "CORRELATION_FILTERS"),
@@ -711,6 +712,9 @@ def workflow_config(
     # Allow explicit root_folder / output_dir overrides (e.g. event-scoped dirs)
     explicit_root = overrides.pop("root_folder", None)
     explicit_out = overrides.pop("output_dir", None)
+
+    # Global resample rate (applies to all workflows; see channel_config).
+    resample_rate = overrides.pop("resample_rate", getattr(_cc, "RESAMPLE_RATE", None))
 
     if workflow in _WORKFLOW_MAP:
         input_dir, output_dir, calc_attr, filt_attr = _WORKFLOW_MAP[workflow]
@@ -737,6 +741,7 @@ def workflow_config(
         channel_transforms=overrides.pop("channel_transforms", CHANNEL_TRANSFORMS),
         calculated_channels=calculated,
         filters=filters,
+        resample_rate=resample_rate,
         units_map=overrides.pop("units_map", UNITS_MAP),
         scatter_max_points=overrides.pop("scatter_max_points", SCATTER_MAX_POINTS),
         bar_secondary_axis_ratio=overrides.pop("bar_secondary_axis_ratio", BAR_SECONDARY_AXIS_RATIO),

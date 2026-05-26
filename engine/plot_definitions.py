@@ -244,6 +244,10 @@ class ScatterPlot:
     gate: Any = None
     show_equations: bool = True
     show_error: bool = True
+    # When True, display the gradient delta as an absolute multiplicative
+    # factor (e.g. "x 1.10" meaning "multiply this run's slope by 1.10 to get
+    # the baseline slope") instead of a signed percentage (+10.0%).
+    error_as_factor: bool = False
     color_gate: Any = None
     annotate_fit_at: Any = None
     markers: List[Marker] = field(default_factory=list)
