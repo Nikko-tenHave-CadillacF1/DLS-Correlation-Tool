@@ -705,6 +705,8 @@ def workflow_config(
                         "BOXPLOT_CALCULATED",    "BOXPLOT_FILTERS"),
         "dampers":     ("DAMPER_INPUT_DIR",      "DAMPER_PLOTS_DIR",
                         "DAMPER_CALCULATED",     "DAMPER_FILTERS"),
+        "ride_dil":    ("RIDE_DIL_INPUT_DIR",    "RIDE_DIL_OUTPUT_DIR",
+                        "RIDE_DIL_CALCULATED",   "RIDE_DIL_FILTERS"),
     }
 
     import channel_config as _cc

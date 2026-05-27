@@ -4,31 +4,83 @@ from bootstrap import ensure_dependencies
 ensure_dependencies()
 
 from channel_config import get_workflow_dirs
-from engine import run_workflow, BoxPlot
+from engine import run_workflow, BoxPlot, WaveformPlot
 
 WORKFLOW_NAME = "boxplots"
-EVENT = "26T01BCN"
+EVENT = "26R05MTL"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 
+# RUNS = [
+#     # PER (hot colours)
+#     {"name": "PER P1R3", "file": "26R04MIA_260501_MAC26-01_PER_P1_R03PARTIAL.txt", "color": "#D70000", "type": "CAR"},
+#     {"name": "PER SQ1R1", "file": "26R04MIA_260501_MAC26-01_PER_SQ_R01PARTIAL.txt", "color": "#FF6600", "type": "CAR"},
+#     {"name": "PER Q1R3",  "file": "26R04MIA_260502_MAC26-01_PER_Q_R03.txt",         "color": "#FFD700", "type": "CAR"},
+#     {"name": "PER SR", "file": "26R04MIA_260502_MAC26-01_PER_SR_R02.txt",        "color": "#FF3399", "type": "CAR"},
+#     {"name": "PER GP", "file": "26R04MIA_260503_MAC26-01_PER_GP_R02.txt",        "color": "#CC0066", "type": "CAR"},
+#     # BOT (cool colours)
+#     {"name": "BOT P1R4", "file": "26R04MIA_260501_MAC26-02_BOT_P1_R04PARTIAL.txt", "color": "#008CFF", "type": "CAR"},
+#     {"name": "BOT SQ1R1", "file": "26R04MIA_260501_MAC26-02_BOT_SQ_R01PARTIAL.txt", "color": "#00CC88", "type": "CAR"},
+#     {"name": "BOT Q1R3",  "file": "26R04MIA_260502_MAC26-02_BOT_Q_R03.txt",         "color": "#4C00BF", "type": "CAR"},
+#     {"name": "BOT SR", "file": "26R04MIA_260502_MAC26-02_BOT_SR_R02.txt",        "color": "#0055AA", "type": "CAR"},
+#     {"name": "BOT GP", "file": "26R04MIA_260503_MAC26-02_BOT_GP_R02.txt",        "color": "#006666", "type": "CAR"},
+# ]
+
+# ─── 26R05MTL RUNS ──────────────────────────────────────────────────────────
 RUNS = [
-    {"name": "T01BCN - R4", "file": "26T01BCN_260129_MAC26-01_PER_R04PARTIAL.txt", "color": "#D70000", "type": "CAR"},
-    {"name": "T01BCN - R5", "file": "26T01BCN_260129_MAC26-01_PER_R05PARTIAL.txt", "color": "#06B300", "type": "CAR"},
-    {"name": "T01BCN - R6", "file": "26T01BCN_260129_MAC26-01_PER_R06PARTIAL.txt", "color": "#008CFF", "type": "CAR"},
-    {"name": "T01BCN - R7", "file": "26T01BCN_260129_MAC26-01_PER_R07PARTIAL.txt", "color": "#EA00FF", "type": "CAR"},
+    # PER (hot colours)
+    {"name": "PER P1R3", "file": "26R05MTL_260522_MAC26-01_PER_P1_R03PARTIAL.txt",  "color": "#D70000", "type": "CAR"},
+    {"name": "PER SQ1R1", "file": "26R05MTL_260522_MAC26-01_PER_SQ_R01PARTIAL.txt",  "color": "#FF6600", "type": "CAR"},
+    {"name": "PER Q1R1",  "file": "26R05MTL_260523_MAC26-01_PER_Q_R01PARTIAL.txt",   "color": "#FFD700", "type": "CAR"},
+    {"name": "PER SR", "file": "26R05MTL_260523_MAC26-01_PER_SR_R02.txt",         "color": "#FF3399", "type": "CAR"},
+    {"name": "PER GP", "file": "26R05MTL_260524_MAC26-01_PER_GP_R02.txt",         "color": "#CC0066", "type": "CAR"},
+    # BOT (cool colours)
+    {"name": "BOT P1R3", "file": "26R05MTL_260522_MAC26-03_BOT_P1_R03PARTIAL_1.txt","color": "#008CFF", "type": "CAR"},
+    {"name": "BOT SQ1R1", "file": "26R05MTL_260522_MAC26-03_BOT_SQ_R01PARTIAL.txt",  "color": "#00CC88", "type": "CAR"},
+    {"name": "BOT Q1R1",  "file": "26R05MTL_260523_MAC26-03_BOT_Q_R01PARTIAL.txt",   "color": "#4C00BF", "type": "CAR"},
+    {"name": "BOT SR", "file": "26R05MTL_260523_MAC26-03_BOT_SR_R03.txt",         "color": "#0055AA", "type": "CAR"},
+    {"name": "BOT GP", "file": "26R05MTL_260524_MAC26-03_BOT_GP_R02.txt",         "color": "#006666", "type": "CAR"},
+]
+
+WAVEFORM_DEFINITIONS = [
+    WaveformPlot(
+        name="[CHECK] Filtering",
+        channels=('hRideF', 'hRideR', 'aSteerWheel', 'aRoll', 'nYaw'),
+        axis_limits=(None, None, None, None, None),
+        reference_lines=((0,), (0,), (0,), (0,), (0,)),
+        subplot_heights=(0.6, 0.6, 0.6, 0.6, 0.6),
+        # highlight_zones=('SM', '>', 0.5)
+    ),
 ]
 
 # ─── BOX PLOTS ────────────────────────────────────────────────────────────────
 # aggregation_mode: "per_run" (one box per run) | "aggregated" (all runs merged)
+#                   "per_run_aggregated" (per-run boxes + aggregated box at end)
 # gate: filter data before plotting — ('channel', 'operator', value) or list of conditions
+
+BOX_PLOT_SETTINGS = {"show_points": False, "show_fliers": False, "title": EVENT}
 
 BOX_PLOT_DEFINITIONS = [
     BoxPlot(
-        name="Low Speed Corner Distribution",
-        channels="vCar",
-        aggregation_mode="per_run",
-        gate=[("gLong", "between", (-0.1, 0.1)), ("vCar", "<", 120)],
+        name="Typical Ride Heights",
+        channels=("hRideF","hRideR"),
+        aggregation_mode="per_run_aggregated",
+    ),
+    BoxPlot(
+        name="Typical Yaw Rates",
+        channels=("nYaw",),
+        aggregation_mode="per_run_aggregated",
+    ),
+    BoxPlot(
+        name="Typical Steering Angles",
+        channels=("aSteerWheel",),
+        aggregation_mode="per_run_aggregated",
+    ),
+    BoxPlot(
+        name="Typical Roll Angles",
+        channels=("aRoll",),
+        aggregation_mode="per_run_aggregated",
     ),
 ]
 
@@ -41,5 +93,7 @@ if __name__ == "__main__":
         runs=RUNS,
         root_folder=_INPUT_DIR,
         output_dir=_OUTPUT_DIR,
+        waveforms=WAVEFORM_DEFINITIONS,
         boxes=BOX_PLOT_DEFINITIONS,
+        box_plot_settings=BOX_PLOT_SETTINGS,
     )

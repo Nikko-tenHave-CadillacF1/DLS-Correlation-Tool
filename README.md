@@ -365,10 +365,16 @@ BarPlot(
 BoxPlot(
     name="Low Speed Corner Distribution",
     channels=["xDamperFL", "xDamperFR"],
-    aggregation_mode="per_run",   # "per_run" | "aggregated"
+    aggregation_mode="per_run",   # "per_run" | "aggregated" | "per_run_aggregated"
     gate=('vCar', '<', 120),
 )
 ```
+
+| Mode | Behaviour |
+|------|-----------|
+| `per_run` | One box per run, coloured by run colour |
+| `aggregated` | All runs merged into a single box per channel |
+| `per_run_aggregated` | Per-run boxes followed by a combined "ALL" box (separated by a dashed line) |
 
 ### Heatmap
 

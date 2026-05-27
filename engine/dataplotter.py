@@ -472,7 +472,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
 
     GRID_STYLE = {
         "major": {"alpha": 0.30, "linewidth": 0.6},
-        "minor": {"alpha": 0.15, "linewidth": 0.3},
+        "minor": {"alpha": 0.22, "linewidth": 0.4},
     }
 
     def _configure_plot_style(self):

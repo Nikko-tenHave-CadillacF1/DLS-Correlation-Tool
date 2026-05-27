@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 from matplotlib.lines import Line2D
 from . import datafunctions
 from .datafunctions import _tqdm
@@ -332,6 +333,10 @@ class BarBoxMixin:
                 self._generate_boxplot_aggregated(
                     plot_name, channels, axis_limits, gate_spec, plot_options, figsize
                 )
+            elif aggregation_mode == "per_run_aggregated":
+                self._generate_boxplot_per_run_aggregated(
+                    plot_name, channels, axis_limits, gate_spec, plot_options, figsize
+                )
             else:
                 log.warning(
                     "Box plot '%s': unknown aggregation_mode '%s'. Skipping.",
@@ -417,7 +422,8 @@ class BarBoxMixin:
                 if ymin is not None or ymax is not None:
                     ax.set_ylim(bottom=ymin, top=ymax)
 
-            self._apply_grid(ax, which="major", axis="y")
+            ax.yaxis.set_minor_locator(ticker.AutoMinorLocator(5))
+            self._apply_grid(ax, which="both", axis="y")
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
 
@@ -434,6 +440,10 @@ class BarBoxMixin:
 
         if gate_text:
             self._display_gate_info(axes[0], gate_text)
+
+        plot_title = box_settings.get("title")
+        if plot_title:
+            fig.suptitle(plot_title, fontsize=14, fontweight="bold", y=1.02)
 
         plt.tight_layout(pad=0.25)
         filename = self._sanitize_plot_filename("box", plot_name)
@@ -502,7 +512,8 @@ class BarBoxMixin:
                 if ymin is not None or ymax is not None:
                     ax.set_ylim(bottom=ymin, top=ymax)
 
-            self._apply_grid(ax, which="major", axis="y")
+            ax.yaxis.set_minor_locator(ticker.AutoMinorLocator(5))
+            self._apply_grid(ax, which="both", axis="y")
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
 
@@ -531,6 +542,159 @@ class BarBoxMixin:
         if gate_text:
             legend_obj = axes[0].get_legend() if show_points and legend_handles else None
             self._display_gate_info(axes[0], gate_text, legend=legend_obj)
+
+        plot_title = box_settings.get("title")
+        if plot_title:
+            fig.suptitle(plot_title, fontsize=14, fontweight="bold", y=1.02)
+
+        plt.tight_layout(pad=0.25)
+        filename = self._sanitize_plot_filename("box", plot_name)
+        fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")
+        plt.close(fig)
+        if self.verbose:
+            log.debug("Saved: %s", filename)
+
+    def _generate_boxplot_per_run_aggregated(self, plot_name, channels, axis_limits, gate_spec, options, figsize):
+        """Generate combined box plots: one box per run plus an aggregated box at the end."""
+        box_settings = options
+        filtered_run_data = {
+            rn: self._get_filtered_run_dataframe(rn, gate_spec) for rn in self.run_data
+        }
+
+        # Get per-run data
+        per_run_data = datafunctions.aggregate_channel_for_boxplot(
+            self.run_data, channels,
+            aggregation_mode="per_run", gate_spec=gate_spec,
+            filtered_run_data=filtered_run_data,
+        )
+        # Get aggregated data
+        agg_data = datafunctions.aggregate_channel_for_boxplot(
+            self.run_data, channels,
+            aggregation_mode="aggregated", gate_spec=gate_spec,
+            filtered_run_data=filtered_run_data,
+        )
+
+        if not per_run_data and not agg_data:
+            log.warning("Box plot '%s': no data after aggregation.", plot_name)
+            return
+
+        run_names = [r["name"].lower() for r in self.runs if r["name"].lower() in per_run_data]
+        run_colors = {r["name"].lower(): r["color"] for r in self.runs}
+
+        show_points = bool(box_settings.get("show_points", False))
+        show_fliers = bool(box_settings.get("show_fliers", True))
+        point_alpha = float(box_settings.get("point_alpha", 0.25))
+        point_size = float(box_settings.get("point_size", 18))
+        jitter = float(box_settings.get("jitter", 0.15))
+        box_width = float(box_settings.get("box_width", 0.6))
+        agg_color = box_settings.get("aggregated_box_color", "#3498DB")
+        agg_alpha = float(box_settings.get("aggregated_box_alpha", 0.7))
+        gate_text = datafunctions.format_gate_text(gate_spec) if gate_spec is not None else None
+
+        num_channels = len(channels)
+        # Wider figure to accommodate extra aggregated box
+        wider_figsize = (figsize[0] * 1.15, figsize[1])
+        if num_channels == 1:
+            fig, axes = plt.subplots(1, 1, figsize=wider_figsize)
+            axes = [axes]
+        else:
+            fig, axes = plt.subplots(
+                num_channels, 1,
+                figsize=(wider_figsize[0], max(wider_figsize[1], 4.5) * num_channels * 0.62),
+                sharex=False,
+            )
+            axes = list(np.atleast_1d(axes))
+
+        rng = np.random.default_rng(42)
+
+        for ax, channel in zip(axes, channels):
+            data_list, labels_list, colors_list, overlay_series = [], [], [], []
+
+            # Per-run boxes
+            for run_name in run_names:
+                if channel not in per_run_data.get(run_name, {}):
+                    continue
+                values = per_run_data[run_name][channel]
+                if len(values) == 0:
+                    continue
+                data_list.append(values)
+                labels_list.append(run_name.upper())
+                colors_list.append(run_colors.get(run_name, "#3498DB"))
+                if show_points:
+                    overlay_series.append((run_name.upper(), run_colors.get(run_name, "#3498DB"), values))
+
+            # Aggregated box at the end
+            agg_values = agg_data.get(channel, np.array([]))
+            if len(agg_values) > 0:
+                data_list.append(agg_values)
+                labels_list.append("ALL")
+                colors_list.append(agg_color)
+
+            if not data_list:
+                log.warning("Box plot '%s' channel '%s': no data.", plot_name, channel)
+                continue
+
+            bp = ax.boxplot(
+                data_list, labels=labels_list, patch_artist=True,
+                widths=box_width, showfliers=show_fliers,
+            )
+
+            # Apply per-run colors plus aggregated color for the last box
+            per_run_alpha = box_settings.get("per_run_box_alpha", 0.7)
+            for i, patch in enumerate(bp["boxes"]):
+                color = colors_list[i]
+                alpha = agg_alpha if labels_list[i] == "ALL" else per_run_alpha
+                patch.set_facecolor(color)
+                patch.set_alpha(alpha)
+                patch.set_edgecolor("#2C3E50")
+                patch.set_linewidth(1.2)
+            for median in bp.get("medians", []):
+                median.set(color="#2C3E50", linewidth=2)
+            for whisker in bp.get("whiskers", []):
+                whisker.set(color="#2C3E50", linewidth=1.2)
+            for cap in bp.get("caps", []):
+                cap.set(color="#2C3E50", linewidth=1.2)
+            if not show_fliers:
+                for flier in bp.get("fliers", []):
+                    flier.set_visible(False)
+
+            # Add a vertical separator before the aggregated box
+            if len(agg_values) > 0:
+                sep_x = len(data_list) - 0.5
+                ax.axvline(sep_x, color="#AAAAAA", linewidth=1.2, linestyle="--", alpha=0.7)
+
+            ax.set_ylabel(
+                datafunctions.add_units_to_label(channel, self.units_map),
+                fontweight="bold", fontsize=12,
+            )
+
+            if isinstance(axis_limits, (list, tuple)) and len(axis_limits) == 2:
+                ymin, ymax = axis_limits
+                if ymin is not None or ymax is not None:
+                    ax.set_ylim(bottom=ymin, top=ymax)
+
+            ax.yaxis.set_minor_locator(ticker.AutoMinorLocator(5))
+            self._apply_grid(ax, which="both", axis="y")
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+
+            yl, yr = ax.get_ylim()
+            if yl <= 0 <= yr:
+                ax.axhline(0, color="#5E5E5E", linewidth=1, alpha=0.8)
+
+            if show_points:
+                for box_index, (_, color, values) in enumerate(overlay_series, start=1):
+                    x_pts = np.full(len(values), box_index, dtype=float)
+                    x_pts += rng.uniform(-jitter, jitter, size=len(values))
+                    ax.scatter(x_pts, values, s=point_size, alpha=point_alpha,
+                               color=color, edgecolors="none", zorder=3)
+
+        if gate_text:
+            self._display_gate_info(axes[0], gate_text)
+
+        plot_title = box_settings.get("title")
+        if plot_title:
+            fig.suptitle(plot_title, fontsize=14, fontweight="bold", y=1.02)
 
         plt.tight_layout(pad=0.25)
         filename = self._sanitize_plot_filename("box", plot_name)

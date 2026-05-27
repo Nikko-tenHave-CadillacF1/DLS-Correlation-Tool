@@ -19,16 +19,16 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 RUNS = [
     # {"name": "v37", "file": "...", "color": "#0051FF", "nrun": 1, "type": "OC"},
     {
-        "name": "CAR",
-        "file": r"26R05MTL_260523_MAC26-01_PER_Q_R02PARTIAL_1.txt",
-        "color": "#BF6C00",
-        #"nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
-        "type": "CAR",
+        "name": "OC",
+        "file": r"nonlinear_setup_MTL_PERQ1R02.parquet",
+        "color": "#76BF00",
+        #"nrun": 1, # selects the run with the lowest nRun value (best lap) for each plot type
+        "type": "OC",
     },
     {
         "name": "DLS",
-        "file": r"26R05MTL  11  Quali  Run 2 2  Stint 1 Q1 R2 nC5_DLS_1.parquet",
-        "color": "#0069BF",
+        "file": r"26R05MTL  11  Quali  Run 2 2  Stint 1 Q1 R2 nC5 NoDeltas_LTS_Iteration_3.parquet",
+        "color": "#0063BF",
         "nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
         "type": "DLS",
     },
@@ -122,20 +122,20 @@ SCATTER_PLOT_DEFINITIONS = [
     # ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)], error_as_factor=True),
 
     ## CAR SUSPENSION CORRELATION
-    ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF",
-                best_fit=[('y', -10000, None), ('y', None, -10000)]),
-    ScatterPlot("Front Roll",              "xDamperDeltaF", "FPRodDeltaF",          best_fit=[('x', None, None)]),
-    ScatterPlot("Rear Heave",              "xDamperAvgR",   "FPRodAvgR",
-                best_fit=[('y', None, 13000), ('y', 13000, 25000), ('y', 25000, None)]),
-    ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)]),
+    # ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF",
+    #             best_fit=[('y', -10000, None), ('y', None, -10000)]),
+    # ScatterPlot("Front Roll",              "xDamperDeltaF", "FPRodDeltaF",          best_fit=[('x', None, None)]),
+    # ScatterPlot("Rear Heave",              "xDamperAvgR",   "FPRodAvgR",
+    #             best_fit=[('y', None, 13000), ('y', 13000, 25000), ('y', 25000, None)]),
+    # ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)]),
 
     ## OC SUSPENSION CORRELATION
-    # ScatterPlot("Front Heave",             "xHubVertF_Avg",   "FzTyreF_Avg",
-    #              best_fit=[('y', 2500, None), ('y', None, 2500)]),
-    # ScatterPlot("Front Roll",              "xHubVertF_Delta", "FzTyreF_Delta",          best_fit=[('x', None, None)]),
-    # ScatterPlot("Rear Heave",              "xHubVertR_Avg",   "FzTyreR_Avg",
-    #              best_fit=[('y', None, 5000), ('y', 5000, None)]),
-    # ScatterPlot("Rear Roll",               "xHubVertR_Delta", "FzTyreR_Delta",          best_fit=[('x', None, None)]),
+    ScatterPlot("Front Heave",             "xHubVertF_Avg",   "FzTyreF_Avg",
+                 best_fit=[('y', 2500, None), ('y', None, 2500)]),
+    ScatterPlot("Front Roll",              "xHubVertF_Delta", "FzTyreF_Delta",          best_fit=[('x', None, None)]),
+    ScatterPlot("Rear Heave",              "xHubVertR_Avg",   "FzTyreR_Avg",
+                 best_fit=[('y', None, 5000), ('y', 5000, None)]),
+    ScatterPlot("Rear Roll",               "xHubVertR_Delta", "FzTyreR_Delta",          best_fit=[('x', None, None)]),
     
     ScatterPlot("Roll angle gLat",         "gLat",          "aRoll",                best_fit=[('x', None, None)]),
     ScatterPlot("Front Pushrod vCar",      "vCar",          "FPRodAvgF",
@@ -211,6 +211,8 @@ POWERPOINT_EXPORT_MAP = [
     Slide("double_plot", "scatter/Ride Height Compare",      "scatter/Roll angle gLat"),
     Slide("double_plot", "psd/Front Vertical Acceleration PSD", "psd/Rear Vertical Acceleration PSD"),
     Slide("double_plot", "psd/Front Ride PSD",               "psd/Rear Ride PSD"),
+    Slide("double_plot", "psd/FL gHub PSD",               "psd/FR gHub PSD"),
+    Slide("double_plot", "psd/RL gHub PSD",               "psd/RR gHub PSD"),
     Slide("main_plot",   "waveform/Plank Wear"),
     Slide("double_plot", "scatter/Plank power acceleration", "histogram/Plank Power Distribution"),
 ]

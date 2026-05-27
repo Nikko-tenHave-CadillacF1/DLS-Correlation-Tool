@@ -393,6 +393,7 @@ BAR_PLOT_DEFINITIONS = [
 # ═══════════════════════════════════════════════════════════════════════════════
 # channels:          channel or list of channels to plot
 # aggregation_mode:  "per_run" (one box per run) | "aggregated" (all merged)
+#                    "per_run_aggregated" (per-run boxes + aggregated box at end)
 # gate:              filter data — ('channel', 'operator', value) or list of conditions
 
 BOX_PLOT_DEFINITIONS = [
@@ -401,6 +402,13 @@ BOX_PLOT_DEFINITIONS = [
         channels="vCar",
         aggregation_mode="per_run",
         gate=[("gLong", "between", (-0.1, 0.1)), ("vCar", "<", 120)],
+    ),
+
+    # ── Per-run + aggregated — individual boxes with a combined "ALL" box ──────
+    BoxPlot(
+        name="Combined Ride Height Distribution",
+        channels=("hRideF", "hRideR"),
+        aggregation_mode="per_run_aggregated",
     ),
 ]
 

@@ -1569,7 +1569,13 @@ def resample_to_uniform_rate(df: pd.DataFrame, target_rate: float,
                 out[col] = y[idx_new]
                 continue
             try:
-                y_new = resample_poly(y, up, down)
+                # padtype="line" extends the signal linearly past both ends
+                # before the polyphase FIR convolution. Default ("constant",
+                # i.e. zero-pad) causes severe Gibbs ringing at sample 0 / N
+                # on channels with a non-zero DC offset (e.g. xHubVert,
+                # hRide) because the kernel sees an artificial step from
+                # the channel's mean down to 0 at the boundary.
+                y_new = resample_poly(y, up, down, padtype="line")
             except Exception as exc:  # pragma: no cover - extreme edge cases
                 log.warning("resample: %s column '%s' fell back to linear (%s)",
                             run_name or "<run>", col, exc)

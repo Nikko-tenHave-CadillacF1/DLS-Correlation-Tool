@@ -20,7 +20,7 @@ _VALID_BAR_AGGS = {
     "integral", "abs_integral", "sum", "abs_sum",
     "mean", "median", "max", "min", "first", "last",
 }
-_VALID_BOX_MODES = {"per_run", "aggregated"}
+_VALID_BOX_MODES = {"per_run", "aggregated", "per_run_aggregated"}
 _VALID_GATE_OPS = {">", "<", ">=", "<=", "==", "!=", "between", "outside", "robust"}
 _VALID_LEGEND_POS = {"top", "right"}
 _VALID_HEATMAP_AGGS = {"mean", "median", "std", "count", "sum", "max", "min"}

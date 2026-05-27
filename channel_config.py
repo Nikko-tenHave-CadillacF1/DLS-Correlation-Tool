@@ -21,16 +21,18 @@ _DATA = _ROOT / "Data"
 CORRELATION_INPUT_DIR  = _DATA / "inputs"  / "correlation"
 BOXPLOT_INPUT_DIR      = _DATA / "inputs"  / "boxplots"
 DAMPER_INPUT_DIR       = _DATA / "inputs"  / "dampers"
+RIDE_DIL_INPUT_DIR     = _DATA / "inputs"  / "ride_dil"
 TEMPLATES_DIR          = _DATA / "templates"
 
 CORRELATION_OUTPUT_DIR = _DATA / "outputs" / "correlation"
 BOXPLOT_OUTPUT_DIR     = _DATA / "outputs" / "boxplots"
 DAMPER_PLOTS_DIR       = _DATA / "outputs" / "dampers"
+RIDE_DIL_OUTPUT_DIR    = _DATA / "outputs" / "ride_dil"
 
 # Create all directories on import so files can be dropped in immediately.
 for _p in (
-    CORRELATION_INPUT_DIR, BOXPLOT_INPUT_DIR, DAMPER_INPUT_DIR, TEMPLATES_DIR,
-    CORRELATION_OUTPUT_DIR, BOXPLOT_OUTPUT_DIR, DAMPER_PLOTS_DIR,
+    CORRELATION_INPUT_DIR, BOXPLOT_INPUT_DIR, DAMPER_INPUT_DIR, RIDE_DIL_INPUT_DIR, TEMPLATES_DIR,
+    CORRELATION_OUTPUT_DIR, BOXPLOT_OUTPUT_DIR, DAMPER_PLOTS_DIR, RIDE_DIL_OUTPUT_DIR,
 ):
     _p.mkdir(parents=True, exist_ok=True)
 
@@ -102,7 +104,7 @@ CHANNEL_MAPPINGS = {
         "xDamperPotFR": "xDamperFR",
         "xDamperPotRL": "xDamperRL",
         "xDamperPotRR": "xDamperRR",
-        "nYawSlipSensor": "nYaw",
+        "nGyroYaw": "nYaw",
         "EPlankWearLapF": "EPlankF",
         "PPlankWearF": "PPlankF",
     },
@@ -142,6 +144,10 @@ UNITS_MAP = {
     "fprodavgr": "N",
     "fproddeltaf": "N",
     "fproddeltar": "N",
+    "fprodheave":  "N",
+    "fprodpitch":  "N",
+    "fprodroll":   "N",
+    "fprodwarp":   "N",
     "trackrod": "N",
     "xdamperavgf": "mm",
     "xdamperavgr": "mm",
@@ -273,6 +279,23 @@ DAMPER_CALCULATED = {
     "gLat_Abs": lambda df: np.abs(df["gLat"]),
 }
 
+RIDE_DIL_CALCULATED = {
+    # Pushrod load averages/differentials (per axle) — reused from correlation
+    "FPRodAvgF":          lambda df: (df["FPushrodFL"] + df["FPushrodFR"]) / 2,
+    "FPRodAvgR":          lambda df: (df["FPushrodRL"] + df["FPushrodRR"]) / 2,
+    "FPRodDeltaF":        lambda df: df["FPushrodFL"] - df["FPushrodFR"],
+    "FPRodDeltaR":        lambda df: df["FPushrodRL"] - df["FPushrodRR"],
+    # ── Ride modes from corner pushrod forces ────────────────────────────────
+    # Heave: total vertical mode — all four corners in phase
+    "FPRodHeave":         lambda df: df["FPushrodFL"] + df["FPushrodFR"] + df["FPushrodRL"] + df["FPushrodRR"],
+    # Pitch: front axle vs rear axle (front - rear)
+    "FPRodPitch":         lambda df: (df["FPushrodFL"] + df["FPushrodFR"]) - (df["FPushrodRL"] + df["FPushrodRR"]),
+    # Roll: right side vs left side (right - left)
+    "FPRodRoll":          lambda df: (df["FPushrodFR"] + df["FPushrodRR"]) - (df["FPushrodFL"] + df["FPushrodRL"]),
+    # Warp: diagonal/twist mode (FL+RR) - (FR+RL)
+    "FPRodWarp":          lambda df: (df["FPushrodFL"] + df["FPushrodRR"]) - (df["FPushrodFR"] + df["FPushrodRL"]),
+}
+
 
 # ─── RESAMPLING ───────────────────────────────────────────────────────────────
 # All input channels are resampled to this uniform rate (Hz) BEFORE any
@@ -324,15 +347,7 @@ CORRELATION_FILTERS = {
 
 BOXPLOT_FILTERS = {
     **_BASE_FILTERS,
-    "rLambdaL":    {"cutoff": 5, "order": 2},
-    "rLambdaR":    {"cutoff": 5, "order": 2},
-    "rLambda_avg": {"cutoff": 3, "order": 2},
-    "dmInjector":  {"cutoff": 5, "order": 2},
-    "dmFFMFuel":   {"cutoff": 5, "order": 2},
-    "CosPhi":      {"cutoff": 5, "order": 2},
-    "CosPhi_Calc": {"cutoff": 5, "order": 2},
-    "gLong":       {"cutoff": 3, "order": 2},
-    "gLat":        {"cutoff": 5, "order": 2},
+    "all":         {"cutoff": 4,  "order": 2},
 }
 
 DAMPER_FILTERS = {
@@ -343,4 +358,30 @@ DAMPER_FILTERS = {
     "gVertF": {"cutoff": 30, "order": 2},
     "gVertR": {"cutoff": 30, "order": 2},
     "all":    {"cutoff": 10, "order": 3},
+}
+
+RIDE_DIL_FILTERS = {
+    **_BASE_FILTERS,
+    # Keep pushrod modes and vertical accelerations unfiltered for clean PSDs
+    "FPushrodFL":   {"cutoff": 0, "order": 2},
+    "FPushrodFR":   {"cutoff": 0, "order": 2},
+    "FPushrodRL":   {"cutoff": 0, "order": 2},
+    "FPushrodRR":   {"cutoff": 0, "order": 2},
+    "FPRodHeave":   {"cutoff": 0, "order": 2},
+    "FPRodPitch":   {"cutoff": 0, "order": 2},
+    "FPRodRoll":    {"cutoff": 0, "order": 2},
+    "FPRodWarp":    {"cutoff": 0, "order": 2},
+    "FPRodAvgF":    {"cutoff": 0, "order": 2},
+    "FPRodAvgR":    {"cutoff": 0, "order": 2},
+    "FPRodDeltaF":  {"cutoff": 0, "order": 2},
+    "FPRodDeltaR":  {"cutoff": 0, "order": 2},
+    "gVertF":       {"cutoff": 0, "order": 2},
+    "gVertR":       {"cutoff": 0, "order": 2},
+    "gHubVertFL":   {"cutoff": 0, "order": 2},
+    "gHubVertFR":   {"cutoff": 0, "order": 2},
+    "gHubVertRL":   {"cutoff": 0, "order": 2},
+    "gHubVertRR":   {"cutoff": 0, "order": 2},
+    "hRideF (raw)": {"cutoff": 0, "order": 2},
+    "hRideR (raw)": {"cutoff": 0, "order": 2},
+    "all":          {"cutoff": 10, "order": 2},
 }

@@ -1,0 +1,125 @@
+"""Correlation workflow — edit RUNS and plot definitions to configure your analysis."""
+
+from bootstrap import ensure_dependencies
+ensure_dependencies()
+
+from channel_config import get_workflow_dirs, resolve_template_path
+from engine import (
+    run_workflow, Slide,
+    WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot, BarPlot, BoxPlot, HeatmapPlot,
+)
+
+WORKFLOW_NAME = "ride_dil"
+EVENT = "26R05MTL"
+_INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
+
+# ─── RUNS ─────────────────────────────────────────────────────────────────────
+
+
+RUNS = [
+    # {"name": "v37", "file": "...", "color": "#0051FF", "nrun": 1, "type": "OC"},
+    {
+        "name": "CAR",
+        "file": r"26R05MTL_260523_MAC26-01_PER_Q_R02PARTIAL_1.txt",
+        "color": "#FF0000",
+        #"nrun": 1, # selects the run with the lowest nRun value (best lap) for each plot type
+        "type": "CAR",
+    },
+    {
+        "name": "DIL",
+        "file": r"Montreal_260522_GMDiL-08_FIT_R13PARTIAL.txt",
+        "color": "#0020BF",
+        #"nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
+        "type": "DIL",
+    },
+
+]
+
+# ─── POWERPOINT ───────────────────────────────────────────────────────────────
+EXPORT_TO_POWERPOINT  = False
+POWERPOINT_TEMPLATE   = resolve_template_path("template.pptx")
+POWERPOINT_OUTPUT     = _OUTPUT_DIR / "DIL_Ride_Report.pptx"
+# Slide number (1-based) where the first POWERPOINT_EXPORT_MAP entry is placed.
+# Leaves cover / intro slides untouched.
+POWERPOINT_START_SLIDE = 4
+
+# ─── WAVEFORM PLOTS ───────────────────────────────────────────────────────────
+
+
+WAVEFORM_PLOT_DEFINITIONS = [
+    WaveformPlot(
+        name="DIL TELEM",
+        channels=('SM', 'gVert', 'PMGUK', ('vCar', 'NGear'), 'aSteerWheel', ('rThrottle', 'pBrakeF')),
+        axis_limits=((-0.2, 1.2), (-3, 3), (-360, 360), ((60, 400), (-1, 9)), (-180, 180), ((None, None), (None, None))),
+        reference_lines=(None, None, (-350, 0, 350), None, (0,), None),
+        subplot_heights=(0.15, 0.2, 0.3, 0.5, 0.3, 0.3),
+    ),
+]
+
+# ─── SCATTER PLOTS ────────────────────────────────────────────────────────────
+
+
+SCATTER_PLOT_DEFINITIONS = [
+]
+
+# ─── PSD PLOTS ────────────────────────────────────────────────────────────────
+PSD_PLOT_DEFINITIONS = [
+    # ── Ride modes from pushrod forces ────────────────────────────────────────
+    PsdPlot("Heave Mode PSD",  "FPRodHeave", axis_limits=[(0, 30), (None, None)], annotate_at=(5, 8, 15)),
+    PsdPlot("Pitch Mode PSD",  "FPRodPitch", axis_limits=[(0, 30), (None, None)], annotate_at=(5, 8, 15)),
+    PsdPlot("Roll Mode PSD",   "FPRodRoll",  axis_limits=[(0, 30), (None, None)], annotate_at=(5, 8, 15)),
+    PsdPlot("Warp Mode PSD",   "FPRodWarp",  axis_limits=[(0, 30), (None, None)], annotate_at=(5, 8, 15)),
+
+    # ── Vertical chassis accelerations ────────────────────────────────────────
+    PsdPlot("Front Vertical Acceleration PSD", "gVertF", axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5, 8, 15)),
+    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR", axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5, 8, 15)),
+]
+
+# ─── HISTOGRAM PLOTS ──────────────────────────────────────────────────────────
+HISTOGRAM_PLOT_DEFINITIONS = [
+]
+
+# ─── BAR PLOTS ────────────────────────────────────────────────────────────────
+
+
+BAR_PLOT_DEFINITIONS = [
+]
+
+# ─── BOX PLOTS ────────────────────────────────────────────────────────────────
+BOX_PLOT_DEFINITIONS = []
+
+# ─── HEATMAP PLOTS ────────────────────────────────────────────────────────────
+HEATMAP_PLOT_DEFINITIONS = []
+
+# ─── POWERPOINT EXPORT MAP ────────────────────────────────────────────────────
+# Maps slides to generated plot images using Slide() helper.
+# Layouts: "main_plot" (full-width) | "double_plot" (two side-by-side images)
+# Reference format: "type/Plot Name" — auto-converts to filename.
+
+POWERPOINT_EXPORT_MAP = [
+    Slide("double_plot", "psd/Heave Mode PSD",                  "psd/Pitch Mode PSD"),
+    Slide("double_plot", "psd/Roll Mode PSD",                   "psd/Warp Mode PSD"),
+    Slide("double_plot", "psd/Front Vertical Acceleration PSD", "psd/Rear Vertical Acceleration PSD"),
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    run_workflow(
+        WORKFLOW_NAME,
+        title="CORRELATION PLOT GENERATION",
+        runs=RUNS,
+        root_folder=_INPUT_DIR,
+        output_dir=_OUTPUT_DIR,
+        waveforms=WAVEFORM_PLOT_DEFINITIONS,
+        scatters=SCATTER_PLOT_DEFINITIONS,
+        psds=PSD_PLOT_DEFINITIONS,
+        histograms=HISTOGRAM_PLOT_DEFINITIONS,
+        bars=BAR_PLOT_DEFINITIONS,
+        boxes=BOX_PLOT_DEFINITIONS,
+        heatmaps=HEATMAP_PLOT_DEFINITIONS,
+        powerpoint_template=POWERPOINT_TEMPLATE if EXPORT_TO_POWERPOINT else None,
+        powerpoint_output=POWERPOINT_OUTPUT if EXPORT_TO_POWERPOINT else None,
+        export_map=POWERPOINT_EXPORT_MAP if EXPORT_TO_POWERPOINT else None,
+        powerpoint_start_slide=POWERPOINT_START_SLIDE,
+    )
