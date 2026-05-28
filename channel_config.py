@@ -95,6 +95,7 @@ CHANNEL_MAPPINGS = {
         "zWheelCentreChassisFR": "xHubVertFR",
         "zWheelCentreChassisRL": "xHubVertRL",
         "zWheelCentreChassisRR": "xHubVertRR",
+        "vAero": "vAir",
     },
     "CAR": {
         "BNSLMEnablingStatusEnabled": "SM",
@@ -107,6 +108,10 @@ CHANNEL_MAPPINGS = {
         "nGyroYaw": "nYaw",
         "EPlankWearLapF": "EPlankF",
         "PPlankWearF": "PPlankF",
+        "CLiftTotalF_Cp2CL": "CLiftTotalF",
+        "CLiftTotalR_Cp2CL": "CLiftTotalR",
+        "CLiftTotal_Cp2CL": "CLiftTotal",
+        "rAerobalTotal": "rAerobal",
     },
 }
 
@@ -264,6 +269,9 @@ CORRELATION_CALCULATED = {
     "xHubVertF_Delta":  lambda df: df["xHubVertFL"] - df["xHubVertFR"],
     "FzTyreR_Delta":    lambda df: df["FzTyreRL"] - df["FzTyreRR"],
     "xHubVertR_Delta":  lambda df: df["xHubVertRL"] - df["xHubVertRR"],
+
+    "vWindHead":        lambda df: df["vAir"] - df["vCar"],
+    "SC_CLT":           lambda df: df["CLiftTotal"] * ((df["vCar"] + df["vWindHead"])/(df["vCar"]))**2,  
 }
 
 BOXPLOT_CALCULATED = {
