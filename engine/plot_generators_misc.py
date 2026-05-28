@@ -17,7 +17,14 @@ class PsdHistMixin:
     # ------------------------------------------------------------------
 
     def generate_psd_plots(self):
-        """Create PSD plots, skipping runs with unavailable or invalid channel data."""
+        """Create PSD plots, skipping runs with unavailable or invalid channel data.
+
+        Supports per-plot ``gate`` (segment-aware Welch — gated regions are
+        sliced into contiguous runs and each long-enough run contributes a
+        Welch periodogram, then averaged with weighting by sub-segment count)
+        and per-run ``group`` keys (runs sharing a group are averaged in PSD
+        space and drawn as a single overlay line).
+        """
         self._ensure_preprocessed()
         plots = self._get_plot_group(2)
         if not plots:
@@ -26,13 +33,15 @@ class PsdHistMixin:
         plot_iter = plots if self.verbose else _tqdm(plots, desc="PSD", unit="plot", leave=True)
         for plot_def in plot_iter:
             # Typed dataclass access (#9/#24).
-            plot_name   = plot_def.name
-            channel     = plot_def.channel
-            axis_limits = plot_def.axis_limits
-            log_scale   = plot_def.log_scale
-            nperseg     = plot_def.nperseg if plot_def.nperseg is not None else 512
-            annotate_at = plot_def.annotate_at
-            markers     = plot_def.markers
+            plot_name     = plot_def.name
+            channel       = plot_def.channel
+            axis_limits   = plot_def.axis_limits
+            log_scale     = plot_def.log_scale
+            nperseg       = plot_def.nperseg if plot_def.nperseg is not None else 512
+            annotate_at   = plot_def.annotate_at
+            markers       = plot_def.markers
+            gate_spec     = getattr(plot_def, "gate", None)
+            show_envelope = bool(getattr(plot_def, "show_envelope", False))
 
             # channel may be a single string or a list/tuple of strings
             channels_list = [channel] if isinstance(channel, str) else list(channel)
@@ -52,63 +61,109 @@ class PsdHistMixin:
                 fontweight="bold",
             )
 
+            # ── Group runs by their ``group`` key (default = run name) ────
+            # Order preserved by first appearance.
+            run_groups = {}  # group_name -> list[run dict]
+            for run in self.runs:
+                gname = run.get("group") or run["name"]
+                run_groups.setdefault(gname, []).append(run)
+
             plotted_any = False
             multi = len(channels_list) > 1
-            psd_curves = []  # (run_color, freq_array, power_array) for annotate_at
-            nyquist_lines = {}  # {fs/2: color}  — populated as runs are plotted
-            for run in self.runs:
-                run_name = run["name"].lower()
-                if run_name not in self.run_data:
+            psd_curves = []  # (line_color, freq_array, power_array) — for annotate_at
+            nyquist_lines = {}  # {fs/2: color}  — populated as groups are plotted
+
+            for group_name, group_runs in run_groups.items():
+                # Skip groups whose runs have no loaded data at all
+                loaded_runs = [r for r in group_runs if r["name"].lower() in self.run_data]
+                if not loaded_runs:
                     log.warning(
-                        "PSD '%s': run '%s' has no loaded dataframe. Skipping.",
-                        plot_name, run_name,
+                        "PSD '%s': group '%s' has no loaded runs. Skipping.",
+                        plot_name, group_name,
                     )
                     continue
-                df = self.run_data[run_name]
 
-                for ch_idx, ch in enumerate(channels_list):
-                    if ch not in df.columns:
-                        hint = self._format_missing_channel_hint(run_name, ch)
-                        log.warning(
-                            "PSD '%s': channel '%s' missing in run '%s'. Skipping.%s",
-                            plot_name, ch, run_name, f"\n{hint}" if hint else "",
-                        )
-                        continue
+                primary_run = loaded_runs[0]
+                group_color = primary_run["color"]
 
-                    signal = df[ch]
-                    if isinstance(signal, tuple) or not hasattr(signal, "__iter__"):
-                        log.warning(
-                            "PSD '%s': channel '%s' in run '%s' has invalid type. Skipping.",
-                            plot_name, ch, run_name,
-                        )
-                        continue
-
-                    freq, power = self._cached_psd(run_name, ch, nperseg)
-                    if freq is None:
-                        log.warning(
-                            "PSD '%s': not enough data for '%s' in run '%s'. Skipping.",
-                            plot_name, ch, run_name,
-                        )
-                        continue
-
-                    lstyle = line_styles[ch_idx % len(line_styles)]
-                    lbl = f"{run['name'].upper()} — {ch}" if multi else run["name"].upper()
-                    plot_func = ax.semilogy if log_scale else ax.plot
-                    plot_func(
-                        freq, power,
-                        linewidth=1.8, color=run["color"],
-                        linestyle=lstyle, alpha=0.9, label=lbl,
-                    )
-                    psd_curves.append((run["color"], freq, power))
-                    plotted_any = True
-                # Track the run's Nyquist for annotation (one line per unique rate).
+                # Track this group's Nyquist (use first run's sample rate)
                 rate_info = self.run_sample_rates.get(
-                    run_name, (self.FILTER_SAMPLE_RATE, "default")
+                    primary_run["name"].lower(),
+                    (self.FILTER_SAMPLE_RATE, "default"),
                 )
                 fs = float(rate_info[0]) if rate_info and rate_info[0] else 0.0
                 if fs > 0:
                     nyq = round(fs / 2.0, 3)
-                    nyquist_lines.setdefault(nyq, run["color"])
+                    nyquist_lines.setdefault(nyq, group_color)
+
+                for ch_idx, ch in enumerate(channels_list):
+                    # Collect per-run PSDs with segment-count weights
+                    per_run_psds = []  # list of (freq, power, n_segs)
+                    for run in loaded_runs:
+                        run_name = run["name"].lower()
+                        df = self.run_data.get(run_name)
+                        if df is None or ch not in df.columns:
+                            hint = self._format_missing_channel_hint(run_name, ch)
+                            log.warning(
+                                "PSD '%s': channel '%s' missing in run '%s'. Skipping.%s",
+                                plot_name, ch, run_name, f"\n{hint}" if hint else "",
+                            )
+                            continue
+                        freq, power, n_segs = self._cached_psd_with_segments(
+                            run_name, ch, nperseg, gate_spec=gate_spec,
+                        )
+                        if freq is None or power is None or n_segs <= 0:
+                            continue
+                        per_run_psds.append((freq, power, n_segs))
+
+                    if not per_run_psds:
+                        continue
+
+                    # Aggregate to a single curve per (group, channel).
+                    # Use the first run's frequency grid as reference; all
+                    # share the same nperseg and (after resampling) the same
+                    # fs, so freq grids match.
+                    freq = per_run_psds[0][0]
+                    if len(per_run_psds) == 1:
+                        power_mean = per_run_psds[0][1]
+                        power_std = None
+                    else:
+                        # Segment-count-weighted PSD-domain mean (Method B).
+                        # Interp to common grid if grids ever differ (defensive).
+                        powers = []
+                        weights = []
+                        for f_i, p_i, n_i in per_run_psds:
+                            if not np.array_equal(f_i, freq):
+                                p_i = np.interp(freq, f_i, p_i)
+                            powers.append(np.asarray(p_i, dtype=float))
+                            weights.append(float(n_i))
+                        stacked = np.vstack(powers)
+                        w = np.asarray(weights, dtype=float)
+                        power_mean = (stacked * w[:, None]).sum(axis=0) / w.sum()
+                        if show_envelope:
+                            # Weighted std for envelope shading
+                            var = (((stacked - power_mean) ** 2) * w[:, None]).sum(axis=0) / w.sum()
+                            power_std = np.sqrt(var)
+                        else:
+                            power_std = None
+
+                    lstyle = line_styles[ch_idx % len(line_styles)]
+                    lbl = f"{group_name.upper()} — {ch}" if multi else group_name.upper()
+                    plot_func = ax.semilogy if log_scale else ax.plot
+                    plot_func(
+                        freq, power_mean,
+                        linewidth=1.8, color=group_color,
+                        linestyle=lstyle, alpha=0.9, label=lbl,
+                    )
+                    if power_std is not None:
+                        lower = np.clip(power_mean - power_std, 1e-30 if log_scale else None, None)
+                        upper = power_mean + power_std
+                        ax.fill_between(
+                            freq, lower, upper,
+                            color=group_color, alpha=0.15, linewidth=0, zorder=1,
+                        )
+                    psd_curves.append((group_color, freq, power_mean))
+                    plotted_any = True
 
             if not plotted_any:
                 log.warning(
@@ -138,6 +193,13 @@ class PsdHistMixin:
             ax.spines["right"].set_visible(False)
 
             self._add_standard_legend(ax, loc="best")
+
+            # ── Gate annotation ───────────────────────────────────────────
+            if gate_spec is not None:
+                gate_text = datafunctions.format_gate_text(gate_spec)
+                if gate_text:
+                    legend_obj = ax.get_legend()
+                    self._display_gate_info(ax, gate_text, legend=legend_obj)
 
             # ── annotate_at: mark PSD values at specific frequencies ──────
             if annotate_at is not None and psd_curves:

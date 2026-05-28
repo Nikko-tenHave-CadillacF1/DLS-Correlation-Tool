@@ -280,6 +280,8 @@ DAMPER_CALCULATED = {
 }
 
 RIDE_DIL_CALCULATED = {
+    # Absolute lateral acceleration — used as a gate to isolate cornering
+    "gLatAbs":            lambda df: np.abs(df["gLat"]),
     # Pushrod load averages/differentials (per axle) — reused from correlation
     "FPRodAvgF":          lambda df: (df["FPushrodFL"] + df["FPushrodFR"]) / 2,
     "FPRodAvgR":          lambda df: (df["FPushrodRL"] + df["FPushrodRR"]) / 2,
@@ -381,7 +383,4 @@ RIDE_DIL_FILTERS = {
     "gHubVertFR":   {"cutoff": 0, "order": 2},
     "gHubVertRL":   {"cutoff": 0, "order": 2},
     "gHubVertRR":   {"cutoff": 0, "order": 2},
-    "hRideF (raw)": {"cutoff": 0, "order": 2},
-    "hRideR (raw)": {"cutoff": 0, "order": 2},
-    "all":          {"cutoff": 10, "order": 2},
 }

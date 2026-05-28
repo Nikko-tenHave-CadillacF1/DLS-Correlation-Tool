@@ -20,7 +20,7 @@ RUNS = [
     # {"name": "v37", "file": "...", "color": "#0051FF", "nrun": 1, "type": "OC"},
     {
         "name": "CAR",
-        "file": r"26R05MTL_260523_MAC26-01_PER_Q_R02PARTIAL_1.txt",
+        "file": r"26R05MTL_260522_MAC26-01_PER_SQ_R01.txt",
         "color": "#FF0000",
         #"nrun": 1, # selects the run with the lowest nRun value (best lap) for each plot type
         "type": "CAR",
@@ -64,15 +64,25 @@ SCATTER_PLOT_DEFINITIONS = [
 
 # ─── PSD PLOTS ────────────────────────────────────────────────────────────────
 PSD_PLOT_DEFINITIONS = [
+    # nperseg=256 @ 100 Hz resample -> 2.56 s Welch window, ~0.39 Hz resolution.
+    # Tuned for grip-limited corner gating: at 100 Hz, most corners (2-8 s)
+    # contribute at least one Welch periodogram. Larger nperseg (512/1024) was
+    # rejected for the gated modes because short corners (Roll/Warp on tight
+    # sections) failed the segment-length requirement and were skipped.
+    # Ride modes of interest (1-20 Hz) are still well resolved.
     # ── Ride modes from pushrod forces ────────────────────────────────────────
-    PsdPlot("Heave Mode PSD",  "FPRodHeave", axis_limits=[(0, 30), (None, None)], annotate_at=(5, 8, 15)),
-    PsdPlot("Pitch Mode PSD",  "FPRodPitch", axis_limits=[(0, 30), (None, None)], annotate_at=(5, 8, 15)),
-    PsdPlot("Roll Mode PSD",   "FPRodRoll",  axis_limits=[(0, 30), (None, None)], annotate_at=(5, 8, 15)),
-    PsdPlot("Warp Mode PSD",   "FPRodWarp",  axis_limits=[(0, 30), (None, None)], annotate_at=(5, 8, 15)),
+    PsdPlot("Heave Mode PSD - ungated",  "FPRodHeave", nperseg=256, axis_limits=[(0, 30), (1e4, None)], annotate_at=(5, 8, 15), gate=None),
+    PsdPlot("Pitch Mode PSD - ungated",  "FPRodPitch", nperseg=256, axis_limits=[(0, 30), (1e4, None)], annotate_at=(5, 8, 15), gate=None),
+    PsdPlot("Roll Mode PSD - ungated",   "FPRodRoll",  nperseg=256, axis_limits=[(0, 30), (1e4, None)], annotate_at=(5, 8, 15), gate=None),
+    PsdPlot("Warp Mode PSD - ungated",   "FPRodWarp",  nperseg=256, axis_limits=[(0, 30), (1e4, None)], annotate_at=(5, 8, 15), gate=None),
 
-    # ── Vertical chassis accelerations ────────────────────────────────────────
-    PsdPlot("Front Vertical Acceleration PSD", "gVertF", axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5, 8, 15)),
-    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR", axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5, 8, 15)),
+
+    # ── Vertical chassis accelerations (ungated -> use larger nperseg for resolution) ──
+    PsdPlot("Front Vertical Acceleration PSD", "gVertF", nperseg=256, axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5, 8, 15)),
+    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR", nperseg=256, axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5, 8, 15)),
+
+    PsdPlot("hRideF PSD", "hRideF", nperseg=256, axis_limits=[(0, 30), (None, None)], annotate_at=(5, 8, 15)),
+    PsdPlot("hRideR PSD", "hRideR", nperseg=256, axis_limits=[(0, 30), (None, None)], annotate_at=(5, 8, 15)),
 ]
 
 # ─── HISTOGRAM PLOTS ──────────────────────────────────────────────────────────

@@ -306,6 +306,8 @@ class PsdPlot:
     nperseg: Optional[int] = None
     annotate_at: Any = None
     markers: List[Marker] = field(default_factory=list)
+    gate: Any = None
+    show_envelope: bool = False
 
     kind: ClassVar[str] = "psd"
 
@@ -326,6 +328,8 @@ class PsdPlot:
                 raise ValueError(f"{where}.nperseg must be >= 8.")
         self.markers = _coerce_markers(self.markers, f"{where}.markers")
         self.log_scale = bool(self.log_scale)
+        _validate_gate(self.gate, f"{where}.gate")
+        self.show_envelope = bool(self.show_envelope)
 
 
 # ---------------------------------------------------------------------------

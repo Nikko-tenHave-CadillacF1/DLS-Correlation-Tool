@@ -426,6 +426,82 @@ def calculate_psd(signal, sample_rate: float, nperseg: int = 512) -> tuple[np.nd
     return freq, power
 
 
+def calculate_segmented_psd(
+    signal,
+    mask,
+    sample_rate: float,
+    nperseg: int = 512,
+) -> tuple[np.ndarray | None, np.ndarray | None, int]:
+    """Compute Welch PSD over contiguous True-segments of ``mask``.
+
+    For each contiguous run of ``True`` values in ``mask`` whose length is
+    at least ``nperseg``, compute a Welch periodogram and accumulate it
+    weighted by the number of Welch sub-segments it contributes (default
+    50% overlap). The returned PSD is the segment-count-weighted average
+    across all qualifying contiguous runs — equivalent to running Welch on
+    the concatenation of the gated regions, but without the boundary
+    discontinuity artefacts caused by simple masking.
+
+    Parameters
+    ----------
+    signal : array-like
+        Time-series samples.
+    mask : array-like of bool
+        Per-sample boolean inclusion mask; same length as ``signal``.
+    sample_rate : float
+        Sampling rate in Hz.
+    nperseg : int
+        Welch window length.
+
+    Returns
+    -------
+    (freq, power, n_welch_segments)
+        ``(None, None, 0)`` when no contiguous run is long enough.
+    """
+    signal = np.asarray(signal, dtype=float)
+    mask = np.asarray(mask, dtype=bool)
+    if signal.size == 0 or mask.size != signal.size:
+        return None, None, 0
+
+    # Exclude non-finite samples from inclusion
+    mask = mask & np.isfinite(signal)
+    if not mask.any():
+        return None, None, 0
+
+    # Identify contiguous True-runs via difference of int-cast mask, with
+    # zero sentinels on both ends so leading/trailing runs are captured.
+    edges = np.diff(mask.astype(np.int8), prepend=0, append=0)
+    starts = np.where(edges == 1)[0]
+    ends = np.where(edges == -1)[0]
+
+    noverlap = nperseg // 2
+    step = nperseg - noverlap  # = noverlap when overlap is 50%
+
+    freq_ref = None
+    weighted_sum = None
+    total_segments = 0
+
+    for s, e in zip(starts, ends):
+        seg = signal[s:e]
+        if len(seg) < nperseg:
+            continue
+        # Number of Welch sub-segments this contiguous run contributes
+        n_welch = 1 + (len(seg) - nperseg) // step
+        freq, power = welch(seg, fs=sample_rate, nperseg=nperseg, noverlap=noverlap)
+        if freq_ref is None:
+            freq_ref = freq
+            weighted_sum = power.astype(float) * n_welch
+        else:
+            # Same fs + nperseg → identical frequency grid
+            weighted_sum = weighted_sum + power.astype(float) * n_welch
+        total_segments += n_welch
+
+    if total_segments == 0 or weighted_sum is None:
+        return None, None, 0
+
+    return freq_ref, weighted_sum / total_segments, total_segments
+
+
 # ================================================================
 # GENERAL PLOT HELPERS
 # ================================================================

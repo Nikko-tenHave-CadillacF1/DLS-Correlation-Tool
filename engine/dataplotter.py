@@ -149,6 +149,8 @@ def collect_referenced_channels(plot_definitions):
                     )
             elif kind == "psd":
                 _add(plot_def.channel)
+                if getattr(plot_def, "gate", None) is not None:
+                    referenced.update(datafunctions.collect_gate_channels(plot_def.gate))
             elif kind == "histogram":
                 _add(plot_def.channel)
             elif kind == "bar":
@@ -618,6 +620,10 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                             )
                     elif kind == "psd":
                         _extract_channels(plot_def.channel)
+                        if getattr(plot_def, "gate", None) is not None:
+                            required_channels.update(
+                                datafunctions.collect_gate_channels(plot_def.gate)
+                            )
                     elif kind == "histogram":
                         _extract_channels(plot_def.channel)
                     elif kind == "bar":
@@ -1148,32 +1154,76 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
     # Cached PSD computation (#15)
     # ------------------------------------------------------------------
 
-    def _cached_psd(self, run_name, channel, nperseg):
-        """Compute (or fetch cached) PSD for a (run, channel, nperseg) triple."""
-        key = (run_name, channel, nperseg)
+    def _cached_psd(self, run_name, channel, nperseg, gate_spec=None):
+        """Compute (or fetch cached) PSD for a (run, channel, nperseg[, gate]) tuple.
+
+        Returns ``(freq, power)`` for backward compatibility. The number of
+        Welch sub-segments used is stored internally via
+        :py:meth:`_cached_psd_with_segments` and reused for PSD-domain
+        averaging across runs in a group.
+        """
+        freq, power, _n = self._cached_psd_with_segments(run_name, channel, nperseg, gate_spec)
+        return freq, power
+
+    def _cached_psd_with_segments(self, run_name, channel, nperseg, gate_spec=None):
+        """Like :py:meth:`_cached_psd` but also returns the Welch segment count.
+
+        The segment count is used as a weight when averaging PSDs across
+        runs in the same ``group``. Returns ``(None, None, 0)`` on failure.
+        """
+        gate_key = repr(gate_spec) if gate_spec is not None else None
+        key = (run_name, channel, nperseg, gate_key)
         cached = self._psd_cache.get(key)
         if cached is not None:
             return cached
         df = self.run_data.get(run_name)
         if df is None or channel not in df.columns:
-            return None, None
+            return None, None, 0
         signal = np.asarray(df[channel], dtype=float)
-        # Warn when the available (finite) sample count forces Welch to use a
-        # much shorter segment than requested — frequency resolution and
-        # averaging suffer, but the plot will still be drawn.
-        finite_n = int(np.isfinite(signal).sum())
-        if finite_n < nperseg and finite_n >= 8:
-            effective = min(nperseg, finite_n)
-            if effective < max(64, nperseg // 4):
-                log.warning(
-                    "PSD '%s'/'%s': only %d finite samples — nperseg capped from %d to %d "
-                    "(coarse frequency resolution, low averaging).",
-                    run_name, channel, finite_n, nperseg, effective,
-                )
         rate = self.run_sample_rates.get(run_name, (self.FILTER_SAMPLE_RATE, "default"))[0]
-        freq, power = datafunctions.calculate_psd(signal, rate, nperseg=nperseg)
-        self._psd_cache[key] = (freq, power)
-        return freq, power
+
+        if gate_spec is None:
+            # Warn when the available (finite) sample count forces Welch to use a
+            # much shorter segment than requested — frequency resolution and
+            # averaging suffer, but the plot will still be drawn.
+            finite_n = int(np.isfinite(signal).sum())
+            if finite_n < nperseg and finite_n >= 8:
+                effective = min(nperseg, finite_n)
+                if effective < max(64, nperseg // 4):
+                    log.warning(
+                        "PSD '%s'/'%s': only %d finite samples — nperseg capped from %d to %d "
+                        "(coarse frequency resolution, low averaging).",
+                        run_name, channel, finite_n, nperseg, effective,
+                    )
+            freq, power = datafunctions.calculate_psd(signal, rate, nperseg=nperseg)
+            # Estimate Welch sub-segments for weighting (50% overlap default).
+            if freq is not None:
+                eff_n = min(nperseg, int(np.isfinite(signal).sum()))
+                step = max(1, eff_n // 2)
+                n_segs = max(1, 1 + (int(np.isfinite(signal).sum()) - eff_n) // step)
+            else:
+                n_segs = 0
+        else:
+            try:
+                mask = datafunctions.compute_gate_mask(df, gate_spec).to_numpy()
+            except Exception as exc:
+                log.warning(
+                    "PSD '%s'/'%s': gate evaluation failed (%s). Skipping.",
+                    run_name, channel, exc,
+                )
+                self._psd_cache[key] = (None, None, 0)
+                return None, None, 0
+            freq, power, n_segs = datafunctions.calculate_segmented_psd(
+                signal, mask, rate, nperseg=nperseg,
+            )
+            if freq is None:
+                log.warning(
+                    "PSD '%s'/'%s': no gated segment >= nperseg (%d). Skipping.",
+                    run_name, channel, nperseg,
+                )
+
+        self._psd_cache[key] = (freq, power, n_segs)
+        return freq, power, n_segs
 
     # ------------------------------------------------------------------
     # Data export (#7)
@@ -1352,6 +1402,32 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     parquet_nlap=run.get("nlap"),
                     run_name=run_name,
                 )
+
+                # Post-load nLap filter — handles list/tuple/range values for
+                # any file type (parquet's internal filter already covers the
+                # parquet path; this is idempotent there and adds support for
+                # CSV/TXT). Scalar values pass through unchanged.
+                nlap_spec = run.get("nlap")
+                if (
+                    nlap_spec is not None
+                    and isinstance(nlap_spec, (list, tuple, range, set, frozenset))
+                    and "nLap" in data.columns
+                ):
+                    wanted = list(nlap_spec)
+                    if wanted:
+                        before = len(data)
+                        mask = pd.to_numeric(data["nLap"], errors="coerce").isin(wanted)
+                        if mask.any():
+                            data = data[mask].reset_index(drop=True)
+                            log.info(
+                                "Run '%s': nlap filter %s -> kept %d/%d rows.",
+                                run_name, wanted, len(data), before,
+                            )
+                        else:
+                            log.warning(
+                                "Run '%s': nlap filter %s matched no rows; keeping all data.",
+                                run_name, wanted,
+                            )
 
                 # #40 best_n: keep only the fastest N laps (auto-select).
                 best_n = run.get("best_n")
