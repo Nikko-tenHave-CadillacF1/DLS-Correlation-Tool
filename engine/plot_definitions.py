@@ -419,6 +419,115 @@ class BoxPlot:
 
 
 # ---------------------------------------------------------------------------
+# Box Grid (composite — expands into BoxPlot or renders as subplot matrix)
+# ---------------------------------------------------------------------------
+
+_VALID_GRID_RENDER_MODES = {"expand", "grid"}
+
+
+@dataclass
+class BoxPlotGrid:
+    """A grid of box plots defined by two gate dimensions (rows × cols).
+
+    Each cell in the grid combines the row gate with the column gate (AND-ed).
+    The grid can either expand into individual ``BoxPlot`` objects (``render_mode='expand'``)
+    or be rendered as a single subplot-matrix figure (``render_mode='grid'``).
+
+    Parameters
+    ----------
+    name : str
+        Base name for the plot (cell names are auto-generated as "{name} - {row_key} {col_key}").
+    channels : str or list of str
+        Channel(s) to plot in each cell.
+    rows : dict
+        Ordered mapping of row labels to gate conditions (list of tuples).
+        Example: {"LS": [("vCar", '<', 120)], "MS": [("vCar", '>', 120), ("vCar", '<', 200)]}
+    cols : dict
+        Ordered mapping of column labels to gate conditions (list of tuples).
+        Example: {"Entry": [("CosPhi_Calc", 'between', (-0.7, -0.3))], ...}
+    aggregation_mode : str
+        Same as BoxPlot — "per_run", "aggregated", or "per_run_aggregated".
+    axis_limits : tuple, optional
+        Y-axis limits applied to all cells.
+    options : dict, optional
+        Styling overrides passed to each cell.
+    render_mode : str
+        "expand" — produces one BoxPlot per cell (default).
+        "grid" — renders a single figure with a rows×cols subplot matrix.
+    """
+
+    name: str
+    channels: Union[str, List[str], Tuple[str, ...]]
+    rows: dict
+    cols: dict
+    aggregation_mode: str = "per_run"
+    axis_limits: Optional[Tuple[Optional[float], Optional[float]]] = None
+    options: Optional[dict] = None
+    render_mode: str = "expand"
+
+    kind: ClassVar[str] = "box_grid"
+
+    def __post_init__(self) -> None:
+        where = f"BoxPlotGrid {self.name!r}"
+        _require_str(self.name, "BoxPlotGrid.name")
+        if self.render_mode not in _VALID_GRID_RENDER_MODES:
+            raise ValueError(
+                f"{where}.render_mode must be one of {sorted(_VALID_GRID_RENDER_MODES)}; "
+                f"got {self.render_mode!r}."
+            )
+        if self.aggregation_mode not in _VALID_BOX_MODES:
+            raise ValueError(
+                f"{where}.aggregation_mode must be one of {sorted(_VALID_BOX_MODES)}."
+            )
+        # Validate rows and cols
+        if not isinstance(self.rows, dict) or not self.rows:
+            raise TypeError(f"{where}.rows must be a non-empty dict.")
+        if not isinstance(self.cols, dict) or not self.cols:
+            raise TypeError(f"{where}.cols must be a non-empty dict.")
+        for label, gate in self.rows.items():
+            _validate_gate(gate, f"{where}.rows[{label!r}]")
+        for label, gate in self.cols.items():
+            _validate_gate(gate, f"{where}.cols[{label!r}]")
+        # Normalise channels
+        if isinstance(self.channels, str):
+            self.channels = [self.channels]
+        elif isinstance(self.channels, (list, tuple)):
+            for ch in self.channels:
+                if not isinstance(ch, str) or not ch.strip():
+                    raise TypeError(f"{where}: channel entries must be non-empty strings.")
+            self.channels = list(self.channels)
+        else:
+            raise TypeError(f"{where}.channels must be a string or list of strings.")
+
+    def expand(self) -> List["BoxPlot"]:
+        """Expand into individual BoxPlot instances (one per grid cell)."""
+        plots = []
+        for row_label, row_gate in self.rows.items():
+            for col_label, col_gate in self.cols.items():
+                # Combine row + col gates (normalise single-condition tuples to lists)
+                combined_gate = _normalise_gate_list(row_gate) + _normalise_gate_list(col_gate)
+                cell_name = f"{self.name} - {row_label} {col_label}"
+                plots.append(BoxPlot(
+                    name=cell_name,
+                    channels=list(self.channels),
+                    aggregation_mode=self.aggregation_mode,
+                    axis_limits=self.axis_limits,
+                    gate=combined_gate,
+                    options=self.options,
+                ))
+        return plots
+
+
+def _normalise_gate_list(gate) -> list:
+    """Normalise a gate spec to a list of 3-tuple conditions."""
+    if gate is None:
+        return []
+    if isinstance(gate, (list, tuple)) and len(gate) == 3 and isinstance(gate[0], str):
+        return [tuple(gate)]
+    return [tuple(c) for c in gate]
+
+
+# ---------------------------------------------------------------------------
 # Heatmap (NEW)
 # ---------------------------------------------------------------------------
 

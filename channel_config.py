@@ -275,11 +275,11 @@ CORRELATION_CALCULATED = {
 }
 
 BOXPLOT_CALCULATED = {
-    "dmInjector (kg/s)":    lambda df: df["dmInjector"] / 3600,
-    "rLambda_avg (%)":      lambda df: 100 * (df["rLambdaL"] + df["rLambdaR"]) / 2,
-    "dmExhaust":            lambda df: df["dmInjector"] * (1 + 13.23 * df["rLambda_avg (%)"] / 100) / 3600,
-    "dmExhaust_Estimated":  lambda df: df["dmInjector"] * (1 + 13.23 * (0.155 * df["vCar"] + 109.329) / 100) / 3600,
-    "Error_dmExhaust":      lambda df: df["dmExhaust"] - df["dmExhaust_Estimated"],
+    # "dmInjector (kg/s)":    lambda df: df["dmInjector"] / 3600,
+    # "rLambda_avg (%)":      lambda df: 100 * (df["rLambdaL"] + df["rLambdaR"]) / 2,
+    # "dmExhaust":            lambda df: df["dmInjector"] * (1 + 13.23 * df["rLambda_avg (%)"] / 100) / 3600,
+    # "dmExhaust_Estimated":  lambda df: df["dmInjector"] * (1 + 13.23 * (0.155 * df["vCar"] + 109.329) / 100) / 3600,
+    # "Error_dmExhaust":      lambda df: df["dmExhaust"] - df["dmExhaust_Estimated"],
     "CosPhi_Calc":          lambda df: df["gLong"] / np.sqrt(df["gLat"] ** 2 + df["gLong"] ** 2),
 }
 

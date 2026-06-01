@@ -668,11 +668,29 @@ def build_plot_groups(
 
     Order matches ``plot_definitions.PLOT_TYPE_ORDER``.
     All arguments are keyword-only; omitted slots default to [].
+
+    BoxPlotGrid instances in `boxes` with render_mode='expand' are expanded
+    into individual BoxPlot objects. Grid-mode instances are passed through
+    for the renderer to handle.
     """
+    boxes = _expand_box_grids(boxes) if boxes else []
     return tuple(
         group or []
         for group in (waveforms, scatters, psds, histograms, bars, boxes, heatmaps)
     )
+
+
+def _expand_box_grids(boxes):
+    """Expand BoxPlotGrid(render_mode='expand') into individual BoxPlot instances."""
+    from .plot_definitions import BoxPlotGrid
+
+    expanded = []
+    for item in boxes:
+        if isinstance(item, BoxPlotGrid) and item.render_mode == "expand":
+            expanded.extend(item.expand())
+        else:
+            expanded.append(item)
+    return expanded
 
 
 def workflow_config(
@@ -854,6 +872,7 @@ from .plot_definitions import (  # noqa: E402
     HistogramPlot,
     BarPlot,
     BoxPlot,
+    BoxPlotGrid,
     HeatmapPlot,
 )
 

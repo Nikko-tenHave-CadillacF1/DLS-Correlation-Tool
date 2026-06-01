@@ -4,7 +4,7 @@ from bootstrap import ensure_dependencies
 ensure_dependencies()
 
 from channel_config import get_workflow_dirs
-from engine import run_workflow, BoxPlot, WaveformPlot
+from engine import run_workflow, BoxPlot, BoxPlotGrid, WaveformPlot
 
 WORKFLOW_NAME = "boxplots"
 EVENT = "26R05MTL"
@@ -46,7 +46,7 @@ RUNS = [
 WAVEFORM_DEFINITIONS = [
     WaveformPlot(
         name="[CHECK] Filtering",
-        channels=('hRideF', 'hRideR', 'aSteerWheel', 'aRoll', 'nYaw'),
+        channels=('hRideF', 'hRideR', 'aSteerF', 'aRoll', 'nYaw'),
         axis_limits=(None, None, None, None, None),
         reference_lines=((0,), (0,), (0,), (0,), (0,)),
         subplot_heights=(0.6, 0.6, 0.6, 0.6, 0.6),
@@ -61,27 +61,25 @@ WAVEFORM_DEFINITIONS = [
 
 BOX_PLOT_SETTINGS = {"show_points": False, "show_fliers": False, "title": EVENT}
 
+# ─── Gate Dimensions ──────────────────────────────────────────────────────────
+SPEED_BANDS = {
+    "Low Speed": [("vCar", "<", 120)],
+    "Medium Speed": [("vCar", ">", 120), ("vCar", "<", 200)],
+    "High Speed": [("vCar", ">", 200)],
+}
+
+CORNER_PHASE = {
+    "Entry": [("CosPhi_Calc", "between", (-0.7, -0.3))],
+    "Mid":   [("CosPhi_Calc", "between", (-0.3, 0.3))],
+    "Exit":  [("CosPhi_Calc", "between", (0.3, 0.7))],
+}
+
 BOX_PLOT_DEFINITIONS = [
-    BoxPlot(
-        name="Typical Ride Heights",
-        channels=("hRideF","hRideR"),
-        aggregation_mode="per_run_aggregated",
-    ),
-    BoxPlot(
-        name="Typical Yaw Rates",
-        channels=("nYaw",),
-        aggregation_mode="per_run_aggregated",
-    ),
-    BoxPlot(
-        name="Typical Steering Angles",
-        channels=("aSteerWheel",),
-        aggregation_mode="per_run_aggregated",
-    ),
-    BoxPlot(
-        name="Typical Roll Angles",
-        channels=("aRoll",),
-        aggregation_mode="per_run_aggregated",
-    ),
+    BoxPlotGrid(name="Typical Front Ride Heights", channels=("hRideF",), aggregation_mode="aggregated", rows=SPEED_BANDS, cols=CORNER_PHASE, render_mode="grid"),
+    BoxPlotGrid(name="Typical Rear Ride Heights", channels=("hRideR",), aggregation_mode="aggregated", rows=SPEED_BANDS, cols=CORNER_PHASE, render_mode="grid"),
+    BoxPlotGrid(name="Typical Yaw Rates",    channels=("nYaw",),   aggregation_mode="aggregated", rows=SPEED_BANDS, cols=CORNER_PHASE, render_mode="grid"),
+    BoxPlotGrid(name="Typical Steering Angles", channels=("aSteerF",), aggregation_mode="aggregated", rows=SPEED_BANDS, cols=CORNER_PHASE, render_mode="grid"),
+    BoxPlotGrid(name="Typical Roll Angles",  channels=("aRoll",),  aggregation_mode="aggregated", rows=SPEED_BANDS, cols=CORNER_PHASE, render_mode="grid"),
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────

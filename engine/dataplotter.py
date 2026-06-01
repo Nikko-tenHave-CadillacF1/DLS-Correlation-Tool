@@ -635,6 +635,18 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                             required_channels.update(
                                 datafunctions.collect_gate_channels(plot_def.gate)
                             )
+                    elif kind == "box_grid":
+                        _extract_channels(plot_def.channels)
+                        for _gate in plot_def.rows.values():
+                            if _gate is not None:
+                                required_channels.update(
+                                    datafunctions.collect_gate_channels(_gate)
+                                )
+                        for _gate in plot_def.cols.values():
+                            if _gate is not None:
+                                required_channels.update(
+                                    datafunctions.collect_gate_channels(_gate)
+                                )
                     elif kind == "heatmap":
                         required_channels.add(plot_def.x_channel)
                         required_channels.add(plot_def.y_channel)

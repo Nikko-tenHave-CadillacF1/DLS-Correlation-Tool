@@ -303,6 +303,11 @@ class BarBoxMixin:
         box_settings = getattr(self, "BOX_PLOT_SETTINGS", {})
         plot_iter = plots if self.verbose else _tqdm(plots, desc="Box", unit="plot", leave=True)
         for plot_def in plot_iter:
+            # Handle BoxPlotGrid with render_mode='grid'
+            if getattr(plot_def, "kind", None) == "box_grid":
+                self._generate_boxplot_grid(plot_def, box_settings)
+                continue
+
             try:
                 plot_name, channels, aggregation_mode, axis_limits, gate_spec, options = (
                     self._parse_boxplot_definition(plot_def)
@@ -405,7 +410,7 @@ class BarBoxMixin:
 
             bp = ax.boxplot(
                 data_list, labels=labels_list, patch_artist=True,
-                widths=box_width, showfliers=show_fliers,
+                widths=box_width, showfliers=show_fliers, whis=[5, 95]
             )
             self._apply_boxplot_artist_style(
                 bp, box_settings, colors=colors_list,
@@ -499,7 +504,7 @@ class BarBoxMixin:
                 continue
 
             bp = ax.boxplot([data], labels=[channel], patch_artist=True,
-                            widths=box_width, showfliers=show_fliers)
+                            widths=box_width, showfliers=show_fliers, whis=[5, 95])
             self._apply_boxplot_artist_style(bp, box_settings, facecolor=agg_color, alpha=agg_alpha)
 
             ax.set_ylabel(
@@ -636,7 +641,7 @@ class BarBoxMixin:
 
             bp = ax.boxplot(
                 data_list, labels=labels_list, patch_artist=True,
-                widths=box_width, showfliers=show_fliers,
+                widths=box_width, showfliers=show_fliers, whis=[5, 95]
             )
 
             # Apply per-run colors plus aggregated color for the last box
@@ -702,3 +707,220 @@ class BarBoxMixin:
         plt.close(fig)
         if self.verbose:
             log.debug("Saved: %s", filename)
+
+    # ------------------------------------------------------------------
+    # Box plot grid renderer (single figure with rows × cols subplots)
+    # ------------------------------------------------------------------
+
+    def _generate_boxplot_grid(self, grid_def, box_settings):
+        """Render a BoxPlotGrid as a single subplot-matrix figure.
+
+        Each cell is a box plot with the combined row+col gate conditions.
+        One figure per channel in the grid definition.
+        """
+        from .plot_definitions import _normalise_gate_list
+
+        plot_name = grid_def.name
+        channels = list(grid_def.channels)
+        aggregation_mode = grid_def.aggregation_mode
+        axis_limits = grid_def.axis_limits
+        options = {**box_settings, **(grid_def.options or {})}
+
+        row_labels = list(grid_def.rows.keys())
+        col_labels = list(grid_def.cols.keys())
+        n_rows = len(row_labels)
+        n_cols = len(col_labels)
+
+        show_fliers = bool(options.get("show_fliers", True))
+        show_points = bool(options.get("show_points", False))
+        point_alpha = float(options.get("point_alpha", 0.25))
+        point_size = float(options.get("point_size", 18))
+        jitter = float(options.get("jitter", 0.15))
+        box_width = float(options.get("box_width", 0.6))
+        agg_color = options.get("aggregated_box_color", "#3498DB")
+        agg_alpha = float(options.get("aggregated_box_alpha", 0.7))
+
+        rng = np.random.default_rng(42)
+
+        for channel in channels:
+            # Determine figure size — landscape-oriented
+            cell_w = options.get("grid_cell_width", 4.0)
+            cell_h = options.get("grid_cell_height", 2.8)
+            fig_w = max(cell_w * n_cols + 1.5, 10)
+            fig_h = max(cell_h * n_rows + 1.2, 4)
+
+            fig, axes = plt.subplots(
+                n_rows, n_cols,
+                figsize=(fig_w, fig_h),
+                squeeze=False,
+                sharey="row",
+            )
+
+            for r_idx, row_label in enumerate(row_labels):
+                row_gate = grid_def.rows[row_label]
+                for c_idx, col_label in enumerate(col_labels):
+                    col_gate = grid_def.cols[col_label]
+                    combined_gate = _normalise_gate_list(row_gate) + _normalise_gate_list(col_gate)
+
+                    ax = axes[r_idx, c_idx]
+
+                    if aggregation_mode == "aggregated":
+                        self._render_grid_cell_aggregated(
+                            ax, channel, combined_gate, options,
+                            show_fliers, show_points, point_alpha, point_size,
+                            jitter, box_width, agg_color, agg_alpha, rng,
+                        )
+                    elif aggregation_mode == "per_run":
+                        self._render_grid_cell_per_run(
+                            ax, channel, combined_gate, options,
+                            show_fliers, show_points, point_alpha, point_size,
+                            jitter, box_width, rng,
+                        )
+                    elif aggregation_mode == "per_run_aggregated":
+                        self._render_grid_cell_per_run(
+                            ax, channel, combined_gate, options,
+                            show_fliers, show_points, point_alpha, point_size,
+                            jitter, box_width, rng, append_aggregated=True,
+                            agg_color=agg_color, agg_alpha=agg_alpha,
+                        )
+
+                    # Row labels on leftmost column
+                    if c_idx == 0:
+                        ax.set_ylabel(row_label, fontweight="bold", fontsize=11)
+
+                    # Column labels on top row
+                    if r_idx == 0:
+                        ax.set_title(col_label, fontweight="bold", fontsize=11)
+
+                    # Y-axis limits
+                    if isinstance(axis_limits, (list, tuple)) and len(axis_limits) == 2:
+                        ymin, ymax = axis_limits
+                        if ymin is not None or ymax is not None:
+                            ax.set_ylim(bottom=ymin, top=ymax)
+
+                    ax.yaxis.set_minor_locator(ticker.AutoMinorLocator(5))
+                    self._apply_grid(ax, which="both", axis="y")
+                    ax.spines["top"].set_visible(False)
+                    ax.spines["right"].set_visible(False)
+
+                    yl, yr = ax.get_ylim()
+                    if yl <= 0 <= yr:
+                        ax.axhline(0, color="#5E5E5E", linewidth=1, alpha=0.8)
+
+            # Suptitle with channel name and optional event title
+            event_title = options.get("title", "")
+            channel_label = datafunctions.add_units_to_label(channel, self.units_map)
+            suptitle = f"{plot_name} — {channel_label}"
+            if event_title:
+                suptitle = f"{event_title} | {suptitle}"
+            fig.suptitle(suptitle, fontsize=13, fontweight="bold", y=1.02)
+
+            plt.tight_layout(pad=0.4)
+            grid_filename = self._sanitize_plot_filename("box_grid", f"{plot_name}_{channel}")
+            fig.savefig(
+                self.plots_dir / grid_filename,
+                dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight",
+            )
+            plt.close(fig)
+            if self.verbose:
+                log.debug("Saved grid: %s", grid_filename)
+
+    def _render_grid_cell_aggregated(self, ax, channel, gate_spec, options,
+                                     show_fliers, show_points, point_alpha, point_size,
+                                     jitter, box_width, agg_color, agg_alpha, rng):
+        """Render a single aggregated box in a grid cell."""
+        filtered_run_data = {
+            rn: self._get_filtered_run_dataframe(rn, gate_spec) for rn in self.run_data
+        }
+        agg_data = datafunctions.aggregate_channel_for_boxplot(
+            self.run_data, [channel],
+            aggregation_mode="aggregated", gate_spec=gate_spec,
+            filtered_run_data=filtered_run_data,
+        )
+        data = agg_data.get(channel, np.array([]))
+        if len(data) == 0:
+            ax.text(0.5, 0.5, "No data", ha="center", va="center",
+                    transform=ax.transAxes, fontsize=9, color="#999999")
+            ax.set_xticks([])
+            return
+
+        bp = ax.boxplot([data], labels=[channel], patch_artist=True,
+                        widths=box_width, showfliers=show_fliers, whis=[5, 95])
+        self._apply_boxplot_artist_style(bp, options, facecolor=agg_color, alpha=agg_alpha)
+        ax.set_xticklabels([])
+
+        if show_points:
+            overlay_series = self._collect_boxplot_point_series_from_data(channel, filtered_run_data)
+            for _, color, values in overlay_series:
+                x_pts = np.full(len(values), 1.0, dtype=float)
+                x_pts += rng.uniform(-jitter, jitter, size=len(values))
+                ax.scatter(x_pts, values, s=point_size, alpha=point_alpha,
+                           color=color, edgecolors="none", zorder=3)
+
+    def _render_grid_cell_per_run(self, ax, channel, gate_spec, options,
+                                  show_fliers, show_points, point_alpha, point_size,
+                                  jitter, box_width, rng,
+                                  append_aggregated=False, agg_color="#3498DB", agg_alpha=0.7):
+        """Render per-run boxes in a grid cell (optionally with an aggregated box)."""
+        filtered_run_data = {
+            rn: self._get_filtered_run_dataframe(rn, gate_spec) for rn in self.run_data
+        }
+        per_run_data = datafunctions.aggregate_channel_for_boxplot(
+            self.run_data, [channel],
+            aggregation_mode="per_run", gate_spec=gate_spec,
+            filtered_run_data=filtered_run_data,
+        )
+        run_names = [r["name"].lower() for r in self.runs if r["name"].lower() in per_run_data]
+        run_colors = {r["name"].lower(): r["color"] for r in self.runs}
+
+        data_list, labels_list, colors_list = [], [], []
+        for run_name in run_names:
+            if channel not in per_run_data.get(run_name, {}):
+                continue
+            values = per_run_data[run_name][channel]
+            if len(values) == 0:
+                continue
+            data_list.append(values)
+            labels_list.append(run_name.upper())
+            colors_list.append(run_colors.get(run_name, "#3498DB"))
+
+        # Optionally append aggregated
+        if append_aggregated:
+            agg_data = datafunctions.aggregate_channel_for_boxplot(
+                self.run_data, [channel],
+                aggregation_mode="aggregated", gate_spec=gate_spec,
+                filtered_run_data=filtered_run_data,
+            )
+            agg_values = agg_data.get(channel, np.array([]))
+            if len(agg_values) > 0:
+                data_list.append(agg_values)
+                labels_list.append("ALL")
+                colors_list.append(agg_color)
+
+        if not data_list:
+            ax.text(0.5, 0.5, "No data", ha="center", va="center",
+                    transform=ax.transAxes, fontsize=9, color="#999999")
+            ax.set_xticks([])
+            return
+
+        bp = ax.boxplot(
+            data_list, labels=labels_list, patch_artist=True,
+            widths=box_width, showfliers=show_fliers, whis=[5, 95],
+        )
+        self._apply_boxplot_artist_style(bp, options, colors=colors_list, alpha=0.7)
+
+        # Rotate x-labels for legibility in tight grid cells
+        ax.tick_params(axis="x", labelsize=7, rotation=45)
+
+        if show_points:
+            for box_index, run_name in enumerate(run_names, start=1):
+                if channel not in per_run_data.get(run_name, {}):
+                    continue
+                values = per_run_data[run_name][channel]
+                if len(values) == 0:
+                    continue
+                color = run_colors.get(run_name, "#3498DB")
+                x_pts = np.full(len(values), box_index, dtype=float)
+                x_pts += rng.uniform(-jitter, jitter, size=len(values))
+                ax.scatter(x_pts, values, s=point_size, alpha=point_alpha,
+                           color=color, edgecolors="none", zorder=3)
