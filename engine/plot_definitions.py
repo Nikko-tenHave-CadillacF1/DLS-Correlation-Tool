@@ -185,6 +185,13 @@ class WaveformPlot:
     """Stacked time/distance traces, one subplot row per channel.
 
     Channel rows may be a single 'ch' or a ('left', 'right') overlay.
+
+    The ``show_delta`` field controls per-row delta subplots (requires exactly
+    2 loaded runs). When active, a half-height row showing (run_B − run_A) is
+    appended below the primary row. Accepts:
+      - ``False`` — no delta rows (default)
+      - ``True`` — delta row below every channel row
+      - tuple/list of bools — per-row control; length must match ``channels``
     """
 
     name: str
@@ -197,7 +204,7 @@ class WaveformPlot:
     highlight_zones: Any = None
     normalise: bool = False
     legend_position: str = "top"
-    show_delta: bool = False
+    show_delta: Union[bool, Tuple[bool, ...], List[bool]] = False
     markers: List[Marker] = field(default_factory=list)
 
     kind: ClassVar[str] = "waveform"
@@ -223,7 +230,19 @@ class WaveformPlot:
         if not isinstance(self.x_channel, str) or not self.x_channel.strip():
             raise TypeError(f"{where}.x_channel must be a non-empty string.")
         self.markers = _coerce_markers(self.markers, f"{where}.markers")
-        self.show_delta = bool(self.show_delta)
+        # Normalise show_delta: bool → per-row tuple of bools.
+        if isinstance(self.show_delta, bool):
+            self.show_delta = tuple(self.show_delta for _ in range(n))
+        elif isinstance(self.show_delta, (list, tuple)):
+            if len(self.show_delta) != n:
+                raise ValueError(
+                    f"{where}.show_delta has length {len(self.show_delta)} but channels has {n}."
+                )
+            self.show_delta = tuple(bool(v) for v in self.show_delta)
+        else:
+            raise TypeError(
+                f"{where}.show_delta must be bool or a tuple/list of bools per row."
+            )
         self.normalise = bool(self.normalise)
 
 

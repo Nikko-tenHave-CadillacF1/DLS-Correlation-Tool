@@ -200,14 +200,15 @@ class WaveformMixin:
 
             # Resolve which runs actually have data loaded — needed for delta gating.
             loaded_run_names = [r["name"].lower() for r in self.runs if r["name"].lower() in self.run_data]
-            delta_active = bool(show_delta) and len(loaded_run_names) == 2
+            delta_active = any(show_delta) and len(loaded_run_names) == 2
 
             if delta_active:
-                # Each prepared row is followed by a half-height delta row.
+                # Each prepared row with show_delta=True is followed by a half-height delta row.
                 expanded_heights = []
-                for h in avail_heights:
+                for i, h in enumerate(avail_heights):
                     expanded_heights.append(h)
-                    expanded_heights.append(h * 0.45)
+                    if show_delta[i]:
+                        expanded_heights.append(h * 0.45)
                 n_axes = len(expanded_heights)
                 min_height = 1.4 * sum(expanded_heights)
             else:
@@ -275,9 +276,10 @@ class WaveformMixin:
                         channel_ranges[ch] = (lo, hi - lo) if hi != lo else (lo, 1.0)
 
             for idx, row in enumerate(prepared_rows):
-                ax_idx = idx * 2 if delta_active else idx
+                # Compute axis index: count preceding rows + their delta subplots
+                ax_idx = idx + sum(1 for i in range(idx) if show_delta[i]) if delta_active else idx
                 ax = axes[ax_idx]
-                ax_delta = axes[ax_idx + 1] if delta_active else None
+                ax_delta = axes[ax_idx + 1] if (delta_active and show_delta[idx]) else None
                 ch_primary = row["primary"]
                 ch_secondary = row["secondary"]
                 ax_right = (ax.twinx() if ch_secondary is not None else None) if not normalise else None

@@ -1,6 +1,13 @@
 """Data loading, preprocessing, and plotting pipeline for correlation reports.
 
-Split into focused modules:
+The DataPlotter class handles:
+  - Loading CAR (.txt), DLS/OC/DIL (.parquet) files
+  - Channel mapping, transforms, calculated channels, and filtering
+  - Resampling to uniform rate and sLap alignment
+  - Dispatching to plot generators by type
+  - Data quality report generation
+
+Split into focused generator modules (mixed in via multiple inheritance):
   plot_generators_waveform.py  — WaveformMixin
   plot_generators_scatter.py   — ScatterMixin
   plot_generators_misc.py      — PsdHistMixin, HeatmapMixin

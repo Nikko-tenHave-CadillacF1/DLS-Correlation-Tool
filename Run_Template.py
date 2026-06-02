@@ -7,16 +7,21 @@ Refer to this file for syntax, available parameters, and working examples.
 
 Run types:
   DLS  — DLS/LTS lap simulation parquet files (use nlap or nrun to select)
-  OC   — Optimum Capture parquet exports
+  OC   — Optimal Control parquet exports
   CAR  — Car telemetry .txt files (tab-separated)
   DIL  — Driver-in-the-loop simulator exports
 
 Usage:
-  python Run_Template.py               # generate all plots
-  python Run_Template.py --dry-run     # preview without generating
-  python Run_Template.py --list-plots  # list configured plot names
-  python Run_Template.py --types scatter waveform  # generate only these types
+  python Run_Template.py                              # generate all plots
+  python Run_Template.py --dry-run                    # preview without generating
+  python Run_Template.py --list-plots                 # list configured plot names
+  python Run_Template.py --types scatter waveform     # generate only these types
   python Run_Template.py --only "Driver Input" "GG Plot"  # by name
+  python Run_Template.py --runs "LTS Baseline"        # restrict to specific runs
+  python Run_Template.py --no-open                    # don't open output folder
+  python Run_Template.py --check-only                 # data quality report only
+  python Run_Template.py --x-axis tLap                # override waveform x-axis
+  python Run_Template.py --export-data csv            # export preprocessed data (csv|parquet)
 """
 
 from bootstrap import ensure_dependencies
@@ -25,8 +30,8 @@ ensure_dependencies()
 from channel_config import get_workflow_dirs, resolve_template_path
 from engine import (
     run_workflow, Slide,
-    WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot, BarPlot, BoxPlot, HeatmapPlot,
-    Marker,
+    WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot, BarPlot, BoxPlot, BoxPlotGrid, HeatmapPlot,
+    Marker, calc_channel,
 )
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -40,8 +45,8 @@ from engine import (
 # Set EVENT = None to use a flat workflow folder without event separation.
 # For cross-event comparisons, set EVENT = None and prefix filenames with the
 # event subfolder (see RUNS examples below).
-WORKFLOW_NAME = "correlation"
-EVENT = "26R04MIA"
+WORKFLOW_NAME = "template"
+EVENT = "26R04MIA"  # e.g. "26R04MIA", "26R03SUZ", or None for no event separation
 
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
@@ -61,8 +66,8 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 RUNS = [
     # ── DLS / LTS example ──────────────────────────────────────────────────────
     {
-        "name": "LTS Baseline",
-        "file": r"26R04MIA  PER Q1R3_LTS_Iteration_3.parquet",
+        "name": "DLS Baseline",
+        "file": r"26R04MIA  PER Q1R3_DLS.parquet",
         "color": "#0083BF",
         "nlap": 1,
         "type": "DLS",
@@ -80,7 +85,7 @@ RUNS = [
     # ── CAR example ────────────────────────────────────────────────────────────
     {
         "name": "Test Run 4",
-        "file": "26R04MIA_260502_MAC26-01_PER_Q_R03_3.txt",
+        "file": "26R04MIA_260502_MAC26-01_PER_Q_R03_4.txt",
         "color": "#D70000",
         "type": "CAR",
     },
@@ -128,6 +133,25 @@ POWERPOINT_OUTPUT     = _OUTPUT_DIR / "Report.pptx"
 POWERPOINT_START_SLIDE = 4
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# CALCULATED CHANNELS (optional override)
+# ═══════════════════════════════════════════════════════════════════════════════
+# All workflows (including custom ones) automatically receive the full
+# CALCULATED_CHANNELS dict from channel_config.py. Only define overrides here
+# if you need workflow-specific derived channels not in the shared config.
+#
+# To ADD channels for this workflow only:
+#   from channel_config import CALCULATED_CHANNELS as _SHARED_CALC
+#   CALCULATED_CHANNELS = {
+#       **_SHARED_CALC,
+#       "MyCustomChannel": lambda df: df["A"] + df["B"],
+#   }
+#
+# To declare explicit dependencies (when lambda body is too dynamic):
+#   "EngineEff": calc_channel("nEngine", "tThrottle")(
+#       lambda df: df["nEngine"] * df["tThrottle"] / 1000.0
+#   ),
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # WAVEFORM PLOTS
 # ═══════════════════════════════════════════════════════════════════════════════
 # channels:         one entry per subplot row — 'channel' or ('left_ch', 'right_ch')
@@ -138,6 +162,8 @@ POWERPOINT_START_SLIDE = 4
 # x_limits:         (x_min, x_max) to zoom to a section of the lap
 # normalise:        True to normalise all channels 0–1 (useful for overlays)
 # highlight_zones:  ('channel', 'op', threshold, color) — shade regions
+# legend_position:  "top" (default) or "right" for vertical side legend
+# show_delta:       True/False or per-row tuple — append difference rows (requires exactly 2 runs)
 # markers:          list of Marker() objects — vertical reference lines
 
 WAVEFORM_PLOT_DEFINITIONS = [
@@ -197,17 +223,51 @@ WAVEFORM_PLOT_DEFINITIONS = [
             ),
         ],
     ),
+
+    # ── Show delta — difference row between two runs ───────────────────────────
+    # Requires exactly 2 runs. A thin delta (run_B − run_A) row is appended
+    # below each primary row where show_delta is True.
+    # show_delta accepts:
+    #   True/False        — apply to all rows uniformly
+    #   (True, False, ..) — per-row control (must match length of channels)
+    WaveformPlot(
+        name="Delta Comparison",
+        channels=('vCar', 'pBrakeF', 'rThrottle'),
+        axis_limits=(None, None, (0, 105)),
+        reference_lines=(None, None, None),
+        subplot_heights=(0.6, 0.4, 0.4),
+        show_delta=True,
+    ),
+
+    # ── Per-row delta — only show delta for selected channels ──────────────────
+    WaveformPlot(
+        name="Selective Delta Demo",
+        channels=('vCar', 'pBrakeF', 'rThrottle'),
+        axis_limits=(None, None, (0, 105)),
+        subplot_heights=(0.6, 0.4, 0.4),
+        show_delta=(True, False, True),
+    ),
+
+    # ── Legend position — move legend to the right ─────────────────────────────
+    WaveformPlot(
+        name="Right Legend Demo",
+        channels=('vCar', 'pBrakeF'),
+        axis_limits=(None, None),
+        subplot_heights=(0.6, 0.4),
+        legend_position="right",
+    ),
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SCATTER PLOTS
 # ═══════════════════════════════════════════════════════════════════════════════
-# best_fit: None/0 = no fit | 1 = single fit | list = segmented fits by condition
+# best_fit: None/0 = no fit | 1 = single fit | 2 = quadratic | list = segmented fits by condition
 #   Segment format: ('channel', low, high) or ('x'/'y', low, high) for axis splits
 # gate: filter data before plotting — ('channel', 'operator', value)
-#   Operators: '>' '<' '>=' '<=' '==' 'between'  |  list for AND conditions
+#   Operators: '>' '<' '>=' '<=' '==' '!=' 'between' 'outside'  |  list for AND conditions
 # show_equations: show fit equation text on the plot
-# show_error:     show R² and RMSE for fit lines
+# show_error:     show gradient delta between runs (% or factor)
+# error_as_factor: True to show delta as "x 1.10" instead of "+10.0%"
 # axis_limits:    [(x_min, x_max), (y_min, y_max)]
 # color_gate:     ('channel', 'op', value, '#hexcolor') — colour subset differently
 # annotate_fit_at: x-value or tuple of x-values where fit is annotated
@@ -318,14 +378,39 @@ SCATTER_PLOT_DEFINITIONS = [
             Marker(x=300, label="300 km/h", color="#FF6600"),
         ],
     ),
+
+    # ── Error as factor — show gradient delta as multiplicative factor ─────────
+    # Displays "x 1.10" instead of "+10.0%" for fit comparison.
+    ScatterPlot(
+        name="Error as Factor Demo",
+        x_channel="xDamperAvgF",
+        y_channel="FPRodAvgF",
+        best_fit=[('y', -6000, None), ('y', None, -6000)],
+        error_as_factor=True,
+    ),
+
+    # ── Quadratic fit — second-order polynomial ────────────────────────────────
+    ScatterPlot(
+        name="Quadratic Fit Demo",
+        x_channel="vCar",
+        y_channel="hRideF",
+        best_fit=2,
+        show_equations=True,
+        gate=[('SM', '<', 0.5)],
+    ),
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PSD PLOTS
 # ═══════════════════════════════════════════════════════════════════════════════
-# channel:      single channel string or list of channels (overlaid)
-# axis_limits:  [(freq_min, freq_max), (psd_min, psd_max)]
-# annotate_at:  tuple of frequencies where PSD values are annotated per run
+# channel:        single channel string or list of channels (overlaid)
+# axis_limits:    [(freq_min, freq_max), (psd_min, psd_max)]
+# annotate_at:    tuple of frequencies where PSD values are annotated per run
+# log_scale:      True (default) for semilogy axis
+# nperseg:        Welch window length override (≥8); None uses default 512
+# gate:           segment-aware Welch — filter data before PSD computation
+# show_envelope:  True to show ±1σ shading when multiple runs are present
+# markers:        list of Marker() — static vertical reference lines
 
 PSD_PLOT_DEFINITIONS = [
     # ── Single channel PSD ─────────────────────────────────────────────────────
@@ -344,6 +429,35 @@ PSD_PLOT_DEFINITIONS = [
         axis_limits=[(0, 20), (1e-4, None)],
         annotate_at=(5, 15),
     ),
+
+    # ── Gated PSD — compute PSD only on filtered segments ──────────────────────
+    PsdPlot(
+        name="Gated PSD Demo",
+        channel="gVertF",
+        axis_limits=[(0, 30), (1e-4, None)],
+        gate=[('vCar', '>', 100), ('SM', '<', 0.5)],
+        nperseg=256,
+    ),
+
+    # ── Show envelope — ±1σ shading across runs ───────────────────────────────
+    PsdPlot(
+        name="PSD Envelope Demo",
+        channel="FPRodAvgF",
+        axis_limits=[(0, 20), (1e-4, None)],
+        show_envelope=True,
+        nperseg=512,
+    ),
+
+    # ── Markers on PSD ─────────────────────────────────────────────────────────
+    PsdPlot(
+        name="PSD Markers Demo",
+        channel="gVertF",
+        axis_limits=[(0, 30), (1e-4, None)],
+        markers=[
+            Marker(x=5, label="5 Hz"),
+            Marker(x=15, label="15 Hz", color="#FF6600"),
+        ],
+    ),
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -351,6 +465,8 @@ PSD_PLOT_DEFINITIONS = [
 # ═══════════════════════════════════════════════════════════════════════════════
 # channel:      channel to histogram
 # axis_limits:  [(bin_min, bin_max), (count_min, count_max)]
+# log_scale:    True for log-scale y-axis (useful for long-tail distributions)
+# markers:      list of Marker() — static vertical reference lines
 
 HISTOGRAM_PLOT_DEFINITIONS = [
     HistogramPlot(
@@ -358,14 +474,36 @@ HISTOGRAM_PLOT_DEFINITIONS = [
         channel="PPlank_F",
         axis_limits=[(1, 51), (None, None)],
     ),
+
+    # ── Log-scale histogram ────────────────────────────────────────────────────
+    HistogramPlot(
+        name="Log-Scale Histogram Demo",
+        channel="PPlank_F",
+        axis_limits=[(0, 100), (None, None)],
+        log_scale=True,
+    ),
+
+    # ── Histogram with markers ─────────────────────────────────────────────────
+    HistogramPlot(
+        name="Histogram Markers Demo",
+        channel="vCar",
+        axis_limits=[(50, 350), (None, None)],
+        markers=[
+            Marker(x=100, label="Low speed"),
+            Marker(x=250, label="High speed", color="#D70000"),
+        ],
+    ),
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # BAR PLOTS
 # ═══════════════════════════════════════════════════════════════════════════════
-# metrics: tuple of ("channel",) or (("channel", "aggregation"),)
-# aggregations: "integral" "sum" "last" "mean" "max" "min"
-# target_line:  draw a horizontal dashed reference line at this value
+# metrics:              tuple of ("channel",) or (("channel", "aggregation"),)
+# aggregations:         "integral" "abs_integral" "sum" "abs_sum" "mean"
+#                       "median" "max" "min" "first" "last"
+# default_aggregation:  fallback when metric tuple omits aggregation (default "last")
+# target_line:          draw a horizontal dashed reference line at this value
+# axis_limits:          (y_min, y_max) to override y-axis range
 
 BAR_PLOT_DEFINITIONS = [
     # ── Multiple metrics with integral aggregation ─────────────────────────────
@@ -386,6 +524,14 @@ BAR_PLOT_DEFINITIONS = [
         metrics=(("EPlank_F", "max"),),
         target_line=500.0,
     ),
+
+    # ── Custom axis limits and default aggregation ─────────────────────────────
+    BarPlot(
+        name="Bar Axis Limits Demo",
+        metrics=(("vCar",), ("nEngine",)),
+        default_aggregation="mean",
+        axis_limits=(0, 400),
+    ),
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -395,6 +541,7 @@ BAR_PLOT_DEFINITIONS = [
 # aggregation_mode:  "per_run" (one box per run) | "aggregated" (all merged)
 #                    "per_run_aggregated" (per-run boxes + aggregated box at end)
 # gate:              filter data — ('channel', 'operator', value) or list of conditions
+# axis_limits:       (y_min, y_max) to override y-axis range
 
 BOX_PLOT_DEFINITIONS = [
     BoxPlot(
@@ -410,15 +557,66 @@ BOX_PLOT_DEFINITIONS = [
         channels=("hRideF", "hRideR"),
         aggregation_mode="per_run_aggregated",
     ),
+
+    # ── Custom axis limits ─────────────────────────────────────────────────────
+    BoxPlot(
+        name="Box Axis Limits Demo",
+        channels="hRideF",
+        aggregation_mode="per_run",
+        axis_limits=(20, 80),
+    ),
+
+    # ── BoxPlotGrid — 2D grid of box plots (rows × cols gating) ────────────────
+    # Each cell combines row + column gate conditions (AND). Two render modes:
+    #   "expand" — one individual BoxPlot figure per cell (default)
+    #   "grid"   — single figure with a rows×cols subplot matrix
+    BoxPlotGrid(
+        name="Ride Height Grid",
+        channels="hRideF",
+        rows={
+            "LS": [("vCar", "<", 120)],
+            "MS": [("vCar", ">=", 120), ("vCar", "<", 200)],
+            "HS": [("vCar", ">=", 200)],
+        },
+        cols={
+            "Entry": [("gLong", "<", -0.5)],
+            "Apex":  [("gLong", "between", (-0.5, 0.5))],
+            "Exit":  [("gLong", ">", 0.5)],
+        },
+        aggregation_mode="aggregated",
+        render_mode="grid",
+    ),
+
+    # ── BoxPlotGrid with expand mode — individual files per cell ───────────────
+    BoxPlotGrid(
+        name="Speed Band Yaw",
+        channels="nYaw",
+        rows={
+            "Low Speed":  [("vCar", "<", 150)],
+            "High Speed": [("vCar", ">=", 150)],
+        },
+        cols={
+            "Left":  [("gLat", "<", -0.5)],
+            "Right": [("gLat", ">", 0.5)],
+        },
+        aggregation_mode="per_run",
+        render_mode="expand",
+    ),
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # HEATMAP PLOTS
 # ═══════════════════════════════════════════════════════════════════════════════
 # x_channel, y_channel: axes of the 2D grid
-# z_channel:  None → count-based (2D histogram) | channel name → aggregation of z
-# aggregation: "mean" "median" "std" "sum" "max" "min" (used with z_channel)
-# bins:        number of bins per axis
+# z_channel:    None → count-based (2D histogram) | channel name → aggregation of z
+# aggregation:  "mean" "median" "std" "count" "sum" "max" "min" (used with z_channel)
+# bins:         number of bins per axis (int or (nx, ny) tuple for non-square)
+# cmap:         matplotlib colormap name (default "viridis")
+# z_limits:     (z_min, z_max) to clamp colour bar range
+# min_count:    cells with fewer points are masked (default 3)
+# gate:         filter data before binning
+# markers:      list of Marker() — static vertical reference lines
+# axis_limits:  [(x_min, x_max), (y_min, y_max)]
 
 HEATMAP_PLOT_DEFINITIONS = [
     # ── Count-based heatmap (2D histogram) ─────────────────────────────────────
@@ -437,6 +635,32 @@ HEATMAP_PLOT_DEFINITIONS = [
         z_channel="SM",
         aggregation="mean",
         bins=100,
+    ),
+
+    # ── Custom colormap and z_limits ───────────────────────────────────────────
+    HeatmapPlot(
+        name="Custom Cmap Demo",
+        x_channel="vCar",
+        y_channel="gLat",
+        z_channel="hRideF",
+        aggregation="median",
+        bins=(80, 60),
+        cmap="plasma",
+        z_limits=(25, 70),
+    ),
+
+    # ── Gated heatmap with min_count and markers ───────────────────────────────
+    HeatmapPlot(
+        name="Gated Heatmap Demo",
+        x_channel="vCar",
+        y_channel="hRideR",
+        z_channel="gLong",
+        aggregation="mean",
+        bins=60,
+        gate=[('SM', '<', 0.5)],
+        min_count=5,
+        axis_limits=[(50, 350), (20, 80)],
+        markers=[Marker(x=200, label="200 km/h")],
     ),
 ]
 
@@ -474,4 +698,12 @@ if __name__ == "__main__":
         powerpoint_output=POWERPOINT_OUTPUT if EXPORT_TO_POWERPOINT else None,
         export_map=POWERPOINT_EXPORT_MAP if EXPORT_TO_POWERPOINT else None,
         powerpoint_start_slide=POWERPOINT_START_SLIDE,
+        # ── Optional overrides (uncomment as needed) ───────────────────────────
+        # verbose=True,             # enable debug-level logging
+        # output_dpi=150,           # lower DPI for faster iteration (default 300)
+        # scatter_max_points=30000, # max scatter points before decimation
+        # open_output=False,        # don't auto-open output folder
+        # fig_size=[12, 8],         # override figure size (width, height in inches)
+        # calculated_channels=MY_EXTRA_CHANNELS,  # override shared CALCULATED_CHANNELS
+        # filters=MY_FILTERS,       # override shared DEFAULT_FILTERS
     )

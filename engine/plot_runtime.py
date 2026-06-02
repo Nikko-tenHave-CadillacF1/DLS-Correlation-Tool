@@ -41,7 +41,58 @@ _ASPECT_RATIO_CACHE = {}
 
 @dataclass
 class PlotJobConfig:
-    """Bundle all parameters needed for a plotting job in one place."""
+    """Bundle all parameters needed for a plotting job.
+
+    Required fields: title, root_folder, output_dir, runs, plot_definitions.
+    All other fields have sensible defaults and can be overridden per-job.
+
+    Fields
+    ------
+    title : str
+        Console banner title.
+    root_folder : Path
+        Root directory for input data files.
+    output_dir : Path
+        Directory where plots and reports are written.
+    runs : list
+        List of run definition dicts (name, file, color, type, nrun/nlap).
+    plot_definitions : tuple
+        7-slot tuple from ``build_plot_groups()`` — one list per plot type.
+    channel_mappings : dict, optional
+        Raw→canonical name mappings per source type.
+    channel_transforms : dict, optional
+        Sign flips and unit conversions per source type.
+    calculated_channels : dict, optional
+        Lambda-based derived channels evaluated after loading.
+    filters : dict, optional
+        Per-channel Butterworth filter configurations.
+    resample_rate : float, optional
+        Uniform resampling rate in Hz (default from channel_config).
+    units_map : dict, optional
+        Channel→unit label for axis annotations.
+    fig_size : list or dict, optional
+        Figure dimensions [width, height] or per-type dict.
+    scatter_max_points : int
+        Max points per scatter plot before random decimation (default 45000).
+    bar_secondary_axis_ratio : float
+        Scale factor triggering dual y-axis on bar charts (default 20.0).
+    box_plot_settings : dict, optional
+        Visual overrides for box plot styling.
+    verbose : bool
+        Enable debug-level logging (default False).
+    powerpoint_template : Path, optional
+        Path to .pptx template file.
+    powerpoint_output : Path, optional
+        Output path for generated PowerPoint.
+    export_map : list or dict, optional
+        Slide-to-plot mapping (list of Slide() dicts or legacy dict format).
+    powerpoint_start_slide : int
+        1-based slide index where export_map entries begin (default 1).
+    open_output : bool
+        Auto-open output folder on completion (default True).
+    output_dpi : int
+        PNG resolution in dots per inch (default 300).
+    """
 
     title: str
     root_folder: Path
@@ -227,9 +278,31 @@ def run_workflow(
 ):
     """One-call entry point: build plot groups, parse CLI, run the job.
 
-    workflow: 'correlation' | 'boxplots' | 'dampers'.
-    Pass plot lists by category (waveforms=, scatters=, ...); empty categories may be omitted.
-    Any PlotJobConfig field can be overridden via **overrides.
+    Parameters
+    ----------
+    workflow : str
+        Workflow identifier — 'correlation', 'boxplots', 'dampers', 'ride_dil',
+        or any custom name. Determines default channel configs and directories.
+    title : str
+        Display title for the console banner.
+    runs : list
+        Run definitions (dicts with 'name', 'file', 'color', 'type', etc.).
+    waveforms, scatters, psds, histograms, bars, boxes, heatmaps :
+        Plot definition lists for each category. Omit or pass None for empty.
+    powerpoint_template : Path, optional
+        Path to .pptx template for slide export.
+    powerpoint_output : Path, optional
+        Output path for the generated PowerPoint file.
+    export_map : list of Slide dicts, optional
+        Mapping of slides to plot images.
+    fig_size : list or dict, optional
+        Override figure dimensions (width, height) or per-type dict.
+    cli_description : str, optional
+        Description shown in --help output.
+    **overrides :
+        Any PlotJobConfig field: root_folder, output_dir, verbose, output_dpi,
+        scatter_max_points, open_output, powerpoint_start_slide,
+        calculated_channels, filters, resample_rate, etc.
     """
     plot_definitions = build_plot_groups(
         waveforms=waveforms, scatters=scatters, psds=psds,
@@ -748,8 +821,8 @@ def workflow_config(
         _root, _out = get_workflow_dirs(workflow)
         root_folder = explicit_root or _root
         out_folder = explicit_out or _out
-        calculated = overrides.pop("calculated_channels", {})
-        filters = overrides.pop("filters", {})
+        calculated = overrides.pop("calculated_channels", getattr(_cc, "CALCULATED_CHANNELS", {}))
+        filters = overrides.pop("filters", getattr(_cc, "DEFAULT_FILTERS", {}))
 
     return PlotJobConfig(
         title=title,

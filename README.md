@@ -61,11 +61,13 @@ python Run_Correlation.py --no-open
 |------|--------|
 | `--only NAME [NAME ...]` | Generate only plots whose name matches (case-insensitive) |
 | `--types TYPE [TYPE ...]` | Generate only these plot types (`waveform`, `scatter`, `psd`, `histogram`, `bar`, `box`, `heatmap`) |
+| `--runs NAME [NAME ...]` | Restrict to a subset of configured runs by name |
 | `--no-open` | Do not auto-open the output folder after completion |
 | `--dry-run` | Validate config and show what would be generated without creating plots |
 | `--list-plots` | Print all configured plot names, grouped by type |
 | `--check-only` | Run data-quality checks and produce the report without plotting |
-| `--runs NAME [...]` | Restrict to a subset of configured runs by name |
+| `--x-axis CHANNEL` | Override x_channel for all waveform plots (e.g. `tLap`) |
+| `--export-data csv\|parquet` | Export preprocessed dataframes to the output folder |
 
 Flags can be combined: `--types scatter --only "Front Heave" --no-open`.
 
@@ -79,8 +81,9 @@ Flags can be combined: `--types scatter --only "Front Heave" --no-open`.
 |---|---|
 | `Run_Template.py` | Reference template — copy this to start a new workflow |
 | `Run_Correlation.py` | Runs, plot definitions, and PowerPoint export for correlation |
-| `Run_BoxPlots.py` | Runs and box plot definitions |
+| `Run_BoxPlots.py` | Runs and box plot definitions (includes BoxPlotGrid examples) |
 | `Run_Dampers.py` | Runs, waveform, and scatter definitions for damper analysis |
+| `Run_RideDIL.py` | Runs and PSD definitions for ride/DIL simulator comparison |
 | `channel_config.py` | Project-wide settings: folder paths, channel mappings, unit labels, transforms, calculated channels, filters, and render settings |
 
 ### Engine files (do not edit)
@@ -174,7 +177,7 @@ RUNS = [
 Each `Run_*.py` file uses a `PlotJobConfig` dataclass to bundle all parameters:
 
 ```python
-from plot_runtime import PlotJobConfig, run_from_config, parse_plot_cli, build_plot_groups
+from engine import PlotJobConfig, run_from_config, parse_plot_cli, build_plot_groups
 
 config = PlotJobConfig(
     title="CORRELATION PLOT GENERATION",
@@ -213,9 +216,9 @@ if __name__ == "__main__":
 All plot definitions use named-argument constructors imported from `plot_runtime`. These provide IDE autocomplete and validate parameters at import time.
 
 ```python
-from plot_runtime import (
+from engine import (
     WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot,
-    BarPlot, BoxPlot, HeatmapPlot, Marker,
+    BarPlot, BoxPlot, BoxPlotGrid, HeatmapPlot, Marker, calc_channel,
 )
 ```
 
@@ -250,8 +253,11 @@ WaveformPlot(
     # "top" (default): run legend above the subplots.
     # "right": vertical legend to the right of the plot area.
     show_delta=False,
-    # If True and exactly 2 runs are loaded, a thin difference row
-    # (run_B − run_A) is appended below each primary row.
+    # Controls per-row delta subplots (requires exactly 2 runs):
+    #   False             → no delta rows
+    #   True              → append delta row below every primary row
+    #   (True, False, ..) → per-row control; tuple must match len(channels)
+    # Each active delta row shows (run_B − run_A) for that channel.
     markers=[
         # Vertical reference lines. Two flavours:
         #   • Static  — fixed x position, drawn once on every run.
@@ -266,7 +272,8 @@ WaveformPlot(
             condition=[('pBrakeF', '>', 50), ('vCar', '>', 100)],
             edge="rising",          # 'rising' | 'falling' | 'both'
             label="hard brake",
-            max_count=3,             # cap markers per run (first N kept)
+            max_count=3,            # cap markers per run (first N kept)
+            show_label=False,       # suppress label text; line is still drawn
             linestyle="-.",
         ),
     ],
@@ -292,16 +299,20 @@ ScatterPlot(
     best_fit=[('SM', 0, 0.5)],
     # Trend line options:
     #   None / 0              → no fit
-    #   1                     → single fit across all data
+    #   1                     → single linear fit across all data
+    #   2                     → single quadratic (2nd-order polynomial) fit
     #   [('ch', low, high)]   → segmented fits by channel value range
     #   [('x'/'y', low, high)]→ segmented fits by axis value range
     gate=('SM', '<', 1),
     # Data filter applied before plotting.
     # Single: ('channel', 'operator', value)
     # Multi (all must match): [('ch1', '>', v1), ('ch2', '<', v2)]
-    # Operators: '>' '<' '>=' '<=' '==' 'between'
+    # Operators: '>' '<' '>=' '<=' '==' '!=' 'between' 'outside'
     show_equations=True,
     show_error=True,
+    # show_error displays gradient delta between runs.
+    error_as_factor=False,
+    # If True, show delta as multiplicative factor "x 1.10" instead of "+10.0%".
     color_gate=('SM', '<', 0.5, '#00AAFF'),
     # Highlight a subset of points with a second color.
     # Format: ('channel', 'operator', value, '#hexcolor')
@@ -331,7 +342,16 @@ PsdPlot(
     # channel=["hRideF (raw)", "hRideR (raw)"]
     # Legend entries become "RUNNAME — channel".
     axis_limits=[(0, 50), (1e-4, None)],    # [(f_min, f_max), (power_min, power_max)]
-    log_scale=True,
+    log_scale=True,         # semilogy axis (default True)
+    nperseg=256,            # Welch window length override (≥8); None uses default 512
+    gate=[('vCar', '>', 100)],
+    # Segment-aware Welch — only segments satisfying the gate contribute to
+    # the PSD. Segments shorter than nperseg are discarded.
+    show_envelope=False,
+    # If True, shows ±1σ shading when multiple runs are present.
+    annotate_at=(5, 15),    # annotate PSD values at these frequencies
+    markers=[Marker(x=10, label="10 Hz")],
+    # Static vertical reference markers.
 )
 ```
 
@@ -341,7 +361,10 @@ PsdPlot(
 HistogramPlot(
     name="Plank Power Distribution",
     channel="PPlank_F",
-    axis_limits=[(1, 51), (None, None)],
+    axis_limits=[(1, 51), (None, None)],    # [(bin_min, bin_max), (count_min, count_max)]
+    log_scale=False,        # True for log-scale y-axis (useful for long-tail distributions)
+    markers=[Marker(x=25, label="Target")],
+    # Static vertical reference markers.
 )
 ```
 
@@ -352,7 +375,12 @@ BarPlot(
     name="Cumulative Fuel",
     metrics=(("dmInjector (kg/s)", "integral"),),
     # Each entry: "channel" (uses default_aggregation) or ("channel", "aggregation")
-    # Aggregations: "integral" "sum" "last" "mean" "max" "min"
+    # Aggregations: "integral" "abs_integral" "sum" "abs_sum"
+    #               "mean" "median" "max" "min" "first" "last"
+    default_aggregation="last",
+    # Fallback aggregation when metric tuple omits it.
+    axis_limits=(0, 15),
+    # Optional (y_min, y_max) to override y-axis range.
     target_line=12.5,
     # Draw a dashed horizontal reference line at this value (in the same units
     # as the bar metric). Annotated with its value.
@@ -366,6 +394,7 @@ BoxPlot(
     name="Low Speed Corner Distribution",
     channels=["xDamperFL", "xDamperFR"],
     aggregation_mode="per_run",   # "per_run" | "aggregated" | "per_run_aggregated"
+    axis_limits=(0, 30),          # optional (y_min, y_max)
     gate=('vCar', '<', 120),
 )
 ```
@@ -375,6 +404,35 @@ BoxPlot(
 | `per_run` | One box per run, coloured by run colour |
 | `aggregated` | All runs merged into a single box per channel |
 | `per_run_aggregated` | Per-run boxes followed by a combined "ALL" box (separated by a dashed line) |
+
+### BoxPlotGrid
+
+A 2D matrix of box plots defined by row and column gate dimensions. Each cell combines the row + column gate conditions (AND-ed together).
+
+```python
+BoxPlotGrid(
+    name="Ride Height Grid",
+    channels="hRideF",
+    rows={
+        "LS": [("vCar", "<", 120)],
+        "MS": [("vCar", ">=", 120), ("vCar", "<", 200)],
+        "HS": [("vCar", ">=", 200)],
+    },
+    cols={
+        "Entry": [("gLong", "<", -0.5)],
+        "Apex":  [("gLong", "between", (-0.5, 0.5))],
+        "Exit":  [("gLong", ">", 0.5)],
+    },
+    aggregation_mode="aggregated",
+    render_mode="grid",       # "grid" → subplot matrix | "expand" → one file per cell
+    axis_limits=(20, 80),     # applied to all cells
+)
+```
+
+| Render mode | Behaviour |
+|-------------|-----------|
+| `expand` | Produces one individual BoxPlot figure per grid cell (default) |
+| `grid` | Renders a single figure with a rows×cols subplot matrix |
 
 ### Heatmap
 
@@ -388,10 +446,15 @@ HeatmapPlot(
     y_channel="gLong",
     z_channel=None,             # None → 2D-histogram (counts per bin)
     aggregation="mean",         # used only when z_channel is set:
-                                # "mean" | "median" | "std" | "sum" | "max" | "min"
+                                # "mean" | "median" | "std" | "count" | "sum" | "max" | "min"
     bins=100,                   # int, or (nx, ny) for non-square grids
     axis_limits=[(None, None), (None, None)],
+    cmap="viridis",             # matplotlib colormap (default "viridis")
+    z_limits=(0, 50),           # (z_min, z_max) to clamp colour bar range
+    min_count=3,                # cells with fewer points are masked (default 3)
     gate=('SM', '<', 1),        # optional pre-filter
+    markers=[Marker(x=0, label="Centre")],
+    # Static vertical reference markers.
 )
 ```
 
@@ -408,6 +471,44 @@ This file contains all project-wide settings. Edit it to:
 - **`CORRELATION_FILTERS` / `BOXPLOT_FILTERS` / `DAMPER_FILTERS`** — per-channel low-pass filter settings. Use `cutoff=0` to disable. The `"all"` key sets a fallback for any unlisted channel.
 - **`SCATTER_MAX_POINTS`** — maximum points drawn per run; data is randomly downsampled above this.
 - **`BAR_SECONDARY_AXIS_RATIO`** — y-axis scale factor for the right axis in dual-axis bar charts.
+
+### Calculated Channels
+
+Define derived channels as lambdas in the `CALCULATED` dicts. These are evaluated after loading and can reference any canonical channel:
+
+```python
+CORRELATION_CALCULATED = {
+    "gLat_Abs":    lambda df: df["gLat"].abs(),
+    "FPRodDeltaF": lambda df: df["FPRodFL"] - df["FPRodFR"],
+}
+```
+
+Use `calc_channel()` to declare dependencies explicitly when the lambda body is too dynamic for regex-based auto-detection:
+
+```python
+from engine import calc_channel
+
+CALCULATED = {
+    "EngineEff": calc_channel("nEngine", "tThrottle")(
+        lambda df: df["nEngine"] * df["tThrottle"] / 1000.0
+    ),
+}
+```
+
+### Filters
+
+Per-channel Butterworth filter settings. Applied after resampling (default 100 Hz):
+
+```python
+CORRELATION_FILTERS = {
+    "hRideF":   {"cutoff": 5, "order": 2},                     # low-pass (default type)
+    "gVertF":   {"cutoff": 0.5, "order": 4, "type": "high"},   # high-pass
+    "nYaw":     {"cutoff": [1, 10], "order": 2, "type": "bandpass"},
+    "all":      {"cutoff": 5, "order": 2},                     # fallback for unlisted channels
+}
+```
+
+Set `cutoff=0` to disable filtering for a channel.
 
 ---
 
@@ -441,7 +542,7 @@ Set `EXPORT_TO_POWERPOINT = True` in `Run_Correlation.py` and place a `.pptx` te
 Use the `Slide()` helper to build the export map declaratively:
 
 ```python
-from plot_runtime import Slide
+from engine import Slide
 
 POWERPOINT_EXPORT_MAP = [
     Slide("main_plot",   "waveform/Driver Input"),

@@ -1,4 +1,4 @@
-"""PSD and Histogram plot generator mixin for DataPlotter."""
+"""PSD, Histogram, and Heatmap plot generator mixins for DataPlotter."""
 
 import numpy as np
 import pandas as pd

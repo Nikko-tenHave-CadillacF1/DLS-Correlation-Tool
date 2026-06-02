@@ -225,86 +225,65 @@ BOX_PLOT_SETTINGS = {
 
 
 # ─── CALCULATED CHANNELS ─────────────────────────────────────────────────────
-# Each entry is a lambda(df) that computes a new channel from existing ones.
+# Single comprehensive set of all derived channels. Each entry is a lambda(df)
+# that computes a new column from existing ones. Channels whose dependencies
+# are missing in a given run are silently skipped — no need to curate per-workflow.
 
-CORRELATION_CALCULATED = {
-    # Pushrod load differentials and averages
+CALCULATED_CHANNELS = {
+    # ── Pushrod loads ────────────────────────────────────────────────────────
     "FPRodDeltaF":        lambda df: df["FPushrodFL"] - df["FPushrodFR"],
     "FPRodDeltaR":        lambda df: df["FPushrodRL"] - df["FPushrodRR"],
     "FPRodAvgF":          lambda df: (df["FPushrodFL"] + df["FPushrodFR"]) / 2,
     "FPRodAvgR":          lambda df: (df["FPushrodRL"] + df["FPushrodRR"]) / 2,
-    # Damper travel differentials and averages
+    # ── Ride modes (from corner pushrod forces) ──────────────────────────────
+    "FPRodHeave":         lambda df: df["FPushrodFL"] + df["FPushrodFR"] + df["FPushrodRL"] + df["FPushrodRR"],
+    "FPRodPitch":         lambda df: (df["FPushrodFL"] + df["FPushrodFR"]) - (df["FPushrodRL"] + df["FPushrodRR"]),
+    "FPRodRoll":          lambda df: (df["FPushrodFR"] + df["FPushrodRR"]) - (df["FPushrodFL"] + df["FPushrodRL"]),
+    "FPRodWarp":          lambda df: (df["FPushrodFL"] + df["FPushrodRR"]) - (df["FPushrodFR"] + df["FPushrodRL"]),
+    # ── Damper travel ────────────────────────────────────────────────────────
     "xDamperDeltaF":      lambda df: df["xDamperFL"] - df["xDamperFR"],
     "xDamperDeltaR":      lambda df: df["xDamperRL"] - df["xDamperRR"],
     "xDamperAvgF":        lambda df: (df["xDamperFL"] + df["xDamperFR"]) / 2,
     "xDamperAvgR":        lambda df: (df["xDamperRL"] + df["xDamperRR"]) / 2,
-    # Lateral acceleration
+    # ── Lateral / longitudinal acceleration ──────────────────────────────────
     "gLat_Abs":           lambda df: df["gLat"].abs(),
+    "gLatAbs":            lambda df: df["gLat"].abs(),
     "gLong (raw)":        lambda df: df["gLong"],
-    # Ride height (unfiltered copies)
+    "CosPhi_Calc":        lambda df: df["gLong"] / np.sqrt(df["gLat"] ** 2 + df["gLong"] ** 2),
+    # ── Ride height (unfiltered / high-pass copies) ──────────────────────────
     "hRideF (raw)":       lambda df: df["hRideF"],
     "hRideR (raw)":       lambda df: df["hRideR"],
-    # Ride height (copies for high-pass filtering)
     "hRideF (high)":      lambda df: df["hRideF"],
     "hRideR (high)":      lambda df: df["hRideR"],
-
-    # Power unit
+    # ── Power unit ───────────────────────────────────────────────────────────
     "PPUTotal":           lambda df: df["PMGUK"] + df["PEngine"],
     "nWheelAvg_R":        lambda df: (df["nWheelRL"] + df["nWheelRR"]) / 2,
     "dmInjector (kg/s)":  lambda df: df["dmInjector"] / 3600,
     "PMGUK_Deploy (MJ)":  lambda df: (df["PMGUK"] / 1000 * (df["PMGUK"] > 0).astype(float)).abs(),
     "PMGUK_Charge (MJ)":  lambda df: (df["PMGUK"] / 1000 * (df["PMGUK"] < 0).astype(float)).abs(),
-    # Plank wear
-    "PPlank_F":           lambda df: 0.001 * np.maximum(0.1 * df["FzPlankF"] * (df["vCar"] / 3.6), 0)*(df["FzPlankF"] > 500).astype(float),
+    # ── Plank wear ───────────────────────────────────────────────────────────
+    "PPlank_F":           lambda df: 0.001 * np.maximum(0.1 * df["FzPlankF"] * (df["vCar"] / 3.6), 0) * (df["FzPlankF"] > 500).astype(float),
     "EPlank_F":           lambda df: cumulative_trapezoid(df["PPlank_F"], dx=0.01, initial=0),
     "tLap_Calc":          lambda df: cumulative_trapezoid(np.ones_like(df["vCar"]), dx=0.01, initial=0),
-
-    # OC Only:
-    "FzTyreF_Avg":      lambda df: (df["FzTyreFL"] + df["FzTyreFR"]) / 2,
-    "xHubVertF_Avg":    lambda df: (df["xHubVertFL"] + df["xHubVertFR"]) / 2,
-    "FzTyreR_Avg":      lambda df: (df["FzTyreRL"] + df["FzTyreRR"]) / 2,
-    "xHubVertR_Avg":    lambda df: (df["xHubVertRL"] + df["xHubVertRR"]) / 2,
-
-    "FzTyreF_Delta":    lambda df: df["FzTyreFL"] - df["FzTyreFR"],
-    "xHubVertF_Delta":  lambda df: df["xHubVertFL"] - df["xHubVertFR"],
-    "FzTyreR_Delta":    lambda df: df["FzTyreRL"] - df["FzTyreRR"],
-    "xHubVertR_Delta":  lambda df: df["xHubVertRL"] - df["xHubVertRR"],
-
-    "vWindHead":        lambda df: df["vAir"] - df["vCar"],
-    "SC_CLT":           lambda df: df["CLiftTotal"] * ((df["vCar"] + df["vWindHead"])/(df["vCar"]))**2,  
+    # ── Tyre / suspension (OC sources) ───────────────────────────────────────
+    "FzTyreF_Avg":        lambda df: (df["FzTyreFL"] + df["FzTyreFR"]) / 2,
+    "xHubVertF_Avg":      lambda df: (df["xHubVertFL"] + df["xHubVertFR"]) / 2,
+    "FzTyreR_Avg":        lambda df: (df["FzTyreRL"] + df["FzTyreRR"]) / 2,
+    "xHubVertR_Avg":      lambda df: (df["xHubVertRL"] + df["xHubVertRR"]) / 2,
+    "FzTyreF_Delta":      lambda df: df["FzTyreFL"] - df["FzTyreFR"],
+    "xHubVertF_Delta":    lambda df: df["xHubVertFL"] - df["xHubVertFR"],
+    "FzTyreR_Delta":      lambda df: df["FzTyreRL"] - df["FzTyreRR"],
+    "xHubVertR_Delta":    lambda df: df["xHubVertRL"] - df["xHubVertRR"],
+    # ── Aero ─────────────────────────────────────────────────────────────────
+    "vWindHead":          lambda df: df["vAir"] - df["vCar"],
+    "SC_CLT":             lambda df: df["CLiftTotal"] * ((df["vCar"] + df["vWindHead"]) / (df["vCar"])) ** 2,
 }
 
-BOXPLOT_CALCULATED = {
-    # "dmInjector (kg/s)":    lambda df: df["dmInjector"] / 3600,
-    # "rLambda_avg (%)":      lambda df: 100 * (df["rLambdaL"] + df["rLambdaR"]) / 2,
-    # "dmExhaust":            lambda df: df["dmInjector"] * (1 + 13.23 * df["rLambda_avg (%)"] / 100) / 3600,
-    # "dmExhaust_Estimated":  lambda df: df["dmInjector"] * (1 + 13.23 * (0.155 * df["vCar"] + 109.329) / 100) / 3600,
-    # "Error_dmExhaust":      lambda df: df["dmExhaust"] - df["dmExhaust_Estimated"],
-    "CosPhi_Calc":          lambda df: df["gLong"] / np.sqrt(df["gLat"] ** 2 + df["gLong"] ** 2),
-}
-
-DAMPER_CALCULATED = {
-    "gLat_Abs": lambda df: np.abs(df["gLat"]),
-}
-
-RIDE_DIL_CALCULATED = {
-    # Absolute lateral acceleration — used as a gate to isolate cornering
-    "gLatAbs":            lambda df: np.abs(df["gLat"]),
-    # Pushrod load averages/differentials (per axle) — reused from correlation
-    "FPRodAvgF":          lambda df: (df["FPushrodFL"] + df["FPushrodFR"]) / 2,
-    "FPRodAvgR":          lambda df: (df["FPushrodRL"] + df["FPushrodRR"]) / 2,
-    "FPRodDeltaF":        lambda df: df["FPushrodFL"] - df["FPushrodFR"],
-    "FPRodDeltaR":        lambda df: df["FPushrodRL"] - df["FPushrodRR"],
-    # ── Ride modes from corner pushrod forces ────────────────────────────────
-    # Heave: total vertical mode — all four corners in phase
-    "FPRodHeave":         lambda df: df["FPushrodFL"] + df["FPushrodFR"] + df["FPushrodRL"] + df["FPushrodRR"],
-    # Pitch: front axle vs rear axle (front - rear)
-    "FPRodPitch":         lambda df: (df["FPushrodFL"] + df["FPushrodFR"]) - (df["FPushrodRL"] + df["FPushrodRR"]),
-    # Roll: right side vs left side (right - left)
-    "FPRodRoll":          lambda df: (df["FPushrodFR"] + df["FPushrodRR"]) - (df["FPushrodFL"] + df["FPushrodRL"]),
-    # Warp: diagonal/twist mode (FL+RR) - (FR+RL)
-    "FPRodWarp":          lambda df: (df["FPushrodFL"] + df["FPushrodRR"]) - (df["FPushrodFR"] + df["FPushrodRL"]),
-}
+# Backward-compatible aliases — workflow_config() references these names.
+CORRELATION_CALCULATED = CALCULATED_CHANNELS
+BOXPLOT_CALCULATED     = CALCULATED_CHANNELS
+DAMPER_CALCULATED      = CALCULATED_CHANNELS
+RIDE_DIL_CALCULATED    = CALCULATED_CHANNELS
 
 
 # ─── RESAMPLING ───────────────────────────────────────────────────────────────
@@ -322,73 +301,78 @@ RESAMPLE_RATE = 100.0
 # For bandpass, cutoff is a two-element list [low_hz, high_hz].
 # Filters are applied AFTER resampling — see RESAMPLE_RATE above.
 
-# Base filter settings shared across workflows. Override per-workflow below.
-_BASE_FILTERS = {
-    "gVertF":        {"cutoff": 0,  "order": 2},
-    "gVertR":        {"cutoff": 0,  "order": 2},
-    "gVert":         {"cutoff": 0,  "order": 2},
-    "PMGUK":         {"cutoff": 0,  "order": 2},
-    "SM":            {"cutoff": 0,  "order": 2},
-    "NGear":         {"cutoff": 0,  "order": 2},
-    "nEngine":       {"cutoff": 0,  "order": 2},
-    "rThrottle":     {"cutoff": 0,  "order": 2},
-    "vCar":          {"cutoff": 0,  "order": 2},
-    "dmInjector":    {"cutoff": 0,  "order": 2},
+# Channels that should NEVER be filtered (discrete/categorical/integral signals).
+_NO_FILTER = {"cutoff": 0, "order": 2}
+
+_UNFILTERED_CHANNELS = {
+    "gVertF":        _NO_FILTER,
+    "gVertR":        _NO_FILTER,
+    "gVert":         _NO_FILTER,
+    "PMGUK":         _NO_FILTER,
+    "SM":            _NO_FILTER,
+    "NGear":         _NO_FILTER,
+    "nEngine":       _NO_FILTER,
+    "rThrottle":     _NO_FILTER,
+    "vCar":          _NO_FILTER,
+    "dmInjector":    _NO_FILTER,
+    "FzPlankF":      _NO_FILTER,
+    "nWheelAvg_R":   _NO_FILTER,
+    "EPlank_F":      _NO_FILTER,
+    "PPlank_F":      _NO_FILTER,
+    "gLong (raw)":   _NO_FILTER,
+    "hRideF (raw)":  _NO_FILTER,
+    "hRideR (raw)":  _NO_FILTER,
+    "PPUTotal":      _NO_FILTER,
+    "gHubVertFL":    _NO_FILTER,
+    "gHubVertFR":    _NO_FILTER,
+    "gHubVertRL":    _NO_FILTER,
+    "gHubVertRR":    _NO_FILTER,
+    "FPushrodFL":    _NO_FILTER,
+    "FPushrodFR":    _NO_FILTER,
+    "FPushrodRL":    _NO_FILTER,
+    "FPushrodRR":    _NO_FILTER,
+    "FPRodHeave":    _NO_FILTER,
+    "FPRodPitch":    _NO_FILTER,
+    "FPRodRoll":     _NO_FILTER,
+    "FPRodWarp":     _NO_FILTER,
+    "FPRodAvgF":     _NO_FILTER,
+    "FPRodAvgR":     _NO_FILTER,
+    "FPRodDeltaF":   _NO_FILTER,
+    "FPRodDeltaR":   _NO_FILTER,
 }
 
+# Default filter set used by all workflows (and custom workflows).
+# Includes a sensible "all" fallback. Override per-workflow below.
+DEFAULT_FILTERS = {
+    **_UNFILTERED_CHANNELS,
+    "hRideF (high)": {"cutoff": 0.5, "order": 4, "type": "high"},
+    "hRideR (high)": {"cutoff": 0.5, "order": 4, "type": "high"},
+    "all":           {"cutoff": 5, "order": 2},
+}
+
+# ── Workflow-specific overrides (only specify what differs from DEFAULT) ──────
+
 CORRELATION_FILTERS = {
-    **_BASE_FILTERS,
-    "FzPlankF":      {"cutoff": 0,  "order": 2},
-    "nWheelAvg_R":   {"cutoff": 0,  "order": 2},
-    "EPlank_F":      {"cutoff": 0,  "order": 2},
-    "PPlank_F":      {"cutoff": 0,  "order": 2},
-    "gLong (raw)":   {"cutoff": 0,  "order": 2},
-    "hRideF (raw)":  {"cutoff": 0,  "order": 2},
-    "hRideR (raw)":  {"cutoff": 0,  "order": 2},
-    "gHubVertFL":   {"cutoff": 0,  "order": 2},
-    "gHubVertFR":   {"cutoff": 0,  "order": 2},
-    "gHubVertRL":   {"cutoff": 0,  "order": 2},
-    "gHubVertRR":   {"cutoff": 0,  "order": 2},
-    "hRideF (high)": {"cutoff": 0.5,  "order": 4, "type": "high"},
-    "hRideR (high)": {"cutoff": 0.5,  "order": 4, "type": "high"},
-    "PPUTotal":      {"cutoff": 0,  "order": 2},
-    "all":           {"cutoff": 5,  "order": 2},
+    **DEFAULT_FILTERS,
+    # Uses default "all" = 5 Hz lowpass
 }
 
 BOXPLOT_FILTERS = {
-    **_BASE_FILTERS,
-    "all":         {"cutoff": 4,  "order": 2},
+    **DEFAULT_FILTERS,
+    "all":         {"cutoff": 4, "order": 2},
 }
 
 DAMPER_FILTERS = {
-    **_BASE_FILTERS,
-    "CosPhi": {"cutoff": 3,  "order": 3},
-    "rLLTD":  {"cutoff": 10, "order": 2},
-    "gVert":  {"cutoff": 30, "order": 2},
-    "gVertF": {"cutoff": 30, "order": 2},
-    "gVertR": {"cutoff": 30, "order": 2},
-    "all":    {"cutoff": 10, "order": 3},
+    **DEFAULT_FILTERS,
+    "CosPhi":  {"cutoff": 3,  "order": 3},
+    "rLLTD":   {"cutoff": 10, "order": 2},
+    "gVert":   {"cutoff": 30, "order": 2},
+    "gVertF":  {"cutoff": 30, "order": 2},
+    "gVertR":  {"cutoff": 30, "order": 2},
+    "all":     {"cutoff": 10, "order": 3},
 }
 
 RIDE_DIL_FILTERS = {
-    **_BASE_FILTERS,
-    # Keep pushrod modes and vertical accelerations unfiltered for clean PSDs
-    "FPushrodFL":   {"cutoff": 0, "order": 2},
-    "FPushrodFR":   {"cutoff": 0, "order": 2},
-    "FPushrodRL":   {"cutoff": 0, "order": 2},
-    "FPushrodRR":   {"cutoff": 0, "order": 2},
-    "FPRodHeave":   {"cutoff": 0, "order": 2},
-    "FPRodPitch":   {"cutoff": 0, "order": 2},
-    "FPRodRoll":    {"cutoff": 0, "order": 2},
-    "FPRodWarp":    {"cutoff": 0, "order": 2},
-    "FPRodAvgF":    {"cutoff": 0, "order": 2},
-    "FPRodAvgR":    {"cutoff": 0, "order": 2},
-    "FPRodDeltaF":  {"cutoff": 0, "order": 2},
-    "FPRodDeltaR":  {"cutoff": 0, "order": 2},
-    "gVertF":       {"cutoff": 0, "order": 2},
-    "gVertR":       {"cutoff": 0, "order": 2},
-    "gHubVertFL":   {"cutoff": 0, "order": 2},
-    "gHubVertFR":   {"cutoff": 0, "order": 2},
-    "gHubVertRL":   {"cutoff": 0, "order": 2},
-    "gHubVertRR":   {"cutoff": 0, "order": 2},
+    **DEFAULT_FILTERS,
+    # No "all" fallback — only filter channels explicitly listed above
 }
