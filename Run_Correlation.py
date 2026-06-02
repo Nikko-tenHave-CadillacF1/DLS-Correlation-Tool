@@ -10,7 +10,7 @@ from engine import (
 )
 
 WORKFLOW_NAME = "correlation"
-EVENT = "26R03SUZ"
+EVENT = "26R05MTL"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
@@ -18,28 +18,28 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 RUNS = [
     {
         "name": "CAR",
-        "file": r"26R03SUZ_260328_MAC26-02_BOT_Q_R03_2.txt",
+        "file": r"26R05MTL_260523_MAC26-01_PER_Q_R02PARTIAL_2.txt",
         "color": "#BF6300",
         "type": "CAR",
     },
     {
-        "name": "DLS- BSL",
-        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3  Stint 1 stint 3_-BASE_DLS_3.parquet",
-        "color": "#0076BF",
-        "nlap": 1,
-        "type": "DLS",
+        "name": "OC",
+        "file": r"nonlinear v6 - good motion ratios - MTL PER QR2.parquet",
+        "color": "#30BF00",
+        #"nlap": 1,
+        "type": "OC",
     },
-    {
-        "name": "DLS- CORR",
-        "file": r"26R03SUZ  77  Quali  Run 3 Q1R3  Stint 1 stint 3_-CORR_DLS_3.parquet",
-        "color": "#A900BF",
-        "nlap": 1,
-        "type": "DLS",
-    },
+#     {
+#         "name": "OC - RH",
+#         "file": r"nonlinear v7 - MTL PER QR02.parquet",
+#         "color": "#A900BF",
+#         #"nlap": 1,
+#         "type": "OC",
+#     },
 ]
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
-EXPORT_TO_POWERPOINT  = True
+EXPORT_TO_POWERPOINT  = False
 POWERPOINT_TEMPLATE   = resolve_template_path("template.pptx")
 POWERPOINT_OUTPUT     = _OUTPUT_DIR / "Correlation_Report.pptx"
 # Slide number (1-based) where the first POWERPOINT_EXPORT_MAP entry is placed.
@@ -85,6 +85,15 @@ WAVEFORM_PLOT_DEFINITIONS = [
         axis_limits=(None, ((60, 400), (-1, 9)), None, None, ((0, 105), (0, 1.3))),
         reference_lines=((-350, 0, 350), None, (0,), None, None),
         subplot_heights=(0.4, 0.8, 0.4, 0.4, 0.4),
+    ),
+    WaveformPlot(
+        name="TPG",
+        channels=(('vCar', 'NGear'), ('aCamberFL', 'aCamberFR'),  ('aCamberRL', 'aCamberRR')),
+        axis_limits=(((60, 400), (-1, 9)), None, None),
+        reference_lines=(None, (0,0), (0,0)),
+        subplot_heights=(0.8, 0.8, 0.8),
+        show_delta = (False, True, True),
+        annotate_at = (2400,3500),
     ),
     # WaveformPlot(
     #     name="APG Waveform",

@@ -145,6 +145,7 @@ POWERPOINT_START_SLIDE = 4
 # legend_position:  "top" (default) or "right" for vertical side legend
 # show_delta:       True/False or per-row tuple — append difference rows (requires exactly 2 runs)
 # markers:          list of Marker() objects — vertical reference lines
+# annotate_at:      tuple of x-values where data values are read off and annotated per run
 
 WAVEFORM_PLOT_DEFINITIONS = [
     # ── Basic waveform ─────────────────────────────────────────────────────────
@@ -239,9 +240,9 @@ WAVEFORM_PLOT_DEFINITIONS = [
     WaveformPlot(
         name="Lap Time Delta",
         channels=('vCar', 'tDiff'),
-        axis_limits=(None, None),
+        axis_limits=(None, (-5,5)),
         reference_lines=(None, 0),
-        subplot_heights=(0.6, 0.5),
+        subplot_heights=(0.6, 0.4),
     ),
 
     # ── Legend position — move legend to the right ─────────────────────────────
@@ -251,6 +252,17 @@ WAVEFORM_PLOT_DEFINITIONS = [
         axis_limits=(None, None),
         subplot_heights=(0.6, 0.4),
         legend_position="right",
+    ),
+
+    # ── Annotate at — read off data values at specific x-positions ─────────────
+    # Draws a vertical guide line at each x-value and annotates the interpolated
+    # y-value for every run (dot + label). Secondary channels use square markers.
+    WaveformPlot(
+        name="Annotate At Demo",
+        channels=('vCar', 'pBrakeF', ('rThrottle', 'SM')),
+        axis_limits=(None, None, ((0, 105), (0, 1.3))),
+        subplot_heights=(0.6, 0.4, 0.4),
+        annotate_at=(500, 1000, 2000),
     ),
 ]
 

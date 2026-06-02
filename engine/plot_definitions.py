@@ -230,6 +230,7 @@ class WaveformPlot:
     legend_position: str = "top"
     show_delta: Union[bool, Tuple[bool, ...], List[bool]] = False
     markers: List[Marker] = field(default_factory=list)
+    annotate_at: Optional[Union[Tuple[float, ...], List[float], float]] = None
 
     kind: ClassVar[str] = "waveform"
 
@@ -268,6 +269,16 @@ class WaveformPlot:
                 f"{where}.show_delta must be bool or a tuple/list of bools per row."
             )
         self.normalise = bool(self.normalise)
+        # Normalise annotate_at: scalar → tuple, validate all entries are numeric.
+        if self.annotate_at is not None:
+            if isinstance(self.annotate_at, (int, float)):
+                self.annotate_at = (float(self.annotate_at),)
+            elif isinstance(self.annotate_at, (list, tuple)):
+                self.annotate_at = tuple(float(v) for v in self.annotate_at)
+            else:
+                raise TypeError(
+                    f"{where}.annotate_at must be a number or tuple/list of numbers."
+                )
 
 
 # ---------------------------------------------------------------------------
