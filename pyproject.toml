@@ -23,14 +23,9 @@ parquet = ["pyarrow>=15.0.0", "fastparquet>=2024.11.0"]
 pptx = ["python-pptx>=0.6.23"]
 windows = ["pywin32>=306; sys_platform == 'win32'"]
 
-[project.scripts]
-dls-correlation = "Run_Correlation:__main__"
-dls-boxplots    = "Run_BoxPlots:__main__"
-dls-dampers     = "Run_Dampers:__main__"
-
 [tool.setuptools]
 py-modules = ["bootstrap", "channel_config",
-              "Run_Correlation", "Run_BoxPlots", "Run_Dampers", "Run_Template"]
+              "Run_Correlation", "Run_BoxPlots", "Run_Dampers", "Run_RideDIL", "Run_Template"]
 
 [tool.setuptools.packages.find]
 include = ["engine*", "tools*"]

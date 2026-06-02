@@ -3,8 +3,8 @@
 from bootstrap import ensure_dependencies
 ensure_dependencies()
 
-from channel_config import get_workflow_dirs
-from engine import run_workflow, BoxPlot, BoxPlotGrid, WaveformPlot
+from channel_config import get_workflow_dirs, resolve_template_path
+from engine import run_workflow, Slide, BoxPlot, BoxPlotGrid, WaveformPlot
 
 WORKFLOW_NAME = "boxplots"
 EVENT = "26R05MTL"
@@ -104,7 +104,7 @@ HEATMAP_PLOT_DEFINITIONS = []
 if __name__ == "__main__":
     run_workflow(
         WORKFLOW_NAME,
-        title="BOX PLOT ANALYSIS",
+        title=f"{WORKFLOW_NAME.upper()} PLOT GENERATION",
         runs=RUNS,
         root_folder=_INPUT_DIR,
         output_dir=_OUTPUT_DIR,

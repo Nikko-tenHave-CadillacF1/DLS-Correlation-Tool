@@ -175,10 +175,6 @@ def collect_referenced_channels(plot_definitions):
                     _add(plot_def.z_channel)
                 if plot_def.gate is not None:
                     referenced.update(datafunctions.collect_gate_channels(plot_def.gate))
-            else:
-                # Defensive fallback for unknown / legacy tuples.
-                if isinstance(plot_def, (list, tuple)) and len(plot_def) >= 2:
-                    _add(plot_def[1])
     return sorted(referenced)
 
 
@@ -1276,40 +1272,6 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
 
         self._psd_cache[key] = (freq, power, n_segs)
         return freq, power, n_segs
-
-    # ------------------------------------------------------------------
-    # Data export (#7)
-    # ------------------------------------------------------------------
-
-    def export_run_data(self, export_format: str = "csv") -> list[Path]:
-        """Dump preprocessed per-run dataframes to disk.
-
-        Drops to ``<plots_dir>/exported_data/<run>.{csv|parquet}``.
-        """
-        self._ensure_preprocessed()
-        fmt = export_format.lower()
-        if fmt not in {"csv", "parquet"}:
-            raise ValueError(f"export_format must be 'csv' or 'parquet'; got {fmt!r}.")
-        out_dir = self.plots_dir / "exported_data"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        written = []
-        for run_name, df in self.run_data.items():
-            safe = run_name.replace("/", "_").replace("\\", "_")
-            path = out_dir / f"{safe}.{fmt}"
-            if fmt == "csv":
-                df.to_csv(path, index=False)
-            else:
-                try:
-                    df.to_parquet(path, index=False)
-                except Exception as exc:
-                    log.warning("Parquet export failed for '%s': %s. Falling back to CSV.", run_name, exc)
-                    path = out_dir / f"{safe}.csv"
-                    df.to_csv(path, index=False)
-            written.append(path)
-            if self.verbose:
-                log.debug("Exported: %s", path)
-        log.info("Exported %d runs to %s", len(written), out_dir)
-        return written
 
     # ------------------------------------------------------------------
     # Plot utilities

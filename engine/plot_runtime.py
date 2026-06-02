@@ -321,8 +321,9 @@ def run_workflow(
 def run_from_config(config: PlotJobConfig, cli_args=None):
     """Build a plotter from a PlotJobConfig and run the job.
 
-    cli_args: optional argparse.Namespace with .only / .types / .no_open / .runs
-              / .dry_run / .list_plots / .check_only overrides from parse_plot_cli().
+    cli_args: optional argparse.Namespace with .only / .no_open / .runs
+              / .dry_run / .list_plots / .list_channels / .check_only
+              overrides from parse_plot_cli().
     """
     # --- Configure logging verbosity ---
     configure_logging(verbose=config.verbose)
@@ -768,7 +769,7 @@ def workflow_config(
                         "CORRELATION_CALCULATED", "CORRELATION_FILTERS"),
         "boxplots":    ("BOXPLOT_INPUT_DIR",     "BOXPLOT_OUTPUT_DIR",
                         "BOXPLOT_CALCULATED",    "BOXPLOT_FILTERS"),
-        "dampers":     ("DAMPER_INPUT_DIR",      "DAMPER_PLOTS_DIR",
+        "dampers":     ("DAMPER_INPUT_DIR",      "DAMPER_OUTPUT_DIR",
                         "DAMPER_CALCULATED",     "DAMPER_FILTERS"),
         "ride_dil":    ("RIDE_DIL_INPUT_DIR",    "RIDE_DIL_OUTPUT_DIR",
                         "RIDE_DIL_CALCULATED",   "RIDE_DIL_FILTERS"),

@@ -5,21 +5,7 @@ Copy this file as a starting point for new workflows. Each section below
 demonstrates the available plot types, options, and run configurations.
 Refer to this file for syntax, available parameters, and working examples.
 
-Run types:
-  DLS  — DLS/LTS lap simulation parquet files (use nlap or nrun to select)
-  OC   — Optimal Control parquet exports
-  CAR  — Car telemetry .txt files (tab-separated)
-  DIL  — Driver-in-the-loop simulator exports
-
-Usage:
-  python Run_Template.py                              # generate all plots
-  python Run_Template.py --list-plots                 # list configured plot names
-  python Run_Template.py --list-channels              # list channels in each run
-  python Run_Template.py --only "Driver Input" "GG Plot"  # only these plots
-  python Run_Template.py --runs "LTS Baseline"        # restrict to specific runs
-  python Run_Template.py --check-only                 # data quality report only
-  python Run_Template.py --dry-run                    # preview without loading data
-  python Run_Template.py --no-open                    # don't open output folder
+Run ``python Run_Template.py --help`` for CLI options.
 """
 
 from bootstrap import ensure_dependencies
@@ -32,9 +18,7 @@ from engine import (
     Marker, calc_channel,
 )
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# WORKFLOW NAME & EVENT
-# ═══════════════════════════════════════════════════════════════════════════════
+# ─── WORKFLOW NAME & EVENT ────────────────────────────────────────────────────
 # Change these to create a new workflow. Directories are auto-created:
 #   Data/inputs/<WORKFLOW_NAME>/              — without EVENT
 #   Data/inputs/<WORKFLOW_NAME>/<EVENT>/      — with EVENT (recommended)
@@ -48,9 +32,7 @@ EVENT = "26R04MIA"  # e.g. "26R04MIA", "26R03SUZ", or None for no event separati
 
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# RUNS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ─── RUNS ─────────────────────────────────────────────────────────────────────
 # Each run needs:
 #   name:  display label used in plots and legends
 #   file:  path relative to the workflow input folder (Data/inputs/<workflow>/)
@@ -126,9 +108,7 @@ RUNS = [
     # },
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# POWERPOINT EXPORT (optional)
-# ═══════════════════════════════════════════════════════════════════════════════
+# ─── POWERPOINT EXPORT (optional) ─────────────────────────────────────────────
 EXPORT_TO_POWERPOINT  = False
 POWERPOINT_TEMPLATE   = resolve_template_path("template.pptx")
 POWERPOINT_OUTPUT     = _OUTPUT_DIR / "Report.pptx"
@@ -136,9 +116,7 @@ POWERPOINT_OUTPUT     = _OUTPUT_DIR / "Report.pptx"
 # Leaves cover / intro slides untouched.
 POWERPOINT_START_SLIDE = 4
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# CALCULATED CHANNELS (optional override)
-# ═══════════════════════════════════════════════════════════════════════════════
+# ─── CALCULATED CHANNELS (optional override) ─────────────────────────────────
 # All workflows (including custom ones) automatically receive the full
 # CALCULATED_CHANNELS dict from channel_config.py. Only define overrides here
 # if you need workflow-specific derived channels not in the shared config.
@@ -155,9 +133,7 @@ POWERPOINT_START_SLIDE = 4
 #       lambda df: df["nEngine"] * df["tThrottle"] / 1000.0
 #   ),
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# WAVEFORM PLOTS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ─── WAVEFORM PLOTS ───────────────────────────────────────────────────────────
 # channels:         one entry per subplot row — 'channel' or ('left_ch', 'right_ch')
 # axis_limits:      per-row y-limits — (ymin, ymax) or ((y1_min, y1_max), (y2_min, y2_max))
 # reference_lines:  per-row horizontal lines — scalar, tuple of scalars, or None
@@ -278,9 +254,7 @@ WAVEFORM_PLOT_DEFINITIONS = [
     ),
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SCATTER PLOTS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ─── SCATTER PLOTS ────────────────────────────────────────────────────────────
 # best_fit: None/0 = no fit | 1 = single fit | 2 = quadratic | list = segmented fits by condition
 #   Segment format: ('channel', low, high) or ('x'/'y', low, high) for axis splits
 # gate: filter data before plotting — ('channel', 'operator', value)
@@ -420,9 +394,7 @@ SCATTER_PLOT_DEFINITIONS = [
     ),
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# PSD PLOTS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ─── PSD PLOTS ────────────────────────────────────────────────────────────────
 # channel:        single channel string or list of channels (overlaid)
 # axis_limits:    [(freq_min, freq_max), (psd_min, psd_max)]
 # annotate_at:    tuple of frequencies where PSD values are annotated per run
@@ -480,9 +452,7 @@ PSD_PLOT_DEFINITIONS = [
     ),
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# HISTOGRAM PLOTS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ─── HISTOGRAM PLOTS ──────────────────────────────────────────────────────────
 # channel:      channel to histogram
 # axis_limits:  [(bin_min, bin_max), (count_min, count_max)]
 # log_scale:    True for log-scale y-axis (useful for long-tail distributions)
@@ -515,9 +485,7 @@ HISTOGRAM_PLOT_DEFINITIONS = [
     ),
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# BAR PLOTS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ─── BAR PLOTS ────────────────────────────────────────────────────────────────
 # metrics:              tuple of ("channel",) or (("channel", "aggregation"),)
 # aggregations:         "integral" "abs_integral" "sum" "abs_sum" "mean"
 #                       "median" "max" "min" "first" "last"
@@ -555,9 +523,7 @@ BAR_PLOT_DEFINITIONS = [
     ),
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# BOX PLOTS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ─── BOX PLOTS ────────────────────────────────────────────────────────────────
 # channels:          channel or list of channels to plot
 # aggregation_mode:  "per_run" (one box per run) | "aggregated" (all merged)
 #                    "per_run_aggregated" (per-run boxes + aggregated box at end)
@@ -625,9 +591,7 @@ BOX_PLOT_DEFINITIONS = [
     ),
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# HEATMAP PLOTS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ─── HEATMAP PLOTS ────────────────────────────────────────────────────────────
 # x_channel, y_channel: axes of the 2D grid
 # z_channel:    None → count-based (2D histogram) | channel name → aggregation of z
 # aggregation:  "mean" "median" "std" "count" "sum" "max" "min" (used with z_channel)
@@ -685,9 +649,7 @@ HEATMAP_PLOT_DEFINITIONS = [
     ),
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# POWERPOINT EXPORT MAP (optional)
-# ═══════════════════════════════════════════════════════════════════════════════
+# ─── POWERPOINT EXPORT MAP (optional) ─────────────────────────────────────────
 # Maps slides to generated plot images using Slide() helper.
 # Layouts: "main_plot" (full-width) | "double_plot" (two side-by-side images)
 # Reference format: "type/Plot Name" — auto-converts to filename.
@@ -699,7 +661,7 @@ POWERPOINT_EXPORT_MAP = [
     Slide("double_plot", "psd/Front Vertical Acceleration PSD", "psd/Multi-Channel PSD Demo"),
 ]
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     run_workflow(

@@ -15,68 +15,27 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 
-
 RUNS = [
-#    {"name": "v37", "file": "...", "color": "#0051FF", "nrun": 1, "type": "OC"},
-    # {
-    #     "name": "OC",
-    #     "file": r"nonlinear v7 - MTL PER QR02.parquet",
-    #     "color": "#3CBF00",
-    #     #"nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
-    #     "type": "OC",
-    # },
-    # {
-    #     "name": "DLS",
-    #     "file": r"26R05MTL  11  Quali  Run 2 2  Stint 1 Q1 R2 nC5 NoDeltas_LTS_Iteration_3.parquet",
-    #     "color": "#0069BF",
-    #     "nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
-    #     "type": "DLS",
-    # },
     {
         "name": "CAR",
         "file": r"26R03SUZ_260328_MAC26-02_BOT_Q_R03_2.txt",
         "color": "#BF6300",
-        #"nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
         "type": "CAR",
     },
     {
         "name": "DLS- BSL",
         "file": r"26R03SUZ  77  Quali  Run 3 Q1R3  Stint 1 stint 3_-BASE_DLS_3.parquet",
         "color": "#0076BF",
-        "nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
+        "nlap": 1,
         "type": "DLS",
     },
     {
         "name": "DLS- CORR",
         "file": r"26R03SUZ  77  Quali  Run 3 Q1R3  Stint 1 stint 3_-CORR_DLS_3.parquet",
         "color": "#A900BF",
-        "nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
+        "nlap": 1,
         "type": "DLS",
     },
-
-    # {
-    #     "name": "CAR",
-    #     "file": r"26R05MTL_260523_MAC26-01_PER_Q_R02PARTIAL_1.txt",
-    #     "color": "#BF6300",
-    #     #"nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
-    #     "type": "CAR",
-    # },
-
-    # {
-    #     "name": "DLS- BSL",
-    #     "file": r"26R05MTL  11  Quali  Run 2 2  Stint 1 Q1 R2 nC5_-BSL_DLS.parquet",
-    #     "color": "#0076BF",
-    #     "nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
-    #     "type": "DLS",
-    # },
-
-    # {
-    #     "name": "DLS- Adj",
-    #     "file": r"26R05MTL  11  Quali  Run 2 2  OPEN BSTOP_-CORRv3_DLS.parquet",
-    #     "color": "#9200BF",
-    #     "nlap": 1, # selects the run with the lowest nRun value (best lap) for each plot type
-    #     "type": "DLS",
-    # },
 ]
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
@@ -274,7 +233,7 @@ POWERPOINT_EXPORT_MAP = [
 if __name__ == "__main__":
     run_workflow(
         WORKFLOW_NAME,
-        title="CORRELATION PLOT GENERATION",
+        title=f"{WORKFLOW_NAME.upper()} PLOT GENERATION",
         runs=RUNS,
         root_folder=_INPUT_DIR,
         output_dir=_OUTPUT_DIR,

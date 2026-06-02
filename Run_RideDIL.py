@@ -117,7 +117,7 @@ POWERPOINT_EXPORT_MAP = [
 if __name__ == "__main__":
     run_workflow(
         WORKFLOW_NAME,
-        title="RIDE / DIL PLOT GENERATION",
+        title=f"{WORKFLOW_NAME.upper()} PLOT GENERATION",
         runs=RUNS,
         root_folder=_INPUT_DIR,
         output_dir=_OUTPUT_DIR,

@@ -26,13 +26,13 @@ TEMPLATES_DIR          = _DATA / "templates"
 
 CORRELATION_OUTPUT_DIR = _DATA / "outputs" / "correlation"
 BOXPLOT_OUTPUT_DIR     = _DATA / "outputs" / "boxplots"
-DAMPER_PLOTS_DIR       = _DATA / "outputs" / "dampers"
+DAMPER_OUTPUT_DIR      = _DATA / "outputs" / "dampers"
 RIDE_DIL_OUTPUT_DIR    = _DATA / "outputs" / "ride_dil"
 
 # Create all directories on import so files can be dropped in immediately.
 for _p in (
     CORRELATION_INPUT_DIR, BOXPLOT_INPUT_DIR, DAMPER_INPUT_DIR, RIDE_DIL_INPUT_DIR, TEMPLATES_DIR,
-    CORRELATION_OUTPUT_DIR, BOXPLOT_OUTPUT_DIR, DAMPER_PLOTS_DIR, RIDE_DIL_OUTPUT_DIR,
+    CORRELATION_OUTPUT_DIR, BOXPLOT_OUTPUT_DIR, DAMPER_OUTPUT_DIR, RIDE_DIL_OUTPUT_DIR,
 ):
     _p.mkdir(parents=True, exist_ok=True)
 
@@ -280,11 +280,12 @@ CALCULATED_CHANNELS = {
     "SC_CLT":             lambda df: df["CLiftTotal"] * ((df["vCar"] + df["vWindHead"]) / (df["vCar"])) ** 2,
 }
 
-# Backward-compatible aliases — workflow_config() references these names.
-CORRELATION_CALCULATED = CALCULATED_CHANNELS
-BOXPLOT_CALCULATED     = CALCULATED_CHANNELS
-DAMPER_CALCULATED      = CALCULATED_CHANNELS
-RIDE_DIL_CALCULATED    = CALCULATED_CHANNELS
+# Per-workflow calculated channels. Override individually if a workflow needs
+# extra or fewer channels; by default all share the same definitions.
+CORRELATION_CALCULATED = dict(CALCULATED_CHANNELS)
+BOXPLOT_CALCULATED     = dict(CALCULATED_CHANNELS)
+DAMPER_CALCULATED      = dict(CALCULATED_CHANNELS)
+RIDE_DIL_CALCULATED    = dict(CALCULATED_CHANNELS)
 
 
 # ─── RESAMPLING ───────────────────────────────────────────────────────────────

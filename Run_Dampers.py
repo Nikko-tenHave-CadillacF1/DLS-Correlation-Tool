@@ -3,8 +3,8 @@
 from bootstrap import ensure_dependencies
 ensure_dependencies()
 
-from channel_config import get_workflow_dirs
-from engine import run_workflow, WaveformPlot, ScatterPlot
+from channel_config import get_workflow_dirs, resolve_template_path
+from engine import run_workflow, Slide, WaveformPlot, ScatterPlot
 
 WORKFLOW_NAME = "dampers"
 EVENT = "26R04MIA"
@@ -81,7 +81,7 @@ HEATMAP_PLOT_DEFINITIONS = []
 if __name__ == "__main__":
     run_workflow(
         WORKFLOW_NAME,
-        title="DAMPER PLOT ANALYSIS",
+        title=f"{WORKFLOW_NAME.upper()} PLOT GENERATION",
         runs=RUNS,
         root_folder=_INPUT_DIR,
         output_dir=_OUTPUT_DIR,

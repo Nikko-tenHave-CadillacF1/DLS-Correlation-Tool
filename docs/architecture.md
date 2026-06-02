@@ -97,8 +97,11 @@ workflow:
 - **`UNITS_MAP`** — channel name → unit label shown on axes (case-insensitive).
 - **`CHANNEL_TRANSFORMS`** — sign corrections and unit conversions
   applied per source type (e.g. W → kW).
-- **`CORRELATION_CALCULATED` / `BOXPLOT_CALCULATED` / `DAMPER_CALCULATED` /
-  `RIDE_DIL_CALCULATED`** — derived channels computed after loading.
+- **`CALCULATED_CHANNELS`** — derived channels computed after loading.
+  Per-workflow copies (`CORRELATION_CALCULATED`, `BOXPLOT_CALCULATED`,
+  `DAMPER_CALCULATED`, `RIDE_DIL_CALCULATED`) default to this dict;
+  override individually by modifying the copy in `channel_config.py` or by
+  passing `calculated_channels=` to `run_workflow()`.
 - **`CORRELATION_FILTERS` / `BOXPLOT_FILTERS` / `DAMPER_FILTERS` /
   `RIDE_DIL_FILTERS`** — per-channel Butterworth filter settings.
   Use `cutoff=0` to disable. The `"all"` key sets a fallback.
