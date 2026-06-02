@@ -31,7 +31,8 @@ class BarBoxMixin:
             metric_specs_raw = plot_def.metrics or ()
             default_agg = plot_def.default_aggregation
             axis_limits = plot_def.axis_limits
-            target_line = plot_def.target_line
+            reference_lines = plot_def.reference_lines
+            gate_spec = plot_def.gate
 
             metric_specs = datafunctions.normalize_bar_metric_specs(
                 metric_specs_raw, default_aggregation=default_agg
@@ -63,6 +64,12 @@ class BarBoxMixin:
             for run_index, run in enumerate(loaded_runs):
                 run_name = run["name"].lower()
                 df = self.run_data[run_name]
+                if gate_spec is not None:
+                    df = datafunctions.apply_gate_to_dataframe(df, gate_spec)
+                    if df is None or df.empty:
+                        run_bar_data.append({"run": run, "offsets": x + left_edge + (run_index + 0.5) * bar_width,
+                                             "values": np.full(len(metric_specs), np.nan)})
+                        continue
                 values = []
                 for channel, aggregation in metric_specs:
                     if channel not in df.columns:
@@ -202,26 +209,13 @@ class BarBoxMixin:
 
             self._add_standard_legend(ax, handles=handles, labels=labels, loc="upper right")
 
-            if target_line is not None:
-                tl = float(target_line)
-                # Expand y-limits if the target line falls outside the current range
-                y0, y1 = ax.get_ylim()
-                padding = (y1 - y0) * 0.08
-                new_y0 = min(y0, tl - padding)
-                new_y1 = max(y1, tl + padding)
-                ax.set_ylim(new_y0, new_y1)
+            self._draw_horizontal_reference_lines(ax, reference_lines)
 
-                ax.axhline(
-                    tl,
-                    color="#333333", linestyle="--", linewidth=1.4, alpha=0.8, zorder=5,
-                )
-                ax.text(
-                    0.99, tl,
-                    f" {target_line:g}",
-                    transform=ax.get_yaxis_transform(),
-                    ha="right", va="bottom",
-                    fontsize=9, fontweight="bold", color="#333333",
-                )
+            if gate_spec is not None:
+                gate_text = datafunctions.format_gate_text(gate_spec)
+                if gate_text:
+                    legend_obj = ax.get_legend()
+                    self._display_gate_info(ax, gate_text, legend=legend_obj)
 
             plt.tight_layout(pad=0.25)
             fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")
@@ -240,7 +234,11 @@ class BarBoxMixin:
         aggregation_mode = plot_def.aggregation_mode
         axis_limits = plot_def.axis_limits
         gate_spec = plot_def.gate
-        options = plot_def.options or {}
+        options = dict(plot_def.options or {})
+        # Plumb reference_lines through options so it reaches all three
+        # boxplot sub-generators without expanding their signatures.
+        if plot_def.reference_lines is not None and "_reference_lines" not in options:
+            options["_reference_lines"] = plot_def.reference_lines
         return plot_name, channels, aggregation_mode, axis_limits, gate_spec, options
 
     def _collect_boxplot_point_series_from_data(self, channel, filtered_run_data):
@@ -445,7 +443,10 @@ class BarBoxMixin:
 
         if gate_text:
             self._display_gate_info(axes[0], gate_text)
-
+        ref_lines_spec = options.get("_reference_lines") if isinstance(options, dict) else None
+        if ref_lines_spec:
+            for ax in axes:
+                self._draw_horizontal_reference_lines(ax, ref_lines_spec)
         plot_title = box_settings.get("title")
         if plot_title:
             fig.suptitle(plot_title, fontsize=14, fontweight="bold", y=1.02)
@@ -547,6 +548,11 @@ class BarBoxMixin:
         if gate_text:
             legend_obj = axes[0].get_legend() if show_points and legend_handles else None
             self._display_gate_info(axes[0], gate_text, legend=legend_obj)
+
+        ref_lines_spec = options.get("_reference_lines") if isinstance(options, dict) else None
+        if ref_lines_spec:
+            for ax in axes:
+                self._draw_horizontal_reference_lines(ax, ref_lines_spec)
 
         plot_title = box_settings.get("title")
         if plot_title:
@@ -696,6 +702,11 @@ class BarBoxMixin:
 
         if gate_text:
             self._display_gate_info(axes[0], gate_text)
+
+        ref_lines_spec = options.get("_reference_lines") if isinstance(options, dict) else None
+        if ref_lines_spec:
+            for ax in axes:
+                self._draw_horizontal_reference_lines(ax, ref_lines_spec)
 
         plot_title = box_settings.get("title")
         if plot_title:

@@ -13,7 +13,7 @@ Exports
 -------
 run_workflow      — One-call entry point for Run_*.py scripts.
 run_from_config   — Lower-level: run from a pre-built PlotJobConfig.
-parse_plot_cli    — Parse CLI args (--only, --types, --dry-run, etc.).
+parse_plot_cli    — Parse CLI args (--only, --runs, --list-plots, etc.).
 build_plot_groups — Assemble plot definition lists into the tuple format.
 workflow_config   — Build a PlotJobConfig from a named workflow.
 PlotJobConfig     — Dataclass bundling all job parameters.

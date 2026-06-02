@@ -490,6 +490,7 @@ class ScatterMixin:
             markers = plot_def.markers
             robust = plot_def.robust
             robust_threshold = plot_def.robust_threshold
+            reference_lines = plot_def.reference_lines
 
             if self.verbose:
                 log.debug("Creating scatter plot: %s (%s vs %s)", plot_name, x_var, y_var)
@@ -817,6 +818,8 @@ class ScatterMixin:
             # Only static (x-valued) markers are meaningful on scatter plots
             # — condition markers depend on a time/distance series.
             self._draw_static_markers(ax, markers)
+
+            self._draw_horizontal_reference_lines(ax, reference_lines)
 
             plt.tight_layout(pad=0.25)
             fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")

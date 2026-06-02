@@ -84,8 +84,8 @@ class PlotJobConfig:
         Path to .pptx template file.
     powerpoint_output : Path, optional
         Output path for generated PowerPoint.
-    export_map : list or dict, optional
-        Slide-to-plot mapping (list of Slide() dicts or legacy dict format).
+    export_map : list, optional
+        Slide-to-plot mapping — a list of ``Slide()`` dicts.
     powerpoint_start_slide : int
         1-based slide index where export_map entries begin (default 1).
     open_output : bool
@@ -115,7 +115,7 @@ class PlotJobConfig:
     # PowerPoint
     powerpoint_template: Optional[Path] = None
     powerpoint_output: Optional[Path] = None
-    export_map: Optional[Union[dict, list]] = None
+    export_map: Optional[list] = None
     # Slide number (1-based) where the first list-style export_map entry is placed.
     # Useful when the template has cover/intro slides that should be left untouched.
     powerpoint_start_slide: int = 1
@@ -159,19 +159,15 @@ def _plot_ref_to_filename(ref: str) -> str:
     return f"{pref}/{pref}_{safe}.png"
 
 def _resolve_export_map(export_map, plot_definitions, start_slide=1):
-    """Resolve export_map: if it's a list of Slide dicts, convert to numbered dict.
+    """Number a list of Slide() dicts starting at ``start_slide``.
 
-    Accepts:
-      - dict (legacy format): {slide_num: {"layout": ..., "images": [...]}}
-      - list (new format): [Slide(...), Slide(...), ...] — auto-numbered starting at ``start_slide``
-    Returns a dict in legacy format.
+    ``export_map`` is a list of dicts produced by ``Slide()``; returns
+    ``{slide_number: {"layout": ..., "images": [...]}}``.
     """
     if export_map is None:
         return None
-    if isinstance(export_map, list):
-        offset = max(1, int(start_slide))
-        return {i + offset: slide for i, slide in enumerate(export_map)}
-    return export_map
+    offset = max(1, int(start_slide))
+    return {i + offset: slide for i, slide in enumerate(export_map)}
 
 
 # ================================================================
@@ -371,31 +367,14 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
         _print_dry_run(config, runs, resolved_export_map)
         return
 
-    plot_types = None
     plot_names = None
     open_output = config.open_output
 
     if cli_args is not None:
         if getattr(cli_args, "only", None):
             plot_names = cli_args.only
-        if getattr(cli_args, "types", None):
-            plot_types = cli_args.types
         if getattr(cli_args, "no_open", False):
             open_output = False
-
-    # --- Apply --x-axis override (#8) ---
-    if cli_args is not None and getattr(cli_args, "x_axis", None):
-        new_x = cli_args.x_axis
-        wf_group = (
-            config.plot_definitions[0] if config.plot_definitions and config.plot_definitions[0] else []
-        )
-        overridden = 0
-        for wf in wf_group:
-            if getattr(wf, "kind", None) == "waveform" and wf.x_channel != new_x:
-                wf.x_channel = new_x
-                overridden += 1
-        if overridden:
-            log.info("Overrode x_channel to '%s' on %d waveform plot(s).", new_x, overridden)
 
     # --- Resolve fig_size ---
     fig_size = config.fig_size
@@ -432,6 +411,14 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
         resample_rate=config.resample_rate,
     )
 
+    # --- Handle --list-channels (after load, before plotting) ---
+    if cli_args is not None and getattr(cli_args, "list_channels", False):
+        _print_run_channels(plotter.run_data)
+        return
+
+    # --- Fail-fast on channel typos: referenced but absent from EVERY run ---
+    _enforce_channel_typo_check(config.plot_definitions, plotter.run_data)
+
     # --- Handle --check-only (data quality report only) ---
     if cli_args is not None and getattr(cli_args, "check_only", False):
         from .data_quality_report import (
@@ -447,14 +434,10 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
         print(f"\nFull report: {report_path}")
         return
 
-    # --- Handle --export-data (#7) ---
-    if cli_args is not None and getattr(cli_args, "export_data", None):
-        plotter.export_run_data(cli_args.export_data)
-
     run_plot_job(
         title=config.title,
         plotter=plotter,
-        plot_types=plot_types,
+        plot_types=None,
         plot_names=plot_names,
         powerpoint_template=config.powerpoint_template,
         powerpoint_output=config.powerpoint_output,
@@ -464,78 +447,22 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
 
 
 def parse_plot_cli(description: str = "Run plotting job"):
-    """CLI parser for Run_*.py entry points with filtering and diagnostic modes.
+    """CLI parser for Run_*.py entry points.
 
-    Supports two invocation styles:
+    Minimal, plug-and-play surface. Five flags total:
 
-    1. **Legacy flat flags (default):**
-        ``Run_Correlation.py --only foo --types waveform --check-only``
-
-    2. **Subcommands (#12):**
-        ``Run_Correlation.py run --only foo --types waveform``
-        ``Run_Correlation.py check``        (alias for --check-only)
-        ``Run_Correlation.py list``         (alias for --list-plots)
-        ``Run_Correlation.py dry-run``      (alias for --dry-run)
-        ``Run_Correlation.py export csv``   (alias for --export-data csv)
-
-    Both styles produce the same ``Namespace`` shape so downstream code
-    is unchanged.
+      --only NAME [NAME ...]   Run only plots whose name matches (case-insensitive).
+      --runs RUN [RUN ...]     Process only these runs by name (case-insensitive).
+      --no-open                Don't auto-open the output folder.
+      --list-plots             Print configured plots and exit.
+      --list-channels          Print channels available in each loaded run and exit.
+      --check-only             Run data-quality checks and exit (no plots).
+      --dry-run                Preview plots without loading data.
     """
-    import sys as _sys
-    SUBCOMMANDS = {"run", "check", "list", "dry-run", "export"}
-    argv = _sys.argv[1:]
-    use_subcommands = bool(argv) and argv[0] in SUBCOMMANDS
-
-    if use_subcommands:
-        parser = argparse.ArgumentParser(description=description)
-        sub = parser.add_subparsers(dest="command", required=True)
-
-        def _add_common(p):
-            p.add_argument("--only", nargs="+", metavar="NAME")
-            p.add_argument("--types", nargs="+", metavar="TYPE")
-            p.add_argument("--runs", nargs="+", metavar="RUN")
-            p.add_argument("--no-open", action="store_true", default=False)
-            p.add_argument("--x-axis", dest="x_axis", default=None, metavar="CHANNEL")
-
-        p_run = sub.add_parser("run", help="Generate plots (default).")
-        _add_common(p_run)
-        p_run.add_argument(
-            "--export-data", dest="export_data", default=None,
-            choices=("csv", "parquet"),
-        )
-
-        p_check = sub.add_parser("check", help="Run data-quality checks only.")
-        _add_common(p_check)
-
-        p_list = sub.add_parser("list", help="List configured plots and exit.")
-        _add_common(p_list)
-
-        p_dry = sub.add_parser("dry-run", help="Preview plots without running.")
-        _add_common(p_dry)
-
-        p_exp = sub.add_parser("export", help="Export preprocessed data.")
-        _add_common(p_exp)
-        p_exp.add_argument("format", choices=("csv", "parquet"), nargs="?", default="csv")
-
-        ns = parser.parse_args()
-        # Normalise to legacy fields.
-        ns.dry_run = (ns.command == "dry-run")
-        ns.list_plots = (ns.command == "list")
-        ns.check_only = (ns.command == "check")
-        if ns.command == "export":
-            ns.export_data = ns.format
-        elif ns.command != "run":
-            ns.export_data = getattr(ns, "export_data", None)
-        return ns
-
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--only", nargs="+", metavar="NAME",
         help="Generate only plots whose name matches (case-insensitive).",
-    )
-    parser.add_argument(
-        "--types", nargs="+", metavar="TYPE",
-        help="Generate only these plot types (waveform, scatter, psd, histogram, bar, box, heatmap).",
     )
     parser.add_argument(
         "--runs", nargs="+", metavar="RUN",
@@ -546,27 +473,80 @@ def parse_plot_cli(description: str = "Run plotting job"):
         help="Do not auto-open the output folder after completion.",
     )
     parser.add_argument(
-        "--dry-run", action="store_true", default=False,
-        help="Preview what would be generated without running the pipeline.",
-    )
-    parser.add_argument(
         "--list-plots", action="store_true", default=False,
         help="Print all configured plot names and exit.",
+    )
+    parser.add_argument(
+        "--list-channels", action="store_true", default=False,
+        help="Load each run and print its available channel names, then exit.",
     )
     parser.add_argument(
         "--check-only", action="store_true", default=False,
         help="Load data, run quality checks, and exit without generating plots.",
     )
     parser.add_argument(
-        "--x-axis", dest="x_axis", default=None, metavar="CHANNEL",
-        help="Override the x-axis channel for all waveform plots (e.g. 'tLap').",
-    )
-    parser.add_argument(
-        "--export-data", dest="export_data", default=None,
-        choices=("csv", "parquet"),
-        help="Export each run's preprocessed dataframe to <plots_dir>/exported_data/ in this format.",
+        "--dry-run", action="store_true", default=False,
+        help="Preview what would be generated without running the pipeline.",
     )
     return parser.parse_args()
+
+
+def _print_run_channels(run_data):
+    """Print available channels in each loaded run.
+
+    Channels common to every run are listed first under "Common"; per-run
+    extras follow. Helps newcomers discover what they can plot.
+    """
+    if not run_data:
+        print("\n(No runs loaded.)\n")
+        return
+    per_run = {name: set(df.columns) for name, df in run_data.items()}
+    common = set.intersection(*per_run.values()) if per_run else set()
+    print("\nAvailable channels")
+    print("-" * 50)
+    print(f"\n  COMMON to all {len(per_run)} run(s) — {len(common)} channel(s):")
+    for ch in sorted(common):
+        print(f"    {ch}")
+    for name, cols in per_run.items():
+        extras = sorted(cols - common)
+        if extras:
+            print(f"\n  ONLY in '{name}' — {len(extras)} channel(s):")
+            for ch in extras:
+                print(f"    {ch}")
+    print()
+
+
+def _enforce_channel_typo_check(plot_definitions, run_data):
+    """Fail fast if any referenced channel is absent from every loaded run.
+
+    Channels missing from some-but-not-all runs are tolerated (handled by the
+    data quality report and per-plot skipping). Channels missing from *all*
+    runs are almost always typos, so we raise SystemExit with a suggestion
+    drawn from the actual run columns.
+    """
+    if not run_data:
+        return
+    from .dataplotter import collect_referenced_channels
+    import difflib
+
+    referenced = set(collect_referenced_channels(plot_definitions))
+    union = set()
+    for df in run_data.values():
+        union.update(df.columns)
+    bogus = sorted(ch for ch in referenced if ch not in union)
+    if not bogus:
+        return
+    lower_to_actual = {c.lower(): c for c in union}
+    print("\n[ERROR] Plot definitions reference channels that exist in no loaded run:")
+    for ch in bogus:
+        cands = difflib.get_close_matches(ch, union, n=3, cutoff=0.6)
+        if not cands:
+            cands_lower = difflib.get_close_matches(ch.lower(), lower_to_actual.keys(), n=3, cutoff=0.55)
+            cands = [lower_to_actual[c] for c in cands_lower]
+        hint = f"  did you mean: {', '.join(cands)}?" if cands else ""
+        print(f"  X  '{ch}'{hint}")
+    print("\nRun with --list-channels to see all available channel names.\n")
+    raise SystemExit(1)
 
 
 def _print_plot_list(plot_definitions):
@@ -719,12 +699,6 @@ def _plot_referenced_channels(plot_def) -> list:
         if plot_def.z_channel:
             out.append(plot_def.z_channel)
     return sorted(set(c for c in out if c))
-
-
-def _print_quality_summary(sections):
-    """Backward-compat thin wrapper; canonical impl lives in data_quality_report."""
-    from .data_quality_report import print_quality_summary as _impl
-    _impl(sections)
 
 
 def build_plot_groups(

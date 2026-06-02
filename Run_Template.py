@@ -13,15 +13,13 @@ Run types:
 
 Usage:
   python Run_Template.py                              # generate all plots
-  python Run_Template.py --dry-run                    # preview without generating
   python Run_Template.py --list-plots                 # list configured plot names
-  python Run_Template.py --types scatter waveform     # generate only these types
-  python Run_Template.py --only "Driver Input" "GG Plot"  # by name
+  python Run_Template.py --list-channels              # list channels in each run
+  python Run_Template.py --only "Driver Input" "GG Plot"  # only these plots
   python Run_Template.py --runs "LTS Baseline"        # restrict to specific runs
-  python Run_Template.py --no-open                    # don't open output folder
   python Run_Template.py --check-only                 # data quality report only
-  python Run_Template.py --x-axis tLap                # override waveform x-axis
-  python Run_Template.py --export-data csv            # export preprocessed data (csv|parquet)
+  python Run_Template.py --dry-run                    # preview without loading data
+  python Run_Template.py --no-open                    # don't open output folder
 """
 
 from bootstrap import ensure_dependencies
@@ -60,8 +58,13 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 #   type:  OC | CAR | DLS | DIL — selects channel mappings and transforms
 #
 # Optional keys:
-#   nrun:  (parquet only) rank-based run selection; nrun=1 → lowest nRun value
-#   nlap:  exact lap number filter; ignored when nrun is also set
+#   nrun:       (parquet only) rank-based run selection; nrun=1 → lowest nRun value
+#   nlap:       exact lap number filter; ignored when nrun is also set
+#   reference:  set True on exactly one run to mark it as the workflow-wide
+#               reference. This run is used as the baseline for waveform delta
+#               subplots (``show_delta=True``) and for the ``tDiff`` channel
+#               (lap-time delta vs reference at each sLap). If no run has
+#               ``reference=True``, the first loaded run is used.
 
 RUNS = [
     # ── DLS / LTS example ──────────────────────────────────────────────────────
@@ -71,6 +74,7 @@ RUNS = [
         "color": "#0083BF",
         "nlap": 1,
         "type": "DLS",
+        "reference": True,  # baseline for show_delta and tDiff
     },
 
     # ── OC example ─────────────────────────────────────────────────────────────
@@ -224,12 +228,16 @@ WAVEFORM_PLOT_DEFINITIONS = [
         ],
     ),
 
-    # ── Show delta — difference row between two runs ───────────────────────────
-    # Requires exactly 2 runs. A thin delta (run_B − run_A) row is appended
-    # below each primary row where show_delta is True.
+    # ── Show delta — difference row between runs ──────────────────────────────
+    # Requires 2+ loaded runs. A thin delta row is appended below each primary
+    # row where show_delta is True, showing (run_i − reference) for every
+    # non-reference run in that run's color.
     # show_delta accepts:
     #   True/False        — apply to all rows uniformly
     #   (True, False, ..) — per-row control (must match length of channels)
+    # The reference run is selected workflow-wide via ``"reference": True`` on
+    # a RUN entry above (NOT per-plot). If no run is flagged, the first loaded
+    # run is used.
     WaveformPlot(
         name="Delta Comparison",
         channels=('vCar', 'pBrakeF', 'rThrottle'),
@@ -246,6 +254,18 @@ WAVEFORM_PLOT_DEFINITIONS = [
         axis_limits=(None, None, (0, 105)),
         subplot_heights=(0.6, 0.4, 0.4),
         show_delta=(True, False, True),
+    ),
+
+    # ── Lap-time difference (tDiff) — auto-computed cross-run channel ──────────
+    # tDiff is computed automatically when 2+ runs are loaded: for each run,
+    # tDiff = tLap_this − interp(sLap → tLap of the first loaded run).
+    # The reference run's tDiff is identically zero.
+    WaveformPlot(
+        name="Lap Time Delta",
+        channels=('vCar', 'tDiff'),
+        axis_limits=(None, None),
+        reference_lines=(None, 0),
+        subplot_heights=(0.6, 0.5),
     ),
 
     # ── Legend position — move legend to the right ─────────────────────────────
@@ -502,7 +522,8 @@ HISTOGRAM_PLOT_DEFINITIONS = [
 # aggregations:         "integral" "abs_integral" "sum" "abs_sum" "mean"
 #                       "median" "max" "min" "first" "last"
 # default_aggregation:  fallback when metric tuple omits aggregation (default "last")
-# target_line:          draw a horizontal dashed reference line at this value
+# reference_lines:      list of y-values to draw as horizontal dashed reference lines
+# gate:                 pre-filter applied to every run before aggregation
 # axis_limits:          (y_min, y_max) to override y-axis range
 
 BAR_PLOT_DEFINITIONS = [
@@ -518,11 +539,11 @@ BAR_PLOT_DEFINITIONS = [
         metrics=(("EPlank_F", "max"),),
     ),
 
-    # ── Target line — horizontal reference for pass/fail comparison ────────────
+    # ── Reference lines — horizontal benchmark levels (multiple supported) ─────
     BarPlot(
         name="Plank Energy Target Demo",
         metrics=(("EPlank_F", "max"),),
-        target_line=500.0,
+        reference_lines=[300.0, 500.0],  # warn / fail thresholds
     ),
 
     # ── Custom axis limits and default aggregation ─────────────────────────────

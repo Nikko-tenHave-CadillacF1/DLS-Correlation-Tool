@@ -1,4 +1,4 @@
-"""Correlation workflow — edit RUNS and plot definitions to configure your analysis."""
+"""Ride/DIL workflow — edit RUNS and plot definitions to configure your analysis."""
 
 from bootstrap import ensure_dependencies
 ensure_dependencies()
@@ -117,7 +117,7 @@ POWERPOINT_EXPORT_MAP = [
 if __name__ == "__main__":
     run_workflow(
         WORKFLOW_NAME,
-        title="CORRELATION PLOT GENERATION",
+        title="RIDE / DIL PLOT GENERATION",
         runs=RUNS,
         root_folder=_INPUT_DIR,
         output_dir=_OUTPUT_DIR,

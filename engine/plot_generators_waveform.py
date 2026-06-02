@@ -200,7 +200,11 @@ class WaveformMixin:
 
             # Resolve which runs actually have data loaded — needed for delta gating.
             loaded_run_names = [r["name"].lower() for r in self.runs if r["name"].lower() in self.run_data]
-            delta_active = any(show_delta) and len(loaded_run_names) == 2
+            delta_active = any(show_delta) and len(loaded_run_names) >= 2
+
+            # Reference run for delta computation: configured via RUNS[*]["reference"]=True
+            # or falls back to the first loaded run.
+            ref_run_name = self.reference_run_name() if delta_active else None
 
             if delta_active:
                 # Each prepared row with show_delta=True is followed by a half-height delta row.
@@ -444,30 +448,39 @@ class WaveformMixin:
                     # Last data row: hide its x labels because the delta row owns them.
                     ax.tick_params(labelbottom=False)
 
-                # ── delta subplot: plot (run_B − run_A) for the primary channel ──
-                if ax_delta is not None and len(delta_traces) == 2:
-                    # Preserve run order from self.runs
-                    ordered = [r["name"].lower() for r in self.runs if r["name"].lower() in delta_traces]
-                    rn_a, rn_b = ordered[0], ordered[1]
-                    xa, ya = delta_traces[rn_a]
-                    xb, yb = delta_traces[rn_b]
-                    # Align on rn_a's x by linear interpolation of yb.
+                # ── delta subplot: plot (run_i − reference) for the primary channel ──
+                if ax_delta is not None and ref_run_name in delta_traces and len(delta_traces) >= 2:
+                    xa, ya = delta_traces[ref_run_name]
                     finite_a = np.isfinite(xa) & np.isfinite(ya)
-                    finite_b = np.isfinite(xb) & np.isfinite(yb)
-                    if finite_a.sum() >= 2 and finite_b.sum() >= 2:
+                    if finite_a.sum() >= 2:
                         xa_f, ya_f = xa[finite_a], ya[finite_a]
-                        xb_f, yb_f = xb[finite_b], yb[finite_b]
-                        order_b = np.argsort(xb_f)
-                        yb_on_a = np.interp(xa_f, xb_f[order_b], yb_f[order_b],
-                                            left=np.nan, right=np.nan)
-                        delta = yb_on_a - ya_f
-                        ax_delta.plot(
-                            xa_f, delta,
-                            linewidth=1.2, color="#3C3C3C", alpha=0.95,
-                        )
+                        order_a = np.argsort(xa_f)
+                        xa_s, ya_s = xa_f[order_a], ya_f[order_a]
+
+                        # Plot one delta trace per non-reference run, in its own color.
+                        for run in self.runs:
+                            rn = run["name"].lower()
+                            if rn == ref_run_name or rn not in delta_traces:
+                                continue
+                            xb, yb = delta_traces[rn]
+                            finite_b = np.isfinite(xb) & np.isfinite(yb)
+                            if finite_b.sum() < 2:
+                                continue
+                            xb_f, yb_f = xb[finite_b], yb[finite_b]
+                            order_b = np.argsort(xb_f)
+                            yb_on_a = np.interp(
+                                xa_s, xb_f[order_b], yb_f[order_b],
+                                left=np.nan, right=np.nan,
+                            )
+                            delta = yb_on_a - ya_s
+                            ax_delta.plot(
+                                xa_s, delta,
+                                linewidth=1.2, color=run["color"], alpha=0.95,
+                                label=f"{run['name'].upper()}−{ref_run_name.upper()}",
+                            )
                         ax_delta.axhline(0, color="#9A9A9A", linewidth=0.8, alpha=0.7, zorder=1)
                         ax_delta.set_ylabel(
-                            f"Δ {ch_primary}\n({rn_b.upper()}−{rn_a.upper()})",
+                            f"Δ {ch_primary}\n(vs {ref_run_name.upper()})",
                             fontsize=8.5, fontweight="bold", rotation=0, ha="right", va="center",
                         )
                         ax_delta.yaxis.set_label_coords(-0.035, 0.5)

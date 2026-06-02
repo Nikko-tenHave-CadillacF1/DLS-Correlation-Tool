@@ -43,7 +43,9 @@ RUNS = [
     {"name": "BOT GP", "file": "26R05MTL_260524_MAC26-03_BOT_GP_R02.txt",         "color": "#006666", "type": "CAR"},
 ]
 
-WAVEFORM_DEFINITIONS = [
+# ─── WAVEFORM PLOTS ───────────────────────────────────────────────────────────
+
+WAVEFORM_PLOT_DEFINITIONS = [
     WaveformPlot(
         name="[CHECK] Filtering",
         channels=('hRideF', 'hRideR', 'aSteerF', 'aRoll', 'nYaw'),
@@ -53,6 +55,18 @@ WAVEFORM_DEFINITIONS = [
         # highlight_zones=('SM', '>', 0.5)
     ),
 ]
+
+# ─── SCATTER PLOTS ────────────────────────────────────────────────────────────
+SCATTER_PLOT_DEFINITIONS = []
+
+# ─── PSD PLOTS ────────────────────────────────────────────────────────────────
+PSD_PLOT_DEFINITIONS = []
+
+# ─── HISTOGRAM PLOTS ──────────────────────────────────────────────────────────
+HISTOGRAM_PLOT_DEFINITIONS = []
+
+# ─── BAR PLOTS ────────────────────────────────────────────────────────────────
+BAR_PLOT_DEFINITIONS = []
 
 # ─── BOX PLOTS ────────────────────────────────────────────────────────────────
 # aggregation_mode: "per_run" (one box per run) | "aggregated" (all runs merged)
@@ -82,6 +96,9 @@ BOX_PLOT_DEFINITIONS = [
     BoxPlotGrid(name="Typical Roll Angles",  channels=("aRoll",),  aggregation_mode="aggregated", rows=SPEED_BANDS, cols=CORNER_PHASE, render_mode="grid"),
 ]
 
+# ─── HEATMAP PLOTS ────────────────────────────────────────────────────────────
+HEATMAP_PLOT_DEFINITIONS = []
+
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -91,7 +108,12 @@ if __name__ == "__main__":
         runs=RUNS,
         root_folder=_INPUT_DIR,
         output_dir=_OUTPUT_DIR,
-        waveforms=WAVEFORM_DEFINITIONS,
+        waveforms=WAVEFORM_PLOT_DEFINITIONS,
+        scatters=SCATTER_PLOT_DEFINITIONS,
+        psds=PSD_PLOT_DEFINITIONS,
+        histograms=HISTOGRAM_PLOT_DEFINITIONS,
+        bars=BAR_PLOT_DEFINITIONS,
         boxes=BOX_PLOT_DEFINITIONS,
+        heatmaps=HEATMAP_PLOT_DEFINITIONS,
         box_plot_settings=BOX_PLOT_SETTINGS,
     )

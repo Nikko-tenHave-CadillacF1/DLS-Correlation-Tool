@@ -28,6 +28,7 @@ import matplotlib.pyplot as plt
 from matplotlib import font_manager
 from pathlib import Path
 import importlib.util
+from typing import Optional
 from . import datafunctions
 from collections import Counter, deque
 from matplotlib.patches import Patch
@@ -544,6 +545,38 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 ymin = max(ymin, y_floor)
             ax.set_ylim(bottom=ymin, top=ymax)
         return has_x, has_y
+
+    @staticmethod
+    def _draw_horizontal_reference_lines(ax, refs, *, label=True):
+        """Draw flat-list horizontal reference lines on a 2-D plot.
+
+        Used by scatter, PSD, histogram, bar, box, and any 2-D plot type with
+        a ``reference_lines: list[float]`` field. WaveformPlot has its own
+        per-row schema and does NOT use this helper.
+        """
+        if not refs:
+            return
+        y0, y1 = ax.get_ylim()
+        new_y0, new_y1 = y0, y1
+        for v in refs:
+            if not np.isfinite(v):
+                continue
+            pad = (y1 - y0) * 0.05 if (y1 > y0) else 0.0
+            new_y0 = min(new_y0, v - pad)
+            new_y1 = max(new_y1, v + pad)
+        if (new_y0, new_y1) != (y0, y1):
+            ax.set_ylim(new_y0, new_y1)
+        for v in refs:
+            if not np.isfinite(v):
+                continue
+            ax.axhline(v, color="#4A4A4A", linestyle="--", linewidth=0.8, alpha=0.65, zorder=1)
+            if label:
+                ax.text(
+                    0.995, v, f" {v:g}",
+                    transform=ax.get_yaxis_transform(),
+                    ha="right", va="bottom",
+                    fontsize=8, fontweight="bold", color="#333333",
+                )
 
     @staticmethod
     def _draw_static_markers(axes, markers, *, label_y=1.01, x_clip=True):
@@ -1566,6 +1599,17 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 self.run_data[name], name, self.CALCULATED_CHANNELS,
                 required_channels=required_set,
             )
+
+        # Cross-run derived channels (require >=2 runs; reference = first loaded).
+        # Computed BEFORE filtering so they appear in the channel list normally.
+        self._compute_tdiff_channel()
+
+        for run in self.runs:
+            name = run["name"].lower()
+            if name not in self.run_data:
+                continue
+            required = self.run_required_cols.get(name)
+            required_set = set(required) if required else None
             self.run_data[name] = datafunctions.apply_filters(
                 self.run_data[name], self.FILTERS, self.FILTER_SAMPLE_RATE, name,
                 required_channels=required_set,
@@ -1573,6 +1617,83 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
 
         self._preprocessed = True
         return self.run_data
+
+    # ------------------------------------------------------------------
+    # Cross-run derived channels
+    # ------------------------------------------------------------------
+
+    def reference_run_name(self) -> Optional[str]:
+        """Return the lowercased name of the reference run.
+
+        The reference run is selected by:
+          1. The first loaded run with ``"reference": True`` in its config.
+          2. Otherwise, the first loaded run.
+
+        Returns ``None`` if no runs are loaded.
+        """
+        loaded = [r["name"].lower() for r in self.runs if r["name"].lower() in self.run_data]
+        if not loaded:
+            return None
+        for run in self.runs:
+            if run.get("reference") and run["name"].lower() in self.run_data:
+                return run["name"].lower()
+        return loaded[0]
+
+    def _compute_tdiff_channel(self) -> None:
+        """Compute a ``tDiff`` column for every loaded run.
+
+        ``tDiff`` is the lap-time difference vs the reference run (see
+        :meth:`reference_run_name`) at each ``sLap`` point:
+        ``tDiff = tLap_this − interp(sLap_this, sLap_ref, tLap_ref)``.
+
+        Reference run gets ``tDiff = 0``. Skipped silently if any run lacks
+        ``sLap`` or a usable time channel (``tLap`` / ``tLap_Calc`` / ``Time``).
+        """
+        loaded = [r["name"].lower() for r in self.runs if r["name"].lower() in self.run_data]
+        if len(loaded) < 2:
+            return
+
+        def _time_series(df):
+            for col in ("tLap", "tLap_Calc", "Time", "time"):
+                if col in df.columns:
+                    return df[col].to_numpy(dtype=float)
+            return None
+
+        ref_name = self.reference_run_name()
+        if ref_name is None:
+            return
+        ref_df = self.run_data[ref_name]
+        if "sLap" not in ref_df.columns:
+            log.debug("tDiff: reference run '%s' has no sLap; skipping.", ref_name)
+            return
+        ref_t = _time_series(ref_df)
+        if ref_t is None:
+            log.debug("tDiff: reference run '%s' has no time channel; skipping.", ref_name)
+            return
+
+        ref_s = ref_df["sLap"].to_numpy(dtype=float)
+        finite_ref = np.isfinite(ref_s) & np.isfinite(ref_t)
+        if finite_ref.sum() < 2:
+            return
+        ref_s_f, ref_t_f = ref_s[finite_ref], ref_t[finite_ref]
+        order = np.argsort(ref_s_f)
+        ref_s_sorted, ref_t_sorted = ref_s_f[order], ref_t_f[order]
+
+        for name in loaded:
+            df = self.run_data[name]
+            if name == ref_name:
+                df["tDiff"] = 0.0
+                continue
+            if "sLap" not in df.columns:
+                continue
+            t = _time_series(df)
+            if t is None:
+                continue
+            s = df["sLap"].to_numpy(dtype=float)
+            ref_t_on_s = np.interp(s, ref_s_sorted, ref_t_sorted,
+                                   left=np.nan, right=np.nan)
+            df["tDiff"] = t - ref_t_on_s
+            log.debug("tDiff computed for '%s' (vs '%s').", name, ref_name)
 
     # ------------------------------------------------------------------
     # Shared rendering helpers

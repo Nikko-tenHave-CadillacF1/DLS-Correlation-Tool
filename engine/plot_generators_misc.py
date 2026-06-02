@@ -42,6 +42,7 @@ class PsdHistMixin:
             markers       = plot_def.markers
             gate_spec     = getattr(plot_def, "gate", None)
             show_envelope = bool(getattr(plot_def, "show_envelope", False))
+            reference_lines = getattr(plot_def, "reference_lines", None)
 
             # channel may be a single string or a list/tuple of strings
             channels_list = [channel] if isinstance(channel, str) else list(channel)
@@ -256,6 +257,9 @@ class PsdHistMixin:
 
             self._draw_static_markers(ax, markers)
 
+            # ── Reference lines (horizontal benchmark levels) ─────────────
+            self._draw_horizontal_reference_lines(ax, reference_lines)
+
             # ── Nyquist line(s) — one per unique run sample rate ─────────
             # With resampling enabled all runs share one rate → one grey line.
             # If users disable RESAMPLE_RATE, per-run rates differ and each
@@ -307,6 +311,8 @@ class PsdHistMixin:
             axis_limits = plot_def.axis_limits
             log_scale   = plot_def.log_scale
             markers     = plot_def.markers
+            gate_spec   = plot_def.gate
+            reference_lines = plot_def.reference_lines
 
             if self.verbose:
                 log.debug("Creating histogram plot: %s (%s)", plot_name, channel)
@@ -328,6 +334,10 @@ class PsdHistMixin:
                 df = self.run_data.get(run_name)
                 if df is None or channel not in df.columns:
                     continue
+                if gate_spec is not None:
+                    df = datafunctions.apply_gate_to_dataframe(df, gate_spec)
+                    if df is None or df.empty:
+                        continue
                 vals = df[channel].dropna()
                 if not vals.empty:
                     all_values.append(vals.values)
@@ -358,6 +368,10 @@ class PsdHistMixin:
                 df = self.run_data.get(run_name)
                 if df is None or channel not in df.columns:
                     continue
+                if gate_spec is not None:
+                    df = datafunctions.apply_gate_to_dataframe(df, gate_spec)
+                    if df is None or df.empty:
+                        continue
                 data = df[channel].dropna()
                 if data.empty:
                     continue
@@ -404,6 +418,14 @@ class PsdHistMixin:
                 ax.axhline(0, color="#5E5E5E", linewidth=1, alpha=0.8)
 
             self._add_standard_legend(ax, loc="best")
+
+            self._draw_horizontal_reference_lines(ax, reference_lines)
+
+            if gate_spec is not None:
+                gate_text = datafunctions.format_gate_text(gate_spec)
+                if gate_text:
+                    legend_obj = ax.get_legend()
+                    self._display_gate_info(ax, gate_text, legend=legend_obj)
 
             self._draw_static_markers(ax, markers)
 

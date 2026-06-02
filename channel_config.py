@@ -176,6 +176,7 @@ UNITS_MAP = {
     "PMGUK_Charge (MJ)": "kW",
     "dmInjector": "kg/hr",
     "dmInjector (kg/s)": "",
+    "tDiff": "s",
 }
 
 
@@ -339,6 +340,7 @@ _UNFILTERED_CHANNELS = {
     "FPRodAvgR":     _NO_FILTER,
     "FPRodDeltaF":   _NO_FILTER,
     "FPRodDeltaR":   _NO_FILTER,
+    "tDiff":         _NO_FILTER,
 }
 
 # Default filter set used by all workflows (and custom workflows).

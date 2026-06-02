@@ -61,6 +61,21 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("rLLTD vs. CosPhi", "rLLTD", "CosPhi", best_fit=0),
 ]
 
+# ─── PSD PLOTS ────────────────────────────────────────────────────────────────
+PSD_PLOT_DEFINITIONS = []
+
+# ─── HISTOGRAM PLOTS ──────────────────────────────────────────────────────────
+HISTOGRAM_PLOT_DEFINITIONS = []
+
+# ─── BAR PLOTS ────────────────────────────────────────────────────────────────
+BAR_PLOT_DEFINITIONS = []
+
+# ─── BOX PLOTS ────────────────────────────────────────────────────────────────
+BOX_PLOT_DEFINITIONS = []
+
+# ─── HEATMAP PLOTS ────────────────────────────────────────────────────────────
+HEATMAP_PLOT_DEFINITIONS = []
+
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -72,5 +87,10 @@ if __name__ == "__main__":
         output_dir=_OUTPUT_DIR,
         waveforms=WAVEFORM_PLOT_DEFINITIONS,
         scatters=SCATTER_PLOT_DEFINITIONS,
+        psds=PSD_PLOT_DEFINITIONS,
+        histograms=HISTOGRAM_PLOT_DEFINITIONS,
+        bars=BAR_PLOT_DEFINITIONS,
+        boxes=BOX_PLOT_DEFINITIONS,
+        heatmaps=HEATMAP_PLOT_DEFINITIONS,
         fig_size={"waveform": (9.5, 8), "scatter": (10, 8), "psd": (10, 8), "histogram": (10, 8), "bar": (10, 6)},
     )

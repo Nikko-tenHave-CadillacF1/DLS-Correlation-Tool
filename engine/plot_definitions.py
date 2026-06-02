@@ -3,10 +3,6 @@
 Each plot type is a frozen-ish dataclass with ``__post_init__`` validation
 so configuration errors are surfaced immediately at workflow startup rather
 than deep inside matplotlib. Field semantics are documented inline.
-
-Backward compatibility: the old ``WaveformPlot(...)`` etc. callables are
-preserved by exposing the dataclasses under the same names from
-``plot_runtime``.
 """
 
 from __future__ import annotations
@@ -175,6 +171,30 @@ def _coerce_markers(value: Any, where: str) -> List[Marker]:
     raise TypeError(f"{where}: markers must be None, Marker, dict, or list. Got {value!r}.")
 
 
+def _coerce_flat_reference_lines(value: Any, where: str) -> Optional[List[float]]:
+    """Accept None, a single number, or an iterable of numbers; return a list.
+
+    Used by 2-D plot types (scatter, PSD, histogram, bar, box) whose
+    ``reference_lines`` field is a flat list of y-axis benchmark values
+    drawn as horizontal dashed lines. WaveformPlot uses a different
+    per-row schema and does NOT use this helper.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return [float(value)]
+    if isinstance(value, (list, tuple)):
+        out: List[float] = []
+        for i, item in enumerate(value):
+            if not isinstance(item, (int, float)):
+                raise TypeError(
+                    f"{where}: entry #{i} must be a number; got {item!r}."
+                )
+            out.append(float(item))
+        return out
+    raise TypeError(f"{where} must be None, a number, or a list of numbers. Got {value!r}.")
+
+
 # ---------------------------------------------------------------------------
 # Waveform
 # ---------------------------------------------------------------------------
@@ -186,12 +206,16 @@ class WaveformPlot:
 
     Channel rows may be a single 'ch' or a ('left', 'right') overlay.
 
-    The ``show_delta`` field controls per-row delta subplots (requires exactly
-    2 loaded runs). When active, a half-height row showing (run_B − run_A) is
-    appended below the primary row. Accepts:
+    The ``show_delta`` field controls per-row delta subplots. When 2+ runs
+    are loaded, a half-height row showing each non-reference run minus the
+    reference run is appended below the primary row. Accepts:
       - ``False`` — no delta rows (default)
       - ``True`` — delta row below every channel row
       - tuple/list of bools — per-row control; length must match ``channels``
+
+    The reference run is configured workflow-wide on the run entry itself
+    (``{"name": ..., "reference": True, ...}``). If no run is flagged, the
+    first loaded run is used.
     """
 
     name: str
@@ -270,6 +294,7 @@ class ScatterPlot:
     color_gate: Any = None
     annotate_fit_at: Any = None
     markers: List[Marker] = field(default_factory=list)
+    reference_lines: Optional[List[float]] = None
     # Robust mode (#18): Theil-Sen regression instead of OLS, plus MAD-based
     # outlier rejection on the fit. Outliers are still plotted but as a faint
     # grey 'x' overlay so engineers can see what was excluded.
@@ -309,6 +334,7 @@ class ScatterPlot:
         self.robust_threshold = float(self.robust_threshold)
         if self.robust_threshold <= 0:
             raise ValueError(f"{where}.robust_threshold must be > 0.")
+        self.reference_lines = _coerce_flat_reference_lines(self.reference_lines, f"{where}.reference_lines")
 
 
 # ---------------------------------------------------------------------------
@@ -327,6 +353,7 @@ class PsdPlot:
     markers: List[Marker] = field(default_factory=list)
     gate: Any = None
     show_envelope: bool = False
+    reference_lines: Optional[List[float]] = None
 
     kind: ClassVar[str] = "psd"
 
@@ -349,6 +376,7 @@ class PsdPlot:
         self.log_scale = bool(self.log_scale)
         _validate_gate(self.gate, f"{where}.gate")
         self.show_envelope = bool(self.show_envelope)
+        self.reference_lines = _coerce_flat_reference_lines(self.reference_lines, f"{where}.reference_lines")
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +391,8 @@ class HistogramPlot:
     axis_limits: Optional[List[Tuple[Optional[float], Optional[float]]]] = None
     log_scale: bool = False
     markers: List[Marker] = field(default_factory=list)
+    gate: Any = None
+    reference_lines: Optional[List[float]] = None
 
     kind: ClassVar[str] = "histogram"
 
@@ -372,6 +402,8 @@ class HistogramPlot:
         _require_str(self.channel, f"{where}.channel")
         self.markers = _coerce_markers(self.markers, f"{where}.markers")
         self.log_scale = bool(self.log_scale)
+        _validate_gate(self.gate, f"{where}.gate")
+        self.reference_lines = _coerce_flat_reference_lines(self.reference_lines, f"{where}.reference_lines")
 
 
 # ---------------------------------------------------------------------------
@@ -385,7 +417,8 @@ class BarPlot:
     metrics: Tuple[Any, ...]
     default_aggregation: str = "last"
     axis_limits: Optional[Tuple[Optional[float], Optional[float]]] = None
-    target_line: Optional[float] = None
+    gate: Any = None
+    reference_lines: Optional[List[float]] = None
 
     kind: ClassVar[str] = "bar"
 
@@ -397,8 +430,8 @@ class BarPlot:
             raise ValueError(
                 f"{where}.default_aggregation must be one of {sorted(_VALID_BAR_AGGS)}."
             )
-        if self.target_line is not None:
-            self.target_line = float(self.target_line)
+        _validate_gate(self.gate, f"{where}.gate")
+        self.reference_lines = _coerce_flat_reference_lines(self.reference_lines, f"{where}.reference_lines")
 
 
 # ---------------------------------------------------------------------------
@@ -413,6 +446,7 @@ class BoxPlot:
     aggregation_mode: str = "per_run"
     axis_limits: Optional[Tuple[Optional[float], Optional[float]]] = None
     gate: Any = None
+    reference_lines: Optional[List[float]] = None
     options: Optional[dict] = None
 
     kind: ClassVar[str] = "box"
@@ -435,6 +469,7 @@ class BoxPlot:
             self.channels = list(self.channels)
         else:
             raise TypeError(f"{where}.channels must be a string or list of strings.")
+        self.reference_lines = _coerce_flat_reference_lines(self.reference_lines, f"{where}.reference_lines")
 
 
 # ---------------------------------------------------------------------------
