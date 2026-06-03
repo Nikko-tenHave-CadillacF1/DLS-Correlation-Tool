@@ -67,6 +67,10 @@ CHANNEL_MAPPINGS = {
         "aUndersteer_aSlip": "aUndersteerFromSlip",
         "dtLap_drGripFactorTotal": "Grip Sens.",
         "sRun": "sLap",
+        "aCamberKinematicFL": "aCamberFLKinematic",
+        "aCamberKinematicFR": "aCamberFRKinematic",
+        "aCamberKinematicRL": "aCamberRLKinematic",
+        "aCamberKinematicRR": "aCamberRRKinematic",
     },
     "DIL": {
         "BSLMActiveCan": "SM",

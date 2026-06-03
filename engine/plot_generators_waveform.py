@@ -429,6 +429,16 @@ class WaveformMixin:
                         if yl2 is not None or yh2 is not None:
                             ax_right.set_ylim(bottom=yl2, top=yh2)
 
+                    # When show_delta is active, sync left/right y-scales so
+                    # reference lines at the same value align visually.
+                    if delta_active and show_delta[idx] and row["y1_lim"] is None and row["y2_lim"] is None:
+                        lim_l = ax.get_ylim()
+                        lim_r = ax_right.get_ylim()
+                        unified_lo = min(lim_l[0], lim_r[0])
+                        unified_hi = max(lim_l[1], lim_r[1])
+                        ax.set_ylim(unified_lo, unified_hi)
+                        ax_right.set_ylim(unified_lo, unified_hi)
+
                     if row["y2_refs"] is not None:
                         vals2 = [row["y2_refs"]] if np.isscalar(row["y2_refs"]) else row["y2_refs"]
                         for vv2 in vals2:
@@ -562,7 +572,23 @@ class WaveformMixin:
                         ax_delta_right.grid(False)
                         ax_delta_right.tick_params(axis="y", labelsize=8)
 
-                    ax_delta.axhline(0, color="#9A9A9A", linewidth=0.8, alpha=0.7, zorder=1)
+                    ax_delta.axhline(0, linestyle="--", color="#4A4A4A", linewidth=0.9, alpha=0.75, zorder=2)
+                    # Force symmetric y-limits around zero so the zero line is centred.
+                    # When a right axis exists, unify scales so both zeros align.
+                    ylim = ax_delta.get_ylim()
+                    yabs = max(abs(ylim[0]), abs(ylim[1]))
+                    if ax_delta_right is not None:
+                        ylim_r = ax_delta_right.get_ylim()
+                        yabs_r = max(abs(ylim_r[0]), abs(ylim_r[1]))
+                        yabs = max(yabs, yabs_r)
+                        ax_delta_right.set_ylim(-yabs, yabs)
+                        # No separate zero line needed — same scale means left-axis
+                        # zero line is valid for both.
+                    if yabs > 0:
+                        ax_delta.set_ylim(-yabs, yabs)
+                    ax_delta.yaxis.set_major_locator(
+                        ticker.MaxNLocator(nbins=5, symmetric=True)
+                    )
                     ax_delta.set_ylabel(
                         self._format_waveform_channel_label(
                             f"Δ {ch_primary}", secondary=False,

@@ -18,15 +18,15 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 RUNS = [
     {
         "name": "CAR",
-        "file": r"26R05MTL_260523_MAC26-01_PER_Q_R02PARTIAL_2.txt",
+        "file": r"26R05MTL_260523_MAC26-03_BOT_Q_R01PARTIAL_TPG.txt",
         "color": "#BF6300",
         "type": "CAR",
     },
     {
         "name": "OC",
-        "file": r"nonlinear v6 - good motion ratios - MTL PER QR2.parquet",
+        "file": r"20260602-OC-VPG - 26R05MTL - Post Event Cor - v1 -MTL.parquet",
         "color": "#30BF00",
-        #"nlap": 1,
+        "nrun": 1,
         "type": "OC",
     },
 #     {
@@ -88,12 +88,11 @@ WAVEFORM_PLOT_DEFINITIONS = [
     ),
     WaveformPlot(
         name="TPG",
-        channels=(('vCar', 'NGear'), ('aCamberFL', 'aCamberFR'),  ('aCamberRL', 'aCamberRR')),
+        channels=(('vCar', 'NGear'), ('aCamberFLKinematic', 'aCamberFRKinematic'),  ('aCamberRLKinematic', 'aCamberRRKinematic')),
         axis_limits=(((60, 400), (-1, 9)), None, None),
         reference_lines=(None, (0,0), (0,0)),
         subplot_heights=(0.8, 0.8, 0.8),
         show_delta = (False, True, True),
-        annotate_at = (2400,3500),
     ),
     # WaveformPlot(
     #     name="APG Waveform",
