@@ -613,10 +613,11 @@ class WaveformMixin:
                         ax.set_xlim(left=xmin, right=xmax)
             else:
                 if x_channel == "sLap":
-                    # Round up to nearest 100 m and start from 0
+                    # Use the actual max sLap across all runs (tight fit, no
+                    # excess whitespace beyond the data).
                     xmaxs = [xm for ax in axes for _, xm in [ax.get_xlim()] if xm > 0]
                     if xmaxs:
-                        xv = np.ceil(max(xmaxs) / 100) * 100
+                        xv = max(xmaxs)
                         for ax in axes:
                             ax.set_xlim(0, xv)
 

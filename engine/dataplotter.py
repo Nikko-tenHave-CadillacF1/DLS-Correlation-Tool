@@ -331,6 +331,104 @@ def estimate_slap_alignment(runs, run_data):
     return lines
 
 
+def compute_slap_alignment(runs, run_data, target_length=None):
+    """Compute sLap scale factors for each run that needs rescaling.
+
+    Returns a dict mapping lowercased run name → scale (float) such that
+    ``aligned_sLap = sLap * scale``. No constant offset is applied.
+
+    Parameters
+    ----------
+    runs : list of dict
+        Run definitions.
+    run_data : dict
+        Mapping of lowercased run name → DataFrame.
+    target_length : float, optional
+        Official track length in metres. When provided, ALL runs are scaled
+        so their sLap range equals target_length. When ``None``, the baseline
+        run's sLap range is used as the reference and only non-baseline runs
+        are scaled.
+    """
+    result = {}
+    if not runs:
+        return result
+
+    if target_length is not None and target_length > 0:
+        # --- Absolute track-length mode: scale every run to target_length ---
+        for run in runs:
+            rn = run["name"].lower()
+            if rn not in run_data:
+                continue
+            df = run_data[rn]
+            if "sLap" not in df.columns:
+                continue
+            s = pd.to_numeric(df["sLap"], errors="coerce")
+            s_clean = s.dropna()
+            if s_clean.empty:
+                continue
+            s_range = float(s_clean.max() - s_clean.min())
+            if s_range <= 0:
+                continue
+            scale = target_length / s_range
+            # Skip if already effectively at target length (within 0.1%)
+            if abs(scale - 1.0) < 0.001:
+                continue
+            result[rn] = scale
+        return result
+
+    # --- Baseline-relative mode: scale non-baseline runs to match baseline range ---
+    if len(runs) < 2:
+        return result
+
+    # Determine baseline
+    base_run = None
+    for r in runs:
+        if r.get("baseline") or r.get("reference"):
+            base_run = r
+            break
+    if base_run is None:
+        base_run = runs[0]
+
+    base_name = base_run["name"].lower()
+    if base_name not in run_data:
+        return result
+
+    base_df = run_data[base_name]
+    if "sLap" not in base_df.columns:
+        return result
+    base_s = pd.to_numeric(base_df["sLap"], errors="coerce").dropna()
+    if base_s.empty:
+        return result
+    ref_range = float(base_s.max() - base_s.min())
+    if ref_range <= 0:
+        return result
+
+    for run in runs:
+        rn = run["name"].lower()
+        if rn == base_name:
+            continue
+        if rn not in run_data:
+            continue
+
+        df = run_data[rn]
+        if "sLap" not in df.columns:
+            continue
+        s = pd.to_numeric(df["sLap"], errors="coerce").dropna()
+        if s.empty:
+            continue
+        s_range = float(s.max() - s.min())
+        if s_range <= 0:
+            continue
+
+        scale = ref_range / s_range
+        # Skip if already effectively matched (within 0.1%)
+        if abs(scale - 1.0) < 0.001:
+            continue
+        result[rn] = scale
+
+    return result
+
+
 # (Old top-level wrappers removed; callers should import directly from
 # `engine.data_quality_report`. The wrappers had a broken non-relative import.)
 
@@ -1381,6 +1479,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
     def load_data(self, root_folder: str | Path) -> dict[str, pd.DataFrame]:
         """Load raw run files into memory."""
         root_folder = Path(root_folder)
+        self._root_folder = root_folder
         self._loaded = False
         self._preprocessed = False
         self.run_filepaths = {}
@@ -1526,6 +1625,12 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     self.run_data[name], self.RESAMPLE_RATE, run_name=name,
                 )
 
+        # Align sLap channels: linearly rescale non-baseline runs so their
+        # distance axis matches the baseline, eliminating drift from different
+        # driver lines.  Must happen after resampling (sLap is numeric/clean)
+        # and before calculated channels that may depend on sLap.
+        self._align_slap()
+
         # Detect per-run sample rates (#17). The global self.FILTER_SAMPLE_RATE
         # is preserved for filter design (which expects a single value); per-run
         # rates are stored separately so PSD and the data-quality report can use
@@ -1583,6 +1688,105 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
     # ------------------------------------------------------------------
     # Cross-run derived channels
     # ------------------------------------------------------------------
+
+    def _align_slap(self) -> None:
+        """Linearly rescale sLap for all runs to match the official track length.
+
+        Track detection:
+          1. Extract a 3-letter track code from the input directory name or run
+             filenames (last 3 alpha chars of the event portion, e.g. ``26R05MTL`` → ``MTL``).
+          2. Look up the code in ``channel_config.TRACK_LENGTHS``.
+          3. If found, scale every run's sLap to ``[0, track_length]``.
+          4. If no track is identified, fall back to vCar-correlation alignment
+             against the baseline run (first run or ``"baseline": True``).
+        """
+        if not self.runs:
+            return
+
+        track_length = self._detect_track_length()
+
+        if track_length is not None:
+            log.info(
+                "sLap alignment: using official track length %.1f m", track_length,
+            )
+            alignment = compute_slap_alignment(self.runs, self.run_data, target_length=track_length)
+        else:
+            if len(self.runs) < 2:
+                return
+            log.info("sLap alignment: no track detected, using baseline-relative mode")
+            alignment = compute_slap_alignment(self.runs, self.run_data)
+
+        if not alignment:
+            return
+
+        for rn, scale in alignment.items():
+            df = self.run_data.get(rn)
+            if df is None or "sLap" not in df.columns:
+                continue
+            df["sLap"] = df["sLap"] * scale
+            drift_est = (scale - 1.0) * float(df["sLap"].max() - df["sLap"].min())
+            log.info(
+                "sLap aligned '%s': scale=%.6f (drift correction ~%.1f m)",
+                rn, scale, drift_est,
+            )
+
+    def _detect_track_length(self) -> Optional[float]:
+        """Detect the official track length from the event/directory name or filenames.
+
+        Returns the track length in metres, or None if no track could be identified.
+        """
+        try:
+            from channel_config import TRACK_LENGTHS
+        except ImportError:
+            return None
+
+        # Strategy 1: extract from the root_folder directory name (e.g. "26R05MTL")
+        track_code = self._extract_track_code(getattr(self, "_root_folder", None))
+        if track_code and track_code in TRACK_LENGTHS:
+            return TRACK_LENGTHS[track_code]
+
+        # Strategy 2: extract from the first run's filename
+        for run in self.runs:
+            filename = run.get("file", "")
+            code = self._extract_track_code_from_filename(filename)
+            if code and code in TRACK_LENGTHS:
+                return TRACK_LENGTHS[code]
+
+        return None
+
+    @staticmethod
+    def _extract_track_code(path) -> Optional[str]:
+        """Extract a 3-letter track code from a directory path's last component.
+
+        Expects event format like ``26R05MTL`` or ``26T01BCN`` — returns the
+        last 3 uppercase alpha characters.
+        """
+        if path is None:
+            return None
+        name = Path(path).name  # e.g. "26R05MTL"
+        if len(name) >= 3:
+            # Take last 3 chars and check they're alphabetic
+            code = name[-3:].upper()
+            if code.isalpha():
+                return code
+        return None
+
+    @staticmethod
+    def _extract_track_code_from_filename(filename: str) -> Optional[str]:
+        """Extract a 3-letter track code from a run filename.
+
+        Expects format like ``26R05MTL_260523_...`` — the event code is the
+        first underscore-delimited segment.
+        """
+        if not filename:
+            return None
+        # First segment before underscore is the event code
+        event = filename.split("_")[0] if "_" in filename else filename
+        if len(event) >= 3:
+            code = event[-3:].upper()
+            if code.isalpha():
+                return code
+        return None
 
     def reference_run_name(self) -> Optional[str]:
         """Return the lowercased name of the reference run.

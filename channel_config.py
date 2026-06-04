@@ -250,6 +250,10 @@ CALCULATED_CHANNELS = {
     "xDamperDeltaR":      lambda df: df["xDamperRL"] - df["xDamperRR"],
     "xDamperAvgF":        lambda df: (df["xDamperFL"] + df["xDamperFR"]) / 2,
     "xDamperAvgR":        lambda df: (df["xDamperRL"] + df["xDamperRR"]) / 2,
+    "vDamperDeltaF":      lambda df: np.gradient(df["xDamperFL"] - df["xDamperFR"], 1.0 / RESAMPLE_RATE, edge_order=2),
+    "vDamperDeltaR":      lambda df: np.gradient(df["xDamperRL"] - df["xDamperRR"], 1.0 / RESAMPLE_RATE, edge_order=2),
+    "vDamperAvgF":        lambda df: np.gradient((df["xDamperFL"] + df["xDamperFR"]) / 2, 1.0 / RESAMPLE_RATE, edge_order=2),
+    "vDamperAvgR":        lambda df: np.gradient((df["xDamperRL"] + df["xDamperRR"]) / 2, 1.0 / RESAMPLE_RATE, edge_order=2),
     # ── Lateral / longitudinal acceleration ──────────────────────────────────
     "gLat_Abs":           lambda df: df["gLat"].abs(),
     "gLatAbs":            lambda df: df["gLat"].abs(),
@@ -354,6 +358,10 @@ DEFAULT_FILTERS = {
     **_UNFILTERED_CHANNELS,
     "hRideF (high)": {"cutoff": 0.5, "order": 4, "type": "high"},
     "hRideR (high)": {"cutoff": 0.5, "order": 4, "type": "high"},
+    "vDamperDeltaF": {"cutoff": 0, "order": 2},
+    "vDamperDeltaR": {"cutoff": 0, "order": 2},
+    "vDamperAvgF":   {"cutoff": 0, "order": 2},
+    "vDamperAvgR":   {"cutoff": 0, "order": 2},
     "all":           {"cutoff": 5, "order": 2},
 }
 
@@ -382,4 +390,32 @@ DAMPER_FILTERS = {
 RIDE_DIL_FILTERS = {
     **DEFAULT_FILTERS,
     # No "all" fallback — only filter channels explicitly listed above
+}
+
+
+TRACK_LENGTHS = {
+    "BAH" : 5410.6,
+    "MEL" : 5274.7,
+    "SHA" : 5450.0,
+    "SUZ" : 5806.1,
+    "MIA" : 5409.2,
+    "MTL" : 4364.4,
+    "MCO" : 3335.8,
+    "BCN" : 4657.2,
+    "SPB" : 4309.6,
+    "SIL" : 5888.6,
+    "SPA" : 7000.2,
+    "HUN" : 4377.0,
+    "ZVT" : 4255.6,
+    "MZA" : 5793.6,
+    "MAD" : 5415.4,
+    "BAK" : 5997.5,
+    "SIN" : 4924.8,
+    "COT" : 5510.3,
+    "MEX" : 4301.8,
+    "SAO" : 4299.9,
+    "LAS" : 6200.2,
+    "DOH" : 5417.3,
+    "YAS" : 5281.4,
+    "JED" : 6175.2,
 }
