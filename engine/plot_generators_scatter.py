@@ -669,7 +669,7 @@ class ScatterMixin:
             if xl <= 0 <= xr:
                 ax.axvline(0, color="#5E5E5E", linewidth=1, alpha=0.8)
 
-            self._apply_grid(ax, which="major")
+            self._apply_grid(ax, which="both")
             ax.spines["top"].set_visible(False)
             ax.spines["right"].set_visible(False)
 

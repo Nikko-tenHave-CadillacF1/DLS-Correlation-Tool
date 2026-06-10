@@ -396,7 +396,7 @@ class WaveformMixin:
                         fontsize=9.5, fontweight="bold", rotation=0, ha="right", va="center",
                     )
                 ax.yaxis.set_label_coords(-0.035, 0.5)
-                self._apply_grid(ax, which="major", axis="y")
+                self._apply_grid(ax, which="both", axis="y")
 
                 if not normalise and row["y1_lim"] is not None:
                     yl, yh = row["y1_lim"]
