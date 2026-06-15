@@ -9,6 +9,7 @@ Edit here to configure:
 from pathlib import Path
 import numpy as np
 from scipy.integrate import cumulative_trapezoid
+from engine.datafunctions import calc_channel, calculate_cplv
 
 
 # ─── PATHS ────────────────────────────────────────────────────────────────────
@@ -78,6 +79,10 @@ CHANNEL_MAPPINGS = {
         # "FPushrodFR": "FPRodFR",
         # "FPushrodRL": "FPRodRL",
         # "FPushrodRR": "FPRodRR",
+        "xDamperPotFL": "xDamperFL",
+        "xDamperPotFR": "xDamperFR",
+        "xDamperPotRL": "xDamperRL",
+        "xDamperPotRR": "xDamperRR",
         "FPlankVertF": "FzPlankF",
         "EPlankWearLapF": "EPlankF",
         "PPlankWearF": "PPlankF",
@@ -173,6 +178,8 @@ UNITS_MAP = {
     "nyaw": "deg/s",
     "pbrakef": "bar",
     "rthrottle": "%",
+    "cplv_front": "N",
+    "cplv_rear": "N",
     "EPlank_F": "kJ",
     "PPlank_F": "kW",
     "FzPlankF": "N",
@@ -195,9 +202,34 @@ CHANNEL_TRANSFORMS = {
         # "FPRodRR": lambda x: -x,
         "aRoll":   lambda x: -x,
         "gVert":   lambda x: x - 1,
+        "FPushrodFL": lambda x: abs(x),
+        "FPushrodFR": lambda x: abs(x),
+        "FPushrodRL": lambda x: abs(x),
+        "FPushrodRR": lambda x: abs(x),
     },
     "CAR": {
-        "sLap":  lambda x: x - 15,     # GPS alignment shift
+        #"sLap":  lambda x: x + 10,     # GPS alignment shift
+        "PBrakeFL": lambda x: -x,
+        "PBrakeFR": lambda x: -x,
+        "PBrakeRL": lambda x: -x,
+        "PBrakeRR": lambda x: -x,
+        "FPushrodFL": lambda x: abs(x),
+        "FPushrodFR": lambda x: abs(x),
+        "FPushrodRL": lambda x: abs(x),
+        "FPushrodRR": lambda x: abs(x),
+    },
+    "DIL": {
+        "PBrakeFL": lambda x: -x,
+        "PBrakeFR": lambda x: -x,
+        "PBrakeRL": lambda x: -x,
+        "PBrakeRR": lambda x: -x,
+        "FPushrodFL": lambda x: abs(x),
+        "FPushrodFR": lambda x: abs(x),
+        "FPushrodRL": lambda x: abs(x),
+        "FPushrodRR": lambda x: abs(x),
+    },
+    "OC": {
+        #"nYaw": lambda x: x,  # Convert from rad/s to deg/s
     },
 }
 
@@ -234,6 +266,9 @@ BOX_PLOT_SETTINGS = {
 # that computes a new column from existing ones. Channels whose dependencies
 # are missing in a given run are silently skipped — no need to curate per-workflow.
 
+
+
+
 CALCULATED_CHANNELS = {
     # ── Pushrod loads ────────────────────────────────────────────────────────
     "FPRodDeltaF":        lambda df: df["FPushrodFL"] - df["FPushrodFR"],
@@ -242,9 +277,19 @@ CALCULATED_CHANNELS = {
     "FPRodAvgR":          lambda df: (df["FPushrodRL"] + df["FPushrodRR"]) / 2,
     # ── Ride modes (from corner pushrod forces) ──────────────────────────────
     "FPRodHeave":         lambda df: df["FPushrodFL"] + df["FPushrodFR"] + df["FPushrodRL"] + df["FPushrodRR"],
+    "FPRodHeave_Shape":   lambda df: (1/5)*(df["FPushrodFL"] + df["FPushrodFR"]) + (4/5)*(df["FPushrodRL"] + df["FPushrodRR"]),
     "FPRodPitch":         lambda df: (df["FPushrodFL"] + df["FPushrodFR"]) - (df["FPushrodRL"] + df["FPushrodRR"]),
+    "FPRodPitch_Shape":   lambda df: (5/9)*(df["FPushrodFL"] + df["FPushrodFR"]) - (4/9)*(df["FPushrodRL"] + df["FPushrodRR"]),
     "FPRodRoll":          lambda df: (df["FPushrodFR"] + df["FPushrodRR"]) - (df["FPushrodFL"] + df["FPushrodRL"]),
     "FPRodWarp":          lambda df: (df["FPushrodFL"] + df["FPushrodRR"]) - (df["FPushrodFR"] + df["FPushrodRL"]),
+    "FProdVarFL":         lambda df: abs(df["FPushrodFL"] - df["FPushrodFL"].rolling(window=32, min_periods=1, center=True).mean()),
+    "FProdVarFR":         lambda df: abs(df["FPushrodFR"] - df["FPushrodFR"].rolling(window=32, min_periods=1, center=True).mean()),
+    "FProdVarRL":         lambda df: abs(df["FPushrodRL"] - df["FPushrodRL"].rolling(window=32, min_periods=1, center=True).mean()),
+    "FProdVarRR":         lambda df: abs(df["FPushrodRR"] - df["FPushrodRR"].rolling(window=32, min_periods=1, center=True).mean()),
+    "FProdFL_High":      lambda df: df["FPushrodFL"],
+    "FProdFR_High":      lambda df: df["FPushrodFR"],
+    "FProdRL_High":      lambda df: df["FPushrodRL"],
+    "FProdRR_High":      lambda df: df["FPushrodRR"],
     # ── Damper travel ────────────────────────────────────────────────────────
     "xDamperDeltaF":      lambda df: df["xDamperFL"] - df["xDamperFR"],
     "xDamperDeltaR":      lambda df: df["xDamperRL"] - df["xDamperRR"],
@@ -254,6 +299,14 @@ CALCULATED_CHANNELS = {
     "vDamperDeltaR":      lambda df: np.gradient(df["xDamperRL"] - df["xDamperRR"], 1.0 / RESAMPLE_RATE, edge_order=2),
     "vDamperAvgF":        lambda df: np.gradient((df["xDamperFL"] + df["xDamperFR"]) / 2, 1.0 / RESAMPLE_RATE, edge_order=2),
     "vDamperAvgR":        lambda df: np.gradient((df["xDamperRL"] + df["xDamperRR"]) / 2, 1.0 / RESAMPLE_RATE, edge_order=2),
+    "xDamperVarFL":       lambda df: abs(df["xDamperFL"] - df["xDamperFL"].rolling(window=32, min_periods=1, center=True).mean()),
+    "xDamperVarFR":       lambda df: abs(df["xDamperFR"] - df["xDamperFR"].rolling(window=32, min_periods=1, center=True).mean()),
+    "xDamperVarRL":       lambda df: abs(df["xDamperRL"] - df["xDamperRL"].rolling(window=32, min_periods=1, center=True).mean()),
+    "xDamperVarRR":       lambda df: abs(df["xDamperRR"] - df["xDamperRR"].rolling(window=32, min_periods=1, center=True).mean()),
+    "xDamperFL_High":    lambda df: df["xDamperFL"],
+    "xDamperFR_High":    lambda df: df["xDamperFR"],
+    "xDamperRL_High":    lambda df: df["xDamperRL"],
+    "xDamperRR_High":    lambda df: df["xDamperRR"],
     # ── Lateral / longitudinal acceleration ──────────────────────────────────
     "gLat_Abs":           lambda df: df["gLat"].abs(),
     "gLatAbs":            lambda df: df["gLat"].abs(),
@@ -283,9 +336,27 @@ CALCULATED_CHANNELS = {
     "xHubVertF_Delta":    lambda df: df["xHubVertFL"] - df["xHubVertFR"],
     "FzTyreR_Delta":      lambda df: df["FzTyreRL"] - df["FzTyreRR"],
     "xHubVertR_Delta":    lambda df: df["xHubVertRL"] - df["xHubVertRR"],
+    "CPLV_Front":         calc_channel("FzTyreFL", "FzTyreFR", "FzTyreRL", "FzTyreRR")(
+                              lambda df: calculate_cplv(df, "front", sample_rate=RESAMPLE_RATE)),
+    "CPLV_Rear":          calc_channel("FzTyreFL", "FzTyreFR", "FzTyreRL", "FzTyreRR")(
+                              lambda df: calculate_cplv(df, "rear", sample_rate=RESAMPLE_RATE)),
     # ── Aero ─────────────────────────────────────────────────────────────────
     "vWindHead":          lambda df: df["vAir"] - df["vCar"],
     "SC_CLT":             lambda df: df["CLiftTotal"] * ((df["vCar"] + df["vWindHead"]) / (df["vCar"])) ** 2,
+    # ── Brake Powers ─────────────────────────
+    "PBrakeF_Avg":       lambda df: (df["PBrakeFL"] + df["PBrakeFR"]) / 2,
+    "PBrakeR_Avg":       lambda df: (df["PBrakeRL"] + df["PBrakeRR"]) / 2,
+    "EBrakeFL":        lambda df: cumulative_trapezoid(abs((df["PBrakeFL"] / 1000)), dx=0.01, initial=0),
+    "EBrakeFR":        lambda df: cumulative_trapezoid(abs((df["PBrakeFR"] / 1000)), dx=0.01, initial=0),
+    "EBrakeRL":        lambda df: cumulative_trapezoid(abs((df["PBrakeRL"] / 1000)), dx=0.01, initial=0),
+    "EBrakeRR":        lambda df: cumulative_trapezoid(abs((df["PBrakeRR"] / 1000)), dx=0.01, initial=0),
+    # ─── SM Metrics ─────────────────────────
+    "time_in_SM_100":       lambda df: cumulative_trapezoid((df["SM"] >= 0.999).astype(float), dx=0.01, initial=0),
+    "time_in_SM_90":        lambda df: cumulative_trapezoid((df["SM"] >= 0.9).astype(float), dx=0.01, initial=0),
+    "time_in_SM_80":        lambda df: cumulative_trapezoid((df["SM"] >= 0.8).astype(float), dx=0.01, initial=0),
+    "ratio_time_in_SM_100": lambda df: cumulative_trapezoid((df["SM"] >= 0.999).astype(float), dx=0.01, initial=0) / (cumulative_trapezoid(np.ones_like(df["SM"]), dx=0.01, initial=0) + 1e-6),
+    "ratio_time_in_SM_90":  lambda df: cumulative_trapezoid((df["SM"] >= 0.9).astype(float), dx=0.01, initial=0) / (cumulative_trapezoid(np.ones_like(df["SM"]), dx=0.01, initial=0) + 1e-6),
+    "ratio_time_in_SM_80":  lambda df: cumulative_trapezoid((df["SM"] >= 0.8).astype(float), dx=0.01, initial=0) / (cumulative_trapezoid(np.ones_like(df["SM"]), dx=0.01, initial=0) + 1e-6),
 }
 
 # Per-workflow calculated channels. Override individually if a workflow needs
@@ -341,15 +412,21 @@ _UNFILTERED_CHANNELS = {
     "FPushrodFR":    _NO_FILTER,
     "FPushrodRL":    _NO_FILTER,
     "FPushrodRR":    _NO_FILTER,
-    "FPRodHeave":    _NO_FILTER,
-    "FPRodPitch":    _NO_FILTER,
-    "FPRodRoll":     _NO_FILTER,
-    "FPRodWarp":     _NO_FILTER,
-    "FPRodAvgF":     _NO_FILTER,
-    "FPRodAvgR":     _NO_FILTER,
-    "FPRodDeltaF":   _NO_FILTER,
-    "FPRodDeltaR":   _NO_FILTER,
+    "FPRodHeave":    {"cutoff": 1, "order": 4, "type": "high"},
+    "FPRodPitch":    {"cutoff": 1, "order": 4, "type": "high"},
+    "FPRodRoll":     {"cutoff": 1, "order": 4, "type": "high"},
+    "FPRodWarp":     {"cutoff": 1, "order": 4, "type": "high"},
+    # "FPRodAvgF":     _NO_FILTER,
+    # "FPRodAvgR":     _NO_FILTER,
+    # "FPRodDeltaF":   _NO_FILTER,
+    # "FPRodDeltaR":   _NO_FILTER,
+    "CPLV_Front":    _NO_FILTER,
+    "CPLV_Rear":     _NO_FILTER,
     "tDiff":         _NO_FILTER,
+    "PBrakeFL":     _NO_FILTER,
+    "PBrakeFR":     _NO_FILTER,
+    "PBrakeRL":     _NO_FILTER,
+    "PBrakeRR":     _NO_FILTER,
 }
 
 # Default filter set used by all workflows (and custom workflows).
@@ -388,6 +465,24 @@ DAMPER_FILTERS = {
 }
 
 RIDE_DIL_FILTERS = {
+    "xDamperVarFL": {"cutoff": 2, "order": 2},
+    "xDamperVarFR": {"cutoff": 2, "order": 2},
+    "xDamperVarRL": {"cutoff": 2, "order": 2},
+    "xDamperVarRR": {"cutoff": 2, "order": 2},
+    "FProdVarFL":   {"cutoff": 2, "order": 2},
+    "FProdVarFR":   {"cutoff": 2, "order": 2},
+    "FProdVarRL":   {"cutoff": 2, "order": 2},
+    "FProdVarRR":   {"cutoff": 2, "order": 2},
+    "FProdFL_High":  {"cutoff": 1, "order": 4, "type": "high"},
+    "FProdFR_High":  {"cutoff": 1, "order": 4, "type": "high"},
+    "FProdRL_High":  {"cutoff": 1, "order": 4, "type": "high"},
+    "FProdRR_High":  {"cutoff": 1, "order": 4, "type": "high"},
+    "FPRodHeave_Shape": {"cutoff": 0, "order": 4},
+    "FPRodPitch_Shape": {"cutoff": 0, "order": 4},
+    "xDamperFL_High": {"cutoff": 1, "order": 4, "type": "high"},
+    "xDamperFR_High": {"cutoff": 1, "order": 4, "type": "high"},
+    "xDamperRL_High": {"cutoff": 1, "order": 4, "type": "high"},
+    "xDamperRR_High": {"cutoff": 1, "order": 4, "type": "high"},
     **DEFAULT_FILTERS,
     # No "all" fallback — only filter channels explicitly listed above
 }

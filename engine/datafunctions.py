@@ -1341,6 +1341,109 @@ def add_units_to_label(var_name: str, units_map: dict):
 
 
 # ================================================================
+# CPLV (CUMULATIVE PLATFORM LOAD VARIATION)
+# ================================================================
+
+def _running_std(values):
+    """Expanding (cumulative) standard deviation that handles NaN via np.isfinite."""
+    valid = np.isfinite(values)
+    counts = np.cumsum(valid)
+    clean = np.where(valid, values, 0.0)
+    sums = np.cumsum(clean)
+    sumsq = np.cumsum(clean * clean)
+    out = np.full(len(values), np.nan)
+    ok = counts > 1
+    mean = np.divide(sums, counts, out=np.full_like(sums, np.nan), where=counts > 0)
+    variance = (sumsq - counts * mean * mean) / np.maximum(counts - 1, 1)
+    out[ok] = np.sqrt(np.maximum(variance[ok], 0.0))
+    return out
+
+
+def calculate_cplv(df, axle, sample_rate=100.0, highpass_freq=2.0, highpass_order=4):
+    """Calculate CPLV (Cumulative Platform Load Variation) for an axle.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Must contain FzTyreFL/FR/RL/RR columns and a throttle column.
+    axle : {"front", "rear"}
+        Which axle pair to compute.
+    sample_rate : float
+        Data sample rate in Hz (used for highpass filter design).
+    highpass_freq : float
+        Highpass cutoff frequency in Hz.
+    highpass_order : int
+        Butterworth filter order.
+
+    Raises
+    ------
+    KeyError
+        If required FzTyre columns or throttle column are missing.
+    """
+    fz_cols = ("FzTyreFL", "FzTyreFR", "FzTyreRL", "FzTyreRR")
+    for col in fz_cols:
+        if col not in df.columns:
+            raise KeyError(col)
+
+    # Resolve throttle column (canonical name after mapping, or fallback).
+    throttle_col = next(
+        (c for c in ("rThrottle", "rThrottlePedal") if c in df.columns), None
+    )
+    if throttle_col is None:
+        raise KeyError("rThrottle")
+
+    # Resolve lap/time columns for grouping and sorting.
+    lap_col = next((c for c in ("nLap", "NLap", "_nLap") if c in df.columns), None)
+    time_col = next((c for c in ("tLap", "sLap") if c in df.columns), None)
+
+    result = pd.Series(np.nan, index=df.index, dtype=float)
+    min_samples = 3 * (highpass_order + 1) + 1
+
+    # Design highpass filter; bail if cutoff exceeds Nyquist.
+    fs = float(sample_rate or 100.0)
+    if highpass_freq >= fs / 2:
+        return result
+
+    groups = df.groupby(lap_col, sort=False) if lap_col else [(None, df)]
+
+    for _, group in groups:
+        lap = group.sort_values(time_col) if time_col else group
+        if len(lap) < min_samples:
+            continue
+
+        hp = {}
+        usable = np.ones(len(lap), dtype=bool)
+        for col in fz_cols:
+            values = pd.to_numeric(lap[col], errors="coerce")
+            usable &= values.notna().to_numpy()
+            filled = values.interpolate("linear", limit_direction="both")
+            if filled.notna().sum() < min_samples:
+                break
+            filtered, ok = _apply_butterworth_filter_to_data(
+                filled.to_numpy(dtype=float), highpass_freq, highpass_order, fs, btype="high"
+            )
+            if not ok:
+                break
+            hp[col] = filtered
+        else:
+            throttle = pd.to_numeric(lap[throttle_col], errors="coerce").to_numpy(dtype=float)
+            gls = (throttle < 98.0) & usable
+            if axle == "front":
+                vals = (
+                    _running_std(np.where(gls, hp["FzTyreFL"], np.nan))
+                    + _running_std(np.where(gls, hp["FzTyreFR"], np.nan))
+                )
+            else:
+                vals = (
+                    _running_std(np.where(gls, hp["FzTyreRL"], np.nan))
+                    + _running_std(np.where(gls, hp["FzTyreRR"], np.nan))
+                )
+            result.loc[lap.index] = pd.Series(vals, index=lap.index).ffill()
+
+    return result
+
+
+# ================================================================
 # SCATTER GATING HELPERS
 # ================================================================
 
