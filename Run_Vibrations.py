@@ -64,16 +64,39 @@ TRACK_REAR = 1.8      # Rear track width [m]
 PITCH_INERTIA = None  # Pitch inertia Ip [kg·m²]
 ROLL_INERTIA = None   # Roll inertia Ix [kg·m²]
 
-# Frequency range for fitting [Hz]
+# Frequency range for fitting [Hz] — body modes only (wheel-hop above ~15 Hz
+# isn't captured by the 4-DOF body model, so it must not be in the fit window)
 F_MIN = 2.0
-F_MAX = 30.0
+F_MAX = 15.0
+
+# Expected modal frequencies [Hz] — ranges (lo, hi) per body mode.
+# Used both as a DE seed (midpoint) and as a HARD band constraint: the
+# optimiser is penalised if a model mode escapes its declared range, so
+# user knowledge of where each mode lives bypasses the limits of automatic
+# peak detection. A plain float is also accepted (treated as f ± 15 %).
+# Set EXPECTED_FREQS = None to disable both behaviours.
+EXPECTED_FREQS = {
+    "heave": (4.5, 6.5),
+    "pitch": (8, 10.5),
+    "roll":  (4, 6),
+    "warp":  (9, 12),
+}
 
 # Welch PSD segment length (higher = finer frequency resolution, but noisier for short signals)
 NPERSEG = 512
 
 # Show individual run plots (set False to only show comparison)
-SHOW_INDIVIDUAL_PLOTS = False
+SHOW_INDIVIDUAL_PLOTS = True
+DISPLACEMENT_MODE = False  # Fit to damperpot displacements instead of pushrod forces
 
+# Fit method:
+#   "lorentzian" (default) — per-DOF sum-of-SDOF Lorentzians. Each output
+#       DOF gets its own (f, zeta, A) per declared band, so asymmetric
+#       front/rear damping or split mode frequencies are captured.
+#   "body4dof" — original 13-parameter body MCK fit. Produces a
+#       self-consistent mass/stiffness/damping model and mode shapes,
+#       constrained to one (f, zeta) pair per mode shared across all DOFs.
+METHOD = "lorentzian"
 # ======================================================
 # RUN
 # ======================================================
@@ -86,7 +109,7 @@ if __name__ == "__main__":
         print(f"# RUN: {run['name']}")
         print(f"{'#'*60}")
 
-        params, fn, zeta, mode_shapes = run_fit(
+        fit_result = run_fit(
             filepath=filepath,
             fs=FS,
             track_front=TRACK_FRONT,
@@ -101,17 +124,16 @@ if __name__ == "__main__":
             show_plots=SHOW_INDIVIDUAL_PLOTS,
             output_dir=_OUTPUT_DIR,
             run_name=run["name"],
+            displacement_mode=DISPLACEMENT_MODE,
+            expected_freqs=EXPECTED_FREQS,
+            method=METHOD,
+            event=EVENT,
         )
 
-        results.append({
-            "name": run["name"],
-            "color": run.get("color", None),
-            "params": params,
-            "fn": fn,
-            "zeta": zeta,
-            "mode_shapes": mode_shapes,
-            "filepath": filepath,
-        })
+        fit_result["name"] = run["name"]
+        fit_result["color"] = run.get("color", None)
+        fit_result["filepath"] = filepath
+        results.append(fit_result)
 
     # Comparison overlay plot
     plot_comparison(
