@@ -87,6 +87,7 @@ any flags. The full set:
 | [Run_BoxPlots.py](Run_BoxPlots.py) | Box plots and `BoxPlotGrid` examples |
 | [Run_Dampers.py](Run_Dampers.py) | Damper analysis (waveform + scatter) |
 | [Run_RideDIL.py](Run_RideDIL.py) | Ride / DIL simulator comparison (PSD) |
+| [Run_Vibrations.py](Run_Vibrations.py) | 4-DOF body modal analysis (Heave, Pitch, Roll, Warp) |
 | [channel_config.py](channel_config.py) | Project-wide settings: paths, channel mappings, units, transforms, calc channels, filters |
 
 ### Engine (do not edit)
