@@ -8,26 +8,17 @@ from channel_config import get_workflow_dirs
 from tools.vibrations import run_fit, plot_comparison
 
 WORKFLOW_NAME = "ride_dil"
-EVENT = "26P01BCN"
+EVENT = "26R07BCN"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 RUNS = [
-    {"name": "D1R2", "file": r"26P01BCN_260616_MAC26-03_ZHO_D1_R02PARTIAL.txt", "color": "#FF0000"},
-    {"name": "D1R3", "file": r"26P01BCN_260616_MAC26-03_ZHO_D1_R03PARTIAL.txt", "color": "#1900FF"},
-    {"name": "D1R4", "file": r"26P01BCN_260616_MAC26-03_ZHO_D1_R04PARTIAL.txt", "color": "#00FF00"},
-    {"name": "D1R5", "file": r"26P01BCN_260616_MAC26-03_ZHO_D1_R05PARTIAL.txt", "color": "#FF00FF"},
-    {"name": "D1R7", "file": r"26P01BCN_260616_MAC26-03_ZHO_D1_R07PARTIAL.txt", "color": "#FF8000"},
+    {"name": "MCO", "file": r"26R06MCO_260607_MAC26-01_PER_GP_R02.txt", "color": "#FF0000"},
+    {"name": "MIA", "file": r"26R04MIA_260503_MAC26-01_PER_GP_R02PARTIAL.txt", "color": "#1900FF"},
 ]
 
 # ─── SETTINGS ─────────────────────────────────────────────────────────────────
 FS = 100                  # sampling rate [Hz]
-TOTAL_MASS = None         # car mass [kg]; None = unconstrained
-WHEELBASE = 3.4           # [m]
-TRACK_FRONT = 1.8         # [m]
-TRACK_REAR = 1.8          # [m]
-PITCH_INERTIA = None      # Ip [kg·m²]
-ROLL_INERTIA = None       # Ix [kg·m²]
 
 # Fit window — body modes only; exclude wheel-hop (~15 Hz+).
 F_MIN = 2.0
@@ -42,7 +33,7 @@ EXPECTED_FREQS = {
     "warp":  (8, 12),
 }
 
-NPERSEG = 512             # Welch segment length, or "auto"
+NPERSEG = 1024            # Welch segment length, or "auto"
 SHOW_INDIVIDUAL_PLOTS = True
 DISPLACEMENT_MODE = False # True → fit damperpot displacements instead of forces
 
@@ -58,10 +49,7 @@ if __name__ == "__main__":
         print(f"\n{'#'*60}\n# RUN: {run['name']}\n{'#'*60}")
         fit_result = run_fit(
             filepath=filepath, fs=FS,
-            track_front=TRACK_FRONT, track_rear=TRACK_REAR,
             fmin=F_MIN, fmax=F_MAX, nperseg=NPERSEG,
-            total_mass=TOTAL_MASS, wheelbase=WHEELBASE,
-            pitch_inertia=PITCH_INERTIA, roll_inertia=ROLL_INERTIA,
             show_plots=SHOW_INDIVIDUAL_PLOTS, output_dir=_OUTPUT_DIR,
             run_name=run["name"], displacement_mode=DISPLACEMENT_MODE,
             expected_freqs=EXPECTED_FREQS, method=METHOD, event=EVENT,
@@ -73,7 +61,6 @@ if __name__ == "__main__":
 
     plot_comparison(
         results=results, fs=FS,
-        track_front=TRACK_FRONT, track_rear=TRACK_REAR,
         fmin=F_MIN, fmax=F_MAX, nperseg=NPERSEG,
         event=EVENT, output_dir=_OUTPUT_DIR,
     )

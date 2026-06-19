@@ -17,13 +17,13 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 
 RUNS = [
-    {
-        "name": "D1-R2",
-        "file": r"26P01BCN_260616_MAC26-03_ZHO_D1_R02PARTIAL.txt",
-        "color": "#FF0000",
-        #"nrun": 1, # selects the run with the lowest nRun value (best lap) for each plot type
-        "type": "CAR",
-    },
+    # {
+    #     "name": "D1-R2",
+    #     "file": r"26P01BCN_260616_MAC26-03_ZHO_D1_R02PARTIAL.txt",
+    #     "color": "#FF0000",
+    #     #"nrun": 1, # selects the run with the lowest nRun value (best lap) for each plot type
+    #     "type": "CAR",
+    # },
     {
         "name": "D1-R3",
         "file": r"26P01BCN_260616_MAC26-03_ZHO_D1_R03PARTIAL.txt",
@@ -45,20 +45,20 @@ RUNS = [
         #"nrun": 1, # selects the run with the lowest nRun value (best lap) for each plot type
         "type": "CAR",
     },
-    {
-        "name": "D1-R7",
-        "file": r"26P01BCN_260616_MAC26-03_ZHO_D1_R07PARTIAL.txt",
-        "color": "#FF00FF",
-        #"nrun": 1, # selects the run with the lowest nRun value (best lap) for each plot type
-        "type": "CAR",
-    },
-    {
-        "name": "BOT R",
-        "file": r"26R07BCN_260614_MAC26-03_BOT_GP_R02.txt",
-        "color": "#D80000",
-        #"nrun": 1, # selects the run with the lowest nRun value (best lap) for each plot type
-        "type": "CAR",
-    },
+    # {
+    #     "name": "D1-R7",
+    #     "file": r"26P01BCN_260616_MAC26-03_ZHO_D1_R07PARTIAL.txt",
+    #     "color": "#FF00FF",
+    #     #"nrun": 1, # selects the run with the lowest nRun value (best lap) for each plot type
+    #     "type": "CAR",
+    # },
+    # {
+    #     "name": "BOT R",
+    #     "file": r"26R07BCN_260614_MAC26-03_BOT_GP_R02.txt",
+    #     "color": "#D80000",
+    #     #"nrun": 1, # selects the run with the lowest nRun value (best lap) for each plot type
+    #     "type": "CAR",
+    # },
     # {
     #     "name": "DLS - BSL",
     #     "file": r"Barcelona_260612_GMDiL-08_PAG_R19PARTIAL_1.txt",
@@ -145,15 +145,15 @@ PSD_PLOT_DEFINITIONS = [
     # sections) failed the segment-length requirement and were skipped.
     # Ride modes of interest (1-20 Hz) are still well resolved.
     # ── Ride modes from pushrod forces ────────────────────────────────────────
-    PsdPlot("Heave Mode PSD - ungated",  "FPRodHeave", nperseg=512, axis_limits=[(0, 30), (1e4, None)], annotate_at=(5.5), gate=None),
-    PsdPlot("Pitch Mode PSD - ungated",  "FPRodPitch", nperseg=512, axis_limits=[(0, 30), (1e4, None)], annotate_at=(9), gate=None),
-    PsdPlot("Roll Mode PSD - ungated",   "FPRodRoll",  nperseg=512, axis_limits=[(0, 30), (1e4, None)], annotate_at=(5.5,10.5), gate=None),
-    PsdPlot("Warp Mode PSD - ungated",   "FPRodWarp",  nperseg=512, axis_limits=[(0, 30), (1e4, None)], annotate_at=(25), gate=None),
+    PsdPlot("Heave Mode PSD - ungated",  "FPRodHeave", nperseg=512, axis_limits=[(0, 30), (1e4, None)], annotate_at=(5.5),       lorentz_fit=5.5,         gate=None),
+    PsdPlot("Pitch Mode PSD - ungated",  "FPRodPitch", nperseg=512, axis_limits=[(0, 30), (1e4, None)], annotate_at=(9),         lorentz_fit=9.0,         gate=None),
+    PsdPlot("Roll Mode PSD - ungated",   "FPRodRoll",  nperseg=512, axis_limits=[(0, 30), (1e4, None)], annotate_at=(5.5,10.5),  lorentz_fit=[5.5, 10.5], gate=None),
+    PsdPlot("Warp Mode PSD - ungated",   "FPRodWarp",  nperseg=512, axis_limits=[(0, 30), (1e4, None)], annotate_at=(25),        lorentz_fit=25.0,        gate=None),
 
-    PsdPlot("Heave Mode PSD - abs",  "FPRodHeave", nperseg=512, axis_limits=[(0, 30), (1e4, None)], annotate_at=(5.5), gate=None, log_scale=False),
-    PsdPlot("Pitch Mode PSD - abs",  "FPRodPitch", nperseg=512, axis_limits=[(0, 30), (1e4, None)], annotate_at=(9), gate=None, log_scale=False),
-    PsdPlot("Roll Mode PSD - abs",   "FPRodRoll",  nperseg=512, axis_limits=[(0, 30), (1e4, None)], annotate_at=(5.5,10.5), gate=None, log_scale=False),
-    PsdPlot("Warp Mode PSD - abs",   "FPRodWarp",  nperseg=512, axis_limits=[(0, 30), (1e4, None)], annotate_at=(25), gate=None, log_scale=False),
+    PsdPlot("Heave Mode PSD - abs",  "FPRodHeave", nperseg=512, axis_limits=[(0, 30), (1e4, None)], annotate_at=(5.5),       lorentz_fit=5.5,         gate=None, log_scale=False),
+    PsdPlot("Pitch Mode PSD - abs",  "FPRodPitch", nperseg=512, axis_limits=[(0, 30), (1e4, None)], annotate_at=(9),         lorentz_fit=9.0,         gate=None, log_scale=False),
+    PsdPlot("Roll Mode PSD - abs",   "FPRodRoll",  nperseg=512, axis_limits=[(0, 30), (1e4, None)], annotate_at=(5.5,10.5),  lorentz_fit=[5.5, 10.5], gate=None, log_scale=False),
+    PsdPlot("Warp Mode PSD - abs",   "FPRodWarp",  nperseg=512, axis_limits=[(0, 30), (1e4, None)], annotate_at=(25),        lorentz_fit=25.0,        gate=None, log_scale=False),
 
     PsdPlot("FPushrod FL PSD - ungated",  "FPushrodFL", nperseg=512, axis_limits=[(0, 20), (1e4, None)], annotate_at=(4, 9), gate=None, log_scale=False),
     PsdPlot("FPushrod FR PSD - ungated",  "FPushrodFR", nperseg=512, axis_limits=[(0, 20), (1e4, None)], annotate_at=(6), gate=None, log_scale=False),
@@ -161,10 +161,10 @@ PSD_PLOT_DEFINITIONS = [
     PsdPlot("FPushrod RR PSD - ungated",   "FPushrodRR",  nperseg=512, axis_limits=[(0, 20), (1e4, None)], annotate_at=(5, 9), gate=None, log_scale=False),
 
     # ── Vertical chassis accelerations (ungated -> use larger nperseg for resolution) ──
-    PsdPlot("Front Vertical Acceleration PSD", "gVertF", nperseg=512, axis_limits=[(0, 30), (None, None)], annotate_at=(9, 16)),
-    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR", nperseg=512, axis_limits=[(0, 30), (None, None)], annotate_at=(5.5, 9)),
-    PsdPlot("Front Vertical Acceleration PSD - ABS", "gVertF", nperseg=512, axis_limits=[(0, 30), (None, None)], annotate_at=(9, 16), log_scale=False),
-    PsdPlot("Rear Vertical Acceleration PSD - ABS",  "gVertR", nperseg=512, axis_limits=[(0, 30), (None, None)], annotate_at=(5.5, 9), log_scale=False),
+    PsdPlot("Front Vertical Acceleration PSD", "gVertF", nperseg=512, axis_limits=[(0, 30), (None, None)], annotate_at=(9, 16),   lorentz_fit=[9.0, 16.0]),
+    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR", nperseg=512, axis_limits=[(0, 30), (None, None)], annotate_at=(5.5, 9), lorentz_fit=[5.5, 9.0]),
+    PsdPlot("Front Vertical Acceleration PSD - ABS", "gVertF", nperseg=512, axis_limits=[(0, 30), (None, None)], annotate_at=(9, 16),   lorentz_fit=[9.0, 16.0], log_scale=False),
+    PsdPlot("Rear Vertical Acceleration PSD - ABS",  "gVertR", nperseg=512, axis_limits=[(0, 30), (None, None)], annotate_at=(5.5, 9), lorentz_fit=[5.5, 9.0],  log_scale=False),
 
 
     PsdPlot("hRideF PSD", "hRideF (raw)", nperseg=512, axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5.5, 9, 15)),

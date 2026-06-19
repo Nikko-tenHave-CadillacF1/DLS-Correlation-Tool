@@ -9,6 +9,99 @@ from .datafunctions import _tqdm
 from .logger import log
 
 
+def _lorentz_peak_model(f, f0, zeta, amp, baseline):
+    """SDOF resonance shape with additive baseline; peaks ~amp+baseline at f=f0."""
+    denom = (f0 ** 2 - f ** 2) ** 2 + (2.0 * zeta * f0 * f) ** 2
+    return amp * f0 ** 4 / np.maximum(denom, 1e-30) + baseline
+
+
+_ZETA_LO_PSD, _ZETA_HI_PSD = 1e-3, 0.7
+# Saturation margin: flag a fit whose param sits within this fraction of
+# the bound width away from a hard edge.
+_SATURATION_MARGIN = 0.05
+
+
+def _fit_lorentz_peak(freq, power, f0_user, half_width_hz=None, min_points=8):
+    """Fit a single-DOF Lorentzian + baseline near ``f0_user``.
+
+    Fits ``(f0, zeta, amp, baseline)`` on a window of ±``half_width_hz``
+    around ``f0_user`` (defaults to ±max(25 % · f₀, 1 Hz)). ``f0`` is bounded
+    to ±0.5·hw so the search range scales with the fit window the user
+    picked; the lower edge is clipped at 0.5 Hz to avoid DC leakage on
+    sub-2 Hz peaks. Residuals are minimised in the **log domain** so the
+    wings (which carry the damping information) are weighted equally with
+    the peak. ``σ_ζ`` is derived from the Jacobian-based covariance, log-
+    domain ``R²`` is computed on the fit window, and ``saturated`` flags
+    fits whose ``f₀`` or ``ζ`` sit within 5 % of a hard bound.
+
+    Returns ``(f0, zeta, amp, baseline, lo, hi, sigma_zeta, r_squared,
+    saturated)`` or ``None`` on insufficient data / fit failure.
+    """
+    from scipy.optimize import least_squares
+
+    hw = float(half_width_hz) if half_width_hz is not None else max(f0_user * 0.25, 1.0)
+    lo, hi = max(0.5, f0_user - hw), f0_user + hw
+    mask = (freq >= lo) & (freq <= hi)
+    if int(mask.sum()) < min_points:
+        return None
+    f_fit = np.asarray(freq[mask], dtype=float)
+    p_fit = np.asarray(power[mask], dtype=float)
+    if not np.all(np.isfinite(p_fit)) or float(np.max(p_fit)) <= 0.0:
+        return None
+    p_peak = float(np.max(p_fit))
+    p_base = float(np.percentile(p_fit, 10))
+
+    f0_lo = max(0.5, f0_user - 0.5 * hw)
+    f0_hi = f0_user + 0.5 * hw
+    amp_hi = max(p_peak * 1e3, 1.0)
+    base_hi = max(p_peak, 1e-9)
+    p0 = [f0_user, 0.05, max(p_peak - p_base, 1e-12), p_base]
+    lo_bounds = [f0_lo, _ZETA_LO_PSD, 0.0, 0.0]
+    hi_bounds = [f0_hi, _ZETA_HI_PSD, amp_hi, base_hi]
+    log_p = np.log(np.maximum(p_fit, 1e-30))
+
+    def residual(params):
+        model = _lorentz_peak_model(f_fit, *params)
+        return np.log(np.maximum(model, 1e-30)) - log_p
+
+    try:
+        res = least_squares(residual, p0, bounds=(lo_bounds, hi_bounds), max_nfev=2000)
+    except Exception:
+        return None
+    f0_fit, zeta_fit, amp_fit, base_fit = (float(v) for v in res.x)
+
+    log_p_pred = np.log(np.maximum(
+        _lorentz_peak_model(f_fit, f0_fit, zeta_fit, amp_fit, base_fit), 1e-30))
+    ss_res = float(np.sum((log_p - log_p_pred) ** 2))
+    ss_tot = float(np.sum((log_p - np.mean(log_p)) ** 2))
+    r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
+
+    n_obs = len(p_fit)
+    dof = max(n_obs - 4, 1)
+    mse = 2.0 * float(res.cost) / dof
+    sigma_zeta = float("nan")
+    try:
+        cov = np.linalg.inv(res.jac.T @ res.jac) * mse
+        var_zeta = float(cov[1, 1])
+        if var_zeta >= 0.0 and np.isfinite(var_zeta):
+            sigma_zeta = float(np.sqrt(var_zeta))
+    except np.linalg.LinAlgError:
+        pass
+
+    saturated = False
+    for val, b_lo, b_hi in (
+        (f0_fit, f0_lo, f0_hi),
+        (zeta_fit, _ZETA_LO_PSD, _ZETA_HI_PSD),
+    ):
+        span = b_hi - b_lo
+        if span > 0 and (val - b_lo < _SATURATION_MARGIN * span
+                         or b_hi - val < _SATURATION_MARGIN * span):
+            saturated = True
+            break
+
+    return f0_fit, zeta_fit, amp_fit, base_fit, lo, hi, sigma_zeta, r_squared, saturated
+
+
 class PsdHistMixin:
     """PSD and Histogram plot generation methods. Mixed into DataPlotter."""
 
@@ -29,6 +122,7 @@ class PsdHistMixin:
         plots = self._get_plot_group(2)
         if not plots:
             return
+        self._lorentz_fit_records = []
 
         plot_iter = plots if self.verbose else _tqdm(plots, desc="PSD", unit="plot", leave=True)
         for plot_def in plot_iter:
@@ -43,6 +137,26 @@ class PsdHistMixin:
             gate_spec     = getattr(plot_def, "gate", None)
             show_envelope = bool(getattr(plot_def, "show_envelope", False))
             reference_lines = getattr(plot_def, "reference_lines", None)
+            lorentz_fit_freqs = getattr(plot_def, "lorentz_fit", None) or []
+
+            # Clip each requested half-window at the midpoint to its nearest
+            # neighbour so closely-spaced fits don't share wing data. User-
+            # supplied hw is honoured but never allowed to exceed the
+            # midpoint distance to an adjacent f₀.
+            clipped_hw = [None] * len(lorentz_fit_freqs)
+            if lorentz_fit_freqs:
+                ranked = sorted(range(len(lorentz_fit_freqs)),
+                                key=lambda i: lorentz_fit_freqs[i][0])
+                for rank, idx in enumerate(ranked):
+                    f0_u, hw_u = lorentz_fit_freqs[idx]
+                    hw_eff = float(hw_u) if hw_u is not None else max(f0_u * 0.25, 1.0)
+                    if rank > 0:
+                        f0_prev = lorentz_fit_freqs[ranked[rank - 1]][0]
+                        hw_eff = min(hw_eff, 0.5 * (f0_u - f0_prev))
+                    if rank < len(ranked) - 1:
+                        f0_next = lorentz_fit_freqs[ranked[rank + 1]][0]
+                        hw_eff = min(hw_eff, 0.5 * (f0_next - f0_u))
+                    clipped_hw[idx] = max(hw_eff, 0.1)
 
             # channel may be a single string or a list/tuple of strings
             channels_list = [channel] if isinstance(channel, str) else list(channel)
@@ -72,6 +186,7 @@ class PsdHistMixin:
             plotted_any = False
             multi = len(channels_list) > 1
             psd_curves = []  # (line_color, freq_array, power_array) — for annotate_at
+            lorentz_results = []  # (f0_user, peak_y, color, zeta_fit, f0_fit, sigma_zeta)
             nyquist_lines = {}  # {fs/2: color}  — populated as groups are plotted
 
             for group_name, group_runs in run_groups.items():
@@ -166,6 +281,36 @@ class PsdHistMixin:
                     psd_curves.append((group_color, freq, power_mean))
                     plotted_any = True
 
+                    # ── Optional Lorentzian peak fits ────────────────────
+                    # The fitted curve is overlaid here; annotations are
+                    # deferred to after the loop so labels at the same f₀
+                    # can be staggered vertically (mirrors annotate_at).
+                    for fit_idx, (f0_user, _hw_raw) in enumerate(lorentz_fit_freqs):
+                        fit_res = _fit_lorentz_peak(
+                            freq, power_mean, f0_user,
+                            half_width_hz=clipped_hw[fit_idx])
+                        if fit_res is None:
+                            self._record_lorentz_fit(
+                                plot_name, group_name, ch, f0_user,
+                                None, None, None, None, None, failed=True)
+                            continue
+                        (f0_fit, zeta_fit, amp_fit, base_fit, f_lo, f_hi,
+                         sigma_zeta, r_squared, saturated) = fit_res
+                        f_dense = np.linspace(f_lo, f_hi, 200)
+                        y_dense = _lorentz_peak_model(
+                            f_dense, f0_fit, zeta_fit, amp_fit, base_fit)
+                        plot_func(
+                            f_dense, y_dense, linewidth=1.6, color=group_color,
+                            linestyle=":", alpha=0.95, label=None, zorder=5,
+                        )
+                        peak_y = float(np.max(y_dense))
+                        lorentz_results.append(
+                            (f0_user, peak_y, group_color, zeta_fit,
+                             f0_fit, sigma_zeta))
+                        self._record_lorentz_fit(
+                            plot_name, group_name, ch, f0_user,
+                            f0_fit, zeta_fit, sigma_zeta, r_squared, saturated)
+
             if not plotted_any:
                 log.warning(
                     "PSD '%s': no valid data for '%s'. Plot not saved.",
@@ -203,6 +348,14 @@ class PsdHistMixin:
                     self._display_gate_info(ax, gate_text, legend=legend_obj)
 
             # ── annotate_at: mark PSD values at specific frequencies ──────
+            # When the same frequency also has a Lorentz fit for the same
+            # run colour, the ζ value is appended as a second line in the
+            # amplitude annotation bbox (avoids duplicate stacked labels).
+            lorentz_by_key = {}
+            for (lf0u, _ly, lcol, lzf, _lff, lsz) in lorentz_results:
+                lorentz_by_key[(round(float(lf0u), 4), lcol)] = (lzf, lsz)
+            consumed_lorentz_keys = set()
+
             if annotate_at is not None and psd_curves:
                 if isinstance(annotate_at, (list, tuple)):
                     freq_targets = [float(v) for v in annotate_at]
@@ -231,7 +384,12 @@ class PsdHistMixin:
                         ann_items.sort(key=lambda t: t[0])
                         trans = ax.transData
                         display_ys = [trans.transform((f_at, item[0]))[1] for item in ann_items]
-                        min_sep = 16
+                        # Two-line bboxes need more vertical room than one-line
+                        # — bump the minimum spacing when ζ is appended.
+                        has_two_line = any(
+                            (round(f_at, 4), c) in lorentz_by_key for _, c in ann_items
+                        )
+                        min_sep = 30 if has_two_line else 16
                         adjusted_display_ys = list(display_ys)
                         for i in range(1, len(adjusted_display_ys)):
                             gap = adjusted_display_ys[i] - adjusted_display_ys[i - 1]
@@ -243,8 +401,19 @@ class PsdHistMixin:
                             y_offset = 8 + nudge_pts
                             ax.scatter([f_at], [p_at], color=color_e, s=50, zorder=10,
                                        edgecolors="white", linewidths=1.2)
+                            key = (round(f_at, 4), color_e)
+                            extra_zeta = lorentz_by_key.get(key)
+                            if extra_zeta is not None:
+                                zf, sz = extra_zeta
+                                if sz is not None and np.isfinite(sz):
+                                    label = f"{p_at:.3g}\n$\\zeta$={zf:.3f}\u00b1{sz:.3f}"
+                                else:
+                                    label = f"{p_at:.3g}\n$\\zeta$={zf:.3f}"
+                                consumed_lorentz_keys.add(key)
+                            else:
+                                label = f"{p_at:.3g}"
                             ax.annotate(
-                                f"{p_at:.3g}",
+                                label,
                                 xy=(f_at, p_at), xytext=(10, y_offset),
                                 textcoords="offset points",
                                 fontsize=9, fontweight="bold", color=color_e,
@@ -254,6 +423,47 @@ class PsdHistMixin:
                                 bbox=dict(boxstyle="round,pad=0.22", facecolor="white",
                                           alpha=0.92, edgecolor=color_e, linewidth=0.8),
                             )
+
+            # ── Lorentz ζ annotations (only for fits NOT merged into an
+            # ``annotate_at`` label above). Placed centred above each peak.
+            remaining_lorentz = [
+                t for t in lorentz_results
+                if (round(float(t[0]), 4), t[2]) not in consumed_lorentz_keys
+            ]
+            if remaining_lorentz:
+                by_f0 = {}
+                for f0u, py, col, zf, _ff, sz in remaining_lorentz:
+                    by_f0.setdefault(f0u, []).append((py, col, zf, sz))
+
+                trans = ax.transData
+                for f0u, items in by_f0.items():
+                    items.sort(key=lambda t: t[0])
+                    display_ys = [trans.transform((f0u, it[0]))[1] for it in items]
+                    min_sep = 16  # single-line labels stack tightly
+                    adjusted = list(display_ys)
+                    for i in range(1, len(adjusted)):
+                        gap = adjusted[i] - adjusted[i - 1]
+                        if gap < min_sep:
+                            adjusted[i] = adjusted[i - 1] + min_sep
+
+                    for i, (py, col, zf, sz) in enumerate(items):
+                        nudge_pts = adjusted[i] - display_ys[i]
+                        y_offset = 18 + nudge_pts
+                        label = (f"$\\zeta$={zf:.3f}\u00b1{sz:.3f}"
+                                 if (sz is not None and np.isfinite(sz))
+                                 else f"$\\zeta$={zf:.3f}")
+                        ax.annotate(
+                            label,
+                            xy=(f0u, py), xytext=(0, y_offset),
+                            textcoords="offset points",
+                            ha="center",
+                            fontsize=9, fontweight="bold", color=col,
+                            zorder=11,
+                            arrowprops=dict(arrowstyle="-", color=col,
+                                            lw=0.8, alpha=0.6),
+                            bbox=dict(boxstyle="round,pad=0.22", facecolor="white",
+                                      alpha=0.92, edgecolor=col, linewidth=0.8),
+                        )
 
             self._draw_static_markers(ax, markers)
 
@@ -291,6 +501,54 @@ class PsdHistMixin:
             plt.close(fig)
             if self.verbose:
                 log.debug("Saved: %s", filename)
+
+        self._log_lorentz_fit_summary()
+
+    # ------------------------------------------------------------------
+    # Lorentz fit bookkeeping
+    # ------------------------------------------------------------------
+
+    def _record_lorentz_fit(self, plot, group, channel, f0_user,
+                            f0_fit, zeta, sigma_zeta, r_squared, saturated,
+                            failed=False):
+        """Append one Lorentz fit outcome to the per-workflow summary table."""
+        records = getattr(self, "_lorentz_fit_records", None)
+        if records is None:
+            records = []
+            self._lorentz_fit_records = records
+        records.append({
+            "plot": plot, "group": group, "channel": channel,
+            "f0_user": f0_user, "f0_fit": f0_fit, "zeta": zeta,
+            "sigma_zeta": sigma_zeta, "r_squared": r_squared,
+            "saturated": saturated, "failed": failed,
+        })
+
+    def _log_lorentz_fit_summary(self):
+        """Log a single table summarising every Lorentz fit run by this workflow."""
+        records = getattr(self, "_lorentz_fit_records", None)
+        if not records:
+            return
+        header = ("%-32s %-10s %-14s %7s %7s %7s %7s %5s %s"
+                  % ("Plot", "Run", "Channel",
+                     "f0_in", "f0_fit", "zeta", "sig_z", "R^2", "Notes"))
+        log.info("Lorentz fit summary (%d entries):", len(records))
+        log.info(header)
+        log.info("-" * len(header))
+        for r in records:
+            if r["failed"]:
+                log.info("%-32s %-10s %-14s %7.2f %7s %7s %7s %5s %s",
+                         r["plot"][:32], r["group"][:10], r["channel"][:14],
+                         r["f0_user"], "-", "-", "-", "-", "failed")
+                continue
+            sig = r["sigma_zeta"]
+            sig_str = (f"{sig:7.4f}" if (sig is not None and np.isfinite(sig))
+                       else "   nan ")
+            r2 = r["r_squared"]
+            r2_str = f"{r2:5.2f}" if (r2 is not None and np.isfinite(r2)) else "  nan"
+            notes = "saturated" if r["saturated"] else ""
+            log.info("%-32s %-10s %-14s %7.2f %7.3f %7.4f %s %s %s",
+                     r["plot"][:32], r["group"][:10], r["channel"][:14],
+                     r["f0_user"], r["f0_fit"], r["zeta"], sig_str, r2_str, notes)
 
     # ------------------------------------------------------------------
     # Histogram

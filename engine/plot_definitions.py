@@ -195,6 +195,47 @@ def _coerce_flat_reference_lines(value: Any, where: str) -> Optional[List[float]
     raise TypeError(f"{where} must be None, a number, or a list of numbers. Got {value!r}.")
 
 
+def _coerce_lorentz_fit(value: Any, where: str) -> Optional[List[Tuple[float, Optional[float]]]]:
+    """Accept None, a number, ``(f0, half_width_hz)`` tuple, or a list of
+    either. Returns a list of ``(f0, half_width_hz_or_None)`` tuples where
+    ``half_width_hz`` is ``None`` when auto-adaptive windowing should be used.
+    """
+    def _coerce_pair(item: Any, idx_label: str) -> Tuple[float, Optional[float]]:
+        if isinstance(item, (int, float)):
+            f0 = float(item)
+            if f0 <= 0:
+                raise ValueError(f"{where}: {idx_label} must be > 0 (Hz).")
+            return (f0, None)
+        if isinstance(item, (list, tuple)) and len(item) == 2 \
+                and all(isinstance(v, (int, float)) for v in item):
+            f0 = float(item[0])
+            hw = float(item[1])
+            if f0 <= 0 or hw <= 0:
+                raise ValueError(
+                    f"{where}: {idx_label} (f0, half_width_hz) values must be > 0."
+                )
+            return (f0, hw)
+        raise TypeError(
+            f"{where}: {idx_label} must be a frequency or "
+            f"(f0, half_width_hz) tuple; got {item!r}."
+        )
+
+    if value is None:
+        return None
+    # Single (f0, hw) tuple at the top level
+    if isinstance(value, tuple) and len(value) == 2 \
+            and all(isinstance(v, (int, float)) for v in value):
+        return [_coerce_pair(value, "value")]
+    if isinstance(value, (int, float)):
+        return [_coerce_pair(value, "value")]
+    if isinstance(value, (list, tuple)):
+        return [_coerce_pair(item, f"entry #{i}") for i, item in enumerate(value)]
+    raise TypeError(
+        f"{where} must be None, a frequency, an (f0, half_width_hz) tuple, "
+        f"or a list of either. Got {value!r}."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Waveform
 # ---------------------------------------------------------------------------
@@ -365,6 +406,7 @@ class PsdPlot:
     gate: Any = None
     show_envelope: bool = False
     reference_lines: Optional[List[float]] = None
+    lorentz_fit: Any = None
 
     kind: ClassVar[str] = "psd"
 
@@ -388,6 +430,7 @@ class PsdPlot:
         _validate_gate(self.gate, f"{where}.gate")
         self.show_envelope = bool(self.show_envelope)
         self.reference_lines = _coerce_flat_reference_lines(self.reference_lines, f"{where}.reference_lines")
+        self.lorentz_fit = _coerce_lorentz_fit(self.lorentz_fit, f"{where}.lorentz_fit")
 
 
 # ---------------------------------------------------------------------------

@@ -415,6 +415,12 @@ SCATTER_PLOT_DEFINITIONS = [
 # gate:           segment-aware Welch — filter data before PSD computation
 # show_envelope:  True to show ±1σ shading when multiple runs are present
 # markers:        list of Marker() — static vertical reference lines
+# lorentz_fit:    one frequency (Hz) or list of frequencies — fits a single-DOF
+#                 Lorentzian + baseline near each f₀ (±25% window, floored at
+#                 1 Hz; f₀ bounded to ±5% of the user value) and annotates the
+#                 estimated damping ratio ζ on the plot. For manual window
+#                 control pass (f0, half_width_hz) tuples, e.g.
+#                 lorentz_fit=[(5.5, 1.0), (10.5, 2.0)].
 
 PSD_PLOT_DEFINITIONS = [
     # ── Single channel PSD ─────────────────────────────────────────────────────
@@ -461,6 +467,20 @@ PSD_PLOT_DEFINITIONS = [
             Marker(x=5, label="5 Hz"),
             Marker(x=15, label="15 Hz", color="#FF6600"),
         ],
+    ),
+
+    # ── Lorentzian damping estimator ───────────────────────────────────────────
+    # Provide one f₀ (Hz) or a list of f₀s. Each curve gets a single-DOF
+    # Lorentzian + baseline fit on a ±25% window (floored at 1 Hz). The
+    # fitted f₀ is held within ±5% of the user value to prevent it sliding
+    # onto neighbouring peaks. The estimated damping ratio ζ is annotated
+    # in the curve's colour. Pass (f0, half_width_hz) tuples to override.
+    PsdPlot(
+        name="Lorentz Fit Demo",
+        channel="gVertF",
+        axis_limits=[(0, 30), (1e-4, None)],
+        lorentz_fit=[5.5, 15.0],            # default window
+        # lorentz_fit=[(5.5, 1.0), (15.0, 2.0)],  # manual window override
     ),
 ]
 

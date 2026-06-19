@@ -146,6 +146,13 @@ PsdPlot(
     show_envelope=False,    # ±1σ shading when multiple runs are present
     annotate_at=(5, 15),    # annotate PSD values at these frequencies
     reference_lines=[1e-3], # horizontal y-value reference lines
+    lorentz_fit=[5.0, 15.0],
+    # Fit a single-DOF Lorentzian + baseline near each f₀ and overlay it as a
+    # dotted line in the curve's colour, annotated with the estimated damping
+    # ratio ζ. Default window is ±25% of f₀ (floored at 1 Hz); f₀ is bounded
+    # to within ±5% of the user value so the fit cannot slide onto a
+    # neighbouring peak. Pass (f0, half_width_hz) tuples to override the
+    # window, e.g. lorentz_fit=[(5.0, 1.0), (15.0, 2.0)].
     markers=[Marker(x=10, label="10 Hz")],
 )
 ```
