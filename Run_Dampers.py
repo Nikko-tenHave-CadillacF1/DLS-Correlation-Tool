@@ -3,8 +3,8 @@
 from bootstrap import ensure_dependencies
 ensure_dependencies()
 
-from channel_config import get_workflow_dirs, resolve_template_path
-from engine import run_workflow, Slide, WaveformPlot, ScatterPlot
+from channel_config import get_workflow_dirs
+from engine import run_workflow, WaveformPlot, ScatterPlot
 
 WORKFLOW_NAME = "dampers"
 EVENT = "26R04MIA"
@@ -26,22 +26,18 @@ WAVEFORM_PLOT_DEFINITIONS = [
         channels=('rLLTD', 'aRoll', 'gLat_Abs'),
         axis_limits=((0, 100), (-1, 1), None),
         reference_lines=(None, None, 0),
-        subplot_heights=(1, 1, 1),
         x_limits=(3920, 3980),
     ),
     WaveformPlot(
         name="rLLTD",
         channels=('rLLTD',),
         axis_limits=((35, 70),),
-        reference_lines=(None,),
-        subplot_heights=(1,),
         x_limits=(3400, 3440),
     ),
     WaveformPlot(
         name="Driver Input",
         channels=('PMGUK', ('vCar', 'NGear'), 'aSteerWheel'),
         axis_limits=(None, ((60, 400), (-1, 9)), (-160, 160)),
-        reference_lines=(None, None, None),
         subplot_heights=(0.4, 0.8, 0.4),
         x_limits=(1200, 1800),
     ),
@@ -50,7 +46,6 @@ WAVEFORM_PLOT_DEFINITIONS = [
         channels=('gVert', 'gVertF', 'gVertR'),
         axis_limits=((-2, 4), (-2, 4), (-2, 4)),
         reference_lines=(1, 1, 1),
-        subplot_heights=(1, 1, 1),
         x_limits=(680, 820),
     ),
 ]
@@ -58,23 +53,8 @@ WAVEFORM_PLOT_DEFINITIONS = [
 # ─── SCATTER PLOTS ────────────────────────────────────────────────────────────
 
 SCATTER_PLOT_DEFINITIONS = [
-    ScatterPlot("rLLTD vs. CosPhi", "rLLTD", "CosPhi", best_fit=0),
+    ScatterPlot("rLLTD vs. CosPhi", "rLLTD", "CosPhi"),
 ]
-
-# ─── PSD PLOTS ────────────────────────────────────────────────────────────────
-PSD_PLOT_DEFINITIONS = []
-
-# ─── HISTOGRAM PLOTS ──────────────────────────────────────────────────────────
-HISTOGRAM_PLOT_DEFINITIONS = []
-
-# ─── BAR PLOTS ────────────────────────────────────────────────────────────────
-BAR_PLOT_DEFINITIONS = []
-
-# ─── BOX PLOTS ────────────────────────────────────────────────────────────────
-BOX_PLOT_DEFINITIONS = []
-
-# ─── HEATMAP PLOTS ────────────────────────────────────────────────────────────
-HEATMAP_PLOT_DEFINITIONS = []
 
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -87,10 +67,5 @@ if __name__ == "__main__":
         output_dir=_OUTPUT_DIR,
         waveforms=WAVEFORM_PLOT_DEFINITIONS,
         scatters=SCATTER_PLOT_DEFINITIONS,
-        psds=PSD_PLOT_DEFINITIONS,
-        histograms=HISTOGRAM_PLOT_DEFINITIONS,
-        bars=BAR_PLOT_DEFINITIONS,
-        boxes=BOX_PLOT_DEFINITIONS,
-        heatmaps=HEATMAP_PLOT_DEFINITIONS,
-        fig_size={"waveform": (9.5, 8), "scatter": (10, 8), "psd": (10, 8), "histogram": (10, 8), "bar": (10, 6)},
+        fig_size={"waveform": (9.5, 8)},
     )

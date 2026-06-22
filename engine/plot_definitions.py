@@ -1,16 +1,8 @@
-"""Typed plot definitions.
-
-Each plot type is a frozen-ish dataclass with ``__post_init__`` validation
-so configuration errors are surfaced immediately at workflow startup rather
-than deep inside matplotlib. Field semantics are documented inline.
-"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, List, Optional, Sequence, Tuple, Union
-
-# --- Allowed value sets -------------------------------------------------------
 
 _VALID_BAR_AGGS = {
     "integral", "abs_integral", "sum", "abs_sum",
@@ -21,38 +13,28 @@ _VALID_GATE_OPS = {">", "<", ">=", "<=", "==", "!=", "between", "outside", "robu
 _VALID_LEGEND_POS = {"top", "right"}
 _VALID_HEATMAP_AGGS = {"mean", "median", "std", "count", "sum", "max", "min"}
 
-
-# --- Validation helpers -------------------------------------------------------
-
-
 def _require_str(value: Any, where: str, allow_blank: bool = False) -> None:
     if not isinstance(value, str) or (not allow_blank and not value.strip()):
         raise TypeError(f"{where}: expected non-empty string, got {value!r}.")
-
 
 def _require_nonempty(value: Any, where: str) -> None:
     if not value:
         raise ValueError(f"{where}: must not be empty (got {value!r}).")
 
-
 def _validate_gate(value: Any, where: str) -> None:
-    """Accept None, a single 3-tuple gate, or a list/tuple of 3-tuple gates."""
     if value is None:
         return
     if not isinstance(value, (list, tuple)):
         raise TypeError(f"{where}: gate must be a tuple or list of tuples.")
-    # Single condition
     if len(value) == 3 and isinstance(value[0], str):
         _validate_one_gate(value, where)
         return
-    # List of conditions
     for i, cond in enumerate(value):
         if not isinstance(cond, (list, tuple)) or len(cond) != 3 or not isinstance(cond[0], str):
             raise TypeError(
                 f"{where}: condition #{i} must be (channel, operator, value); got {cond!r}."
             )
         _validate_one_gate(cond, f"{where} cond#{i}")
-
 
 def _validate_one_gate(cond: Sequence[Any], where: str) -> None:
     _, op, _ = cond
@@ -62,46 +44,8 @@ def _validate_one_gate(cond: Sequence[Any], where: str) -> None:
             f"Expected one of {sorted(_VALID_GATE_OPS)}."
         )
 
-
-# ---------------------------------------------------------------------------
-# Markers (generalised annotation primitive — used across plot types)
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class Marker:
-    """A vertical reference line on a plot.
-
-    Two modes:
-      * **Static** — supply ``x`` directly. Drawn once at that x-value, on every
-        plot type that supports markers (waveform / scatter / psd / histogram /
-        heatmap). Uses ``color`` if given, otherwise neutral grey.
-      * **Condition-triggered** — supply ``condition`` (same format as
-        ``ScatterPlot.gate``: ``('channel', 'op', value)`` or a list of those
-        AND-ed together). Resolved **per run** by the waveform generator: the
-        rising/falling edges of the boolean condition are detected and one
-        marker is emitted at the x-channel value of each transition. Drawn in
-        the run's colour unless ``color`` is set explicitly. Other plot types
-        ignore condition markers (their x-axis is not a time/distance series).
-
-    Fields:
-      x:           x-value for static markers. Mutually exclusive with ``condition``.
-      condition:   gate spec (tuple or list of tuples) for condition markers.
-      edge:        which transition triggers a marker: 'rising' (False\u2192True),
-                   'falling' (True\u2192False), or 'both'. Default 'rising'.
-      max_count:   cap the number of markers emitted per run (most recent N
-                   transitions are kept). None = unlimited.
-      label:       optional text label drawn at the top.
-      show_label:  if False, suppress drawing the label text (the line is
-                   still drawn). Useful to reduce clutter when the condition
-                   being annotated is obvious from context. Default True.
-      color:       hex colour. ``None`` \u2192 grey for static markers, run colour
-                   for condition markers.
-      linestyle:   matplotlib linestyle (default dotted ':' so it visually
-                   distinguishes from reference lines).
-      row:         waveform-only \u2014 row index to limit the marker to;
-                   ``None`` draws on every row.
-    """
 
     x: Optional[float] = None
     label: Optional[str] = None
@@ -112,7 +56,6 @@ class Marker:
     condition: Any = None
     edge: str = "rising"
     max_count: Optional[int] = None
-
     def __post_init__(self) -> None:
         has_x = self.x is not None
         has_cond = self.condition is not None
@@ -145,9 +88,7 @@ class Marker:
         if self.label is not None and not isinstance(self.label, str):
             raise TypeError(f"Marker.label must be str or None, got {self.label!r}.")
 
-
 def _coerce_markers(value: Any, where: str) -> List[Marker]:
-    """Accept None, a single Marker, a dict, a tuple/list of any of those."""
     if value is None:
         return []
     if isinstance(value, Marker):
@@ -170,15 +111,7 @@ def _coerce_markers(value: Any, where: str) -> List[Marker]:
         return out
     raise TypeError(f"{where}: markers must be None, Marker, dict, or list. Got {value!r}.")
 
-
 def _coerce_flat_reference_lines(value: Any, where: str) -> Optional[List[float]]:
-    """Accept None, a single number, or an iterable of numbers; return a list.
-
-    Used by 2-D plot types (scatter, PSD, histogram, bar, box) whose
-    ``reference_lines`` field is a flat list of y-axis benchmark values
-    drawn as horizontal dashed lines. WaveformPlot uses a different
-    per-row schema and does NOT use this helper.
-    """
     if value is None:
         return None
     if isinstance(value, (int, float)):
@@ -194,12 +127,7 @@ def _coerce_flat_reference_lines(value: Any, where: str) -> Optional[List[float]
         return out
     raise TypeError(f"{where} must be None, a number, or a list of numbers. Got {value!r}.")
 
-
 def _coerce_lorentz_fit(value: Any, where: str) -> Optional[List[Tuple[float, Optional[float]]]]:
-    """Accept None, a number, ``(f0, half_width_hz)`` tuple, or a list of
-    either. Returns a list of ``(f0, half_width_hz_or_None)`` tuples where
-    ``half_width_hz`` is ``None`` when auto-adaptive windowing should be used.
-    """
     def _coerce_pair(item: Any, idx_label: str) -> Tuple[float, Optional[float]]:
         if isinstance(item, (int, float)):
             f0 = float(item)
@@ -219,10 +147,8 @@ def _coerce_lorentz_fit(value: Any, where: str) -> Optional[List[Tuple[float, Op
             f"{where}: {idx_label} must be a frequency or "
             f"(f0, half_width_hz) tuple; got {item!r}."
         )
-
     if value is None:
         return None
-    # Single (f0, hw) tuple at the top level
     if isinstance(value, tuple) and len(value) == 2 \
             and all(isinstance(v, (int, float)) for v in value):
         return [_coerce_pair(value, "value")]
@@ -235,29 +161,8 @@ def _coerce_lorentz_fit(value: Any, where: str) -> Optional[List[Tuple[float, Op
         f"or a list of either. Got {value!r}."
     )
 
-
-# ---------------------------------------------------------------------------
-# Waveform
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class WaveformPlot:
-    """Stacked time/distance traces, one subplot row per channel.
-
-    Channel rows may be a single 'ch' or a ('left', 'right') overlay.
-
-    The ``show_delta`` field controls per-row delta subplots. When 2+ runs
-    are loaded, a half-height row showing each non-reference run minus the
-    reference run is appended below the primary row. Accepts:
-      - ``False`` — no delta rows (default)
-      - ``True`` — delta row below every channel row
-      - tuple/list of bools — per-row control; length must match ``channels``
-
-    The reference run is configured workflow-wide on the run entry itself
-    (``{"name": ..., "reference": True, ...}``). If no run is flagged, the
-    first loaded run is used.
-    """
 
     name: str
     channels: Tuple[Any, ...]
@@ -272,9 +177,7 @@ class WaveformPlot:
     show_delta: Union[bool, Tuple[bool, ...], List[bool]] = False
     markers: List[Marker] = field(default_factory=list)
     annotate_at: Optional[Union[Tuple[float, ...], List[float], float]] = None
-
     kind: ClassVar[str] = "waveform"
-
     def __post_init__(self) -> None:
         where = f"WaveformPlot {self.name!r}"
         _require_str(self.name, "WaveformPlot.name")
@@ -285,7 +188,6 @@ class WaveformPlot:
             raise ValueError(
                 f"{where}.legend_position must be one of {sorted(_VALID_LEGEND_POS)}."
             )
-        # Per-row length consistency — catches the classic mismatch foot-gun.
         n = len(self.channels)
         for attr in ("axis_limits", "reference_lines", "subplot_heights"):
             value = getattr(self, attr)
@@ -296,7 +198,6 @@ class WaveformPlot:
         if not isinstance(self.x_channel, str) or not self.x_channel.strip():
             raise TypeError(f"{where}.x_channel must be a non-empty string.")
         self.markers = _coerce_markers(self.markers, f"{where}.markers")
-        # Normalise show_delta: bool → per-row tuple of bools.
         if isinstance(self.show_delta, bool):
             self.show_delta = tuple(self.show_delta for _ in range(n))
         elif isinstance(self.show_delta, (list, tuple)):
@@ -310,7 +211,6 @@ class WaveformPlot:
                 f"{where}.show_delta must be bool or a tuple/list of bools per row."
             )
         self.normalise = bool(self.normalise)
-        # Normalise annotate_at: scalar → tuple, validate all entries are numeric.
         if self.annotate_at is not None:
             if isinstance(self.annotate_at, (int, float)):
                 self.annotate_at = (float(self.annotate_at),)
@@ -321,15 +221,8 @@ class WaveformPlot:
                     f"{where}.annotate_at must be a number or tuple/list of numbers."
                 )
 
-
-# ---------------------------------------------------------------------------
-# Scatter
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class ScatterPlot:
-    """XY correlation plot with optional segmented fits and outlier handling."""
 
     name: str
     x_channel: str
@@ -339,23 +232,14 @@ class ScatterPlot:
     gate: Any = None
     show_equations: bool = True
     show_error: bool = True
-    # When True, display the gradient delta as an absolute multiplicative
-    # factor (e.g. "x 1.10" meaning "multiply this run's slope by 1.10 to get
-    # the baseline slope") instead of a signed percentage (+10.0%).
     error_as_factor: bool = False
     color_gate: Any = None
     annotate_fit_at: Any = None
     markers: List[Marker] = field(default_factory=list)
     reference_lines: Optional[List[float]] = None
-    # Robust mode (#18): Theil-Sen regression instead of OLS, plus MAD-based
-    # outlier rejection on the fit. Outliers are still plotted but as a faint
-    # grey 'x' overlay so engineers can see what was excluded.
     robust: bool = False
-    # Multiples of MAD used as outlier threshold during robust fitting.
     robust_threshold: float = 3.0
-
     kind: ClassVar[str] = "scatter"
-
     def __post_init__(self) -> None:
         where = f"ScatterPlot {self.name!r}"
         _require_str(self.name, "ScatterPlot.name")
@@ -388,12 +272,6 @@ class ScatterPlot:
             raise ValueError(f"{where}.robust_threshold must be > 0.")
         self.reference_lines = _coerce_flat_reference_lines(self.reference_lines, f"{where}.reference_lines")
 
-
-# ---------------------------------------------------------------------------
-# PSD
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class PsdPlot:
     name: str
@@ -407,9 +285,7 @@ class PsdPlot:
     show_envelope: bool = False
     reference_lines: Optional[List[float]] = None
     lorentz_fit: Any = None
-
     kind: ClassVar[str] = "psd"
-
     def __post_init__(self) -> None:
         where = f"PsdPlot {self.name!r}"
         _require_str(self.name, "PsdPlot.name")
@@ -432,12 +308,6 @@ class PsdPlot:
         self.reference_lines = _coerce_flat_reference_lines(self.reference_lines, f"{where}.reference_lines")
         self.lorentz_fit = _coerce_lorentz_fit(self.lorentz_fit, f"{where}.lorentz_fit")
 
-
-# ---------------------------------------------------------------------------
-# Histogram
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class HistogramPlot:
     name: str
@@ -447,9 +317,7 @@ class HistogramPlot:
     markers: List[Marker] = field(default_factory=list)
     gate: Any = None
     reference_lines: Optional[List[float]] = None
-
     kind: ClassVar[str] = "histogram"
-
     def __post_init__(self) -> None:
         where = f"HistogramPlot {self.name!r}"
         _require_str(self.name, "HistogramPlot.name")
@@ -459,12 +327,6 @@ class HistogramPlot:
         _validate_gate(self.gate, f"{where}.gate")
         self.reference_lines = _coerce_flat_reference_lines(self.reference_lines, f"{where}.reference_lines")
 
-
-# ---------------------------------------------------------------------------
-# Bar
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class BarPlot:
     name: str
@@ -473,9 +335,7 @@ class BarPlot:
     axis_limits: Optional[Tuple[Optional[float], Optional[float]]] = None
     gate: Any = None
     reference_lines: Optional[List[float]] = None
-
     kind: ClassVar[str] = "bar"
-
     def __post_init__(self) -> None:
         where = f"BarPlot {self.name!r}"
         _require_str(self.name, "BarPlot.name")
@@ -487,12 +347,6 @@ class BarPlot:
         _validate_gate(self.gate, f"{where}.gate")
         self.reference_lines = _coerce_flat_reference_lines(self.reference_lines, f"{where}.reference_lines")
 
-
-# ---------------------------------------------------------------------------
-# Box
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class BoxPlot:
     name: str
@@ -502,9 +356,7 @@ class BoxPlot:
     gate: Any = None
     reference_lines: Optional[List[float]] = None
     options: Optional[dict] = None
-
     kind: ClassVar[str] = "box"
-
     def __post_init__(self) -> None:
         where = f"BoxPlot {self.name!r}"
         _require_str(self.name, "BoxPlot.name")
@@ -513,7 +365,6 @@ class BoxPlot:
                 f"{where}.aggregation_mode must be one of {sorted(_VALID_BOX_MODES)}."
             )
         _validate_gate(self.gate, f"{where}.gate")
-        # Normalise channels to a list of strings.
         if isinstance(self.channels, str):
             self.channels = [self.channels]
         elif isinstance(self.channels, (list, tuple)):
@@ -525,44 +376,10 @@ class BoxPlot:
             raise TypeError(f"{where}.channels must be a string or list of strings.")
         self.reference_lines = _coerce_flat_reference_lines(self.reference_lines, f"{where}.reference_lines")
 
-
-# ---------------------------------------------------------------------------
-# Box Grid (composite — expands into BoxPlot or renders as subplot matrix)
-# ---------------------------------------------------------------------------
-
 _VALID_GRID_RENDER_MODES = {"expand", "grid"}
-
 
 @dataclass
 class BoxPlotGrid:
-    """A grid of box plots defined by two gate dimensions (rows × cols).
-
-    Each cell in the grid combines the row gate with the column gate (AND-ed).
-    The grid can either expand into individual ``BoxPlot`` objects (``render_mode='expand'``)
-    or be rendered as a single subplot-matrix figure (``render_mode='grid'``).
-
-    Parameters
-    ----------
-    name : str
-        Base name for the plot (cell names are auto-generated as "{name} - {row_key} {col_key}").
-    channels : str or list of str
-        Channel(s) to plot in each cell.
-    rows : dict
-        Ordered mapping of row labels to gate conditions (list of tuples).
-        Example: {"LS": [("vCar", '<', 120)], "MS": [("vCar", '>', 120), ("vCar", '<', 200)]}
-    cols : dict
-        Ordered mapping of column labels to gate conditions (list of tuples).
-        Example: {"Entry": [("CosPhi_Calc", 'between', (-0.7, -0.3))], ...}
-    aggregation_mode : str
-        Same as BoxPlot — "per_run", "aggregated", or "per_run_aggregated".
-    axis_limits : tuple, optional
-        Y-axis limits applied to all cells.
-    options : dict, optional
-        Styling overrides passed to each cell.
-    render_mode : str
-        "expand" — produces one BoxPlot per cell (default).
-        "grid" — renders a single figure with a rows×cols subplot matrix.
-    """
 
     name: str
     channels: Union[str, List[str], Tuple[str, ...]]
@@ -572,9 +389,7 @@ class BoxPlotGrid:
     axis_limits: Optional[Tuple[Optional[float], Optional[float]]] = None
     options: Optional[dict] = None
     render_mode: str = "expand"
-
     kind: ClassVar[str] = "box_grid"
-
     def __post_init__(self) -> None:
         where = f"BoxPlotGrid {self.name!r}"
         _require_str(self.name, "BoxPlotGrid.name")
@@ -587,7 +402,6 @@ class BoxPlotGrid:
             raise ValueError(
                 f"{where}.aggregation_mode must be one of {sorted(_VALID_BOX_MODES)}."
             )
-        # Validate rows and cols
         if not isinstance(self.rows, dict) or not self.rows:
             raise TypeError(f"{where}.rows must be a non-empty dict.")
         if not isinstance(self.cols, dict) or not self.cols:
@@ -596,7 +410,6 @@ class BoxPlotGrid:
             _validate_gate(gate, f"{where}.rows[{label!r}]")
         for label, gate in self.cols.items():
             _validate_gate(gate, f"{where}.cols[{label!r}]")
-        # Normalise channels
         if isinstance(self.channels, str):
             self.channels = [self.channels]
         elif isinstance(self.channels, (list, tuple)):
@@ -606,13 +419,10 @@ class BoxPlotGrid:
             self.channels = list(self.channels)
         else:
             raise TypeError(f"{where}.channels must be a string or list of strings.")
-
     def expand(self) -> List["BoxPlot"]:
-        """Expand into individual BoxPlot instances (one per grid cell)."""
         plots = []
         for row_label, row_gate in self.rows.items():
             for col_label, col_gate in self.cols.items():
-                # Combine row + col gates (normalise single-condition tuples to lists)
                 combined_gate = _normalise_gate_list(row_gate) + _normalise_gate_list(col_gate)
                 cell_name = f"{self.name} - {row_label} {col_label}"
                 plots.append(BoxPlot(
@@ -625,28 +435,15 @@ class BoxPlotGrid:
                 ))
         return plots
 
-
 def _normalise_gate_list(gate) -> list:
-    """Normalise a gate spec to a list of 3-tuple conditions."""
     if gate is None:
         return []
     if isinstance(gate, (list, tuple)) and len(gate) == 3 and isinstance(gate[0], str):
         return [tuple(gate)]
     return [tuple(c) for c in gate]
 
-
-# ---------------------------------------------------------------------------
-# Heatmap (NEW)
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class HeatmapPlot:
-    """2-D binned aggregate plot (one panel per run).
-
-    For each (x_bin, y_bin) cell, computes the aggregate of z_channel
-    (or counts when z_channel is None).
-    """
 
     name: str
     x_channel: str
@@ -659,10 +456,8 @@ class HeatmapPlot:
     z_limits: Optional[Tuple[Optional[float], Optional[float]]] = None
     gate: Any = None
     markers: List[Marker] = field(default_factory=list)
-    min_count: int = 3  # cells with fewer points are masked
-
+    min_count: int = 3
     kind: ClassVar[str] = "heatmap"
-
     def __post_init__(self) -> None:
         where = f"HeatmapPlot {self.name!r}"
         _require_str(self.name, "HeatmapPlot.name")
@@ -686,25 +481,15 @@ class HeatmapPlot:
         _validate_gate(self.gate, f"{where}.gate")
         self.markers = _coerce_markers(self.markers, f"{where}.markers")
 
-
-# ---------------------------------------------------------------------------
-# Helpers used across the codebase
-# ---------------------------------------------------------------------------
-
-
 PLOT_TYPE_ORDER: Tuple[str, ...] = (
     "waveform", "scatter", "psd", "histogram", "bar", "box", "heatmap",
 )
 """Canonical group order — used to index ``DataPlotter.PLOT_DEFINITIONS``."""
 
-
 _PLOT_KIND_TO_INDEX = {kind: i for i, kind in enumerate(PLOT_TYPE_ORDER)}
 
-
 def plot_group_index(kind: str) -> int:
-    """Group-tuple index for a plot kind string."""
     return _PLOT_KIND_TO_INDEX[kind]
-
 
 PLOT_KIND_BY_DATACLASS = {
     WaveformPlot: "waveform",

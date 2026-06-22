@@ -1,4 +1,3 @@
-"""Shared data cleaning, filtering, and plotting helpers."""
 
 from __future__ import annotations
 
@@ -12,23 +11,7 @@ from matplotlib import patheffects as pe
 
 from .logger import log
 
-
 def calc_channel(*deps):
-    """Decorator to annotate a calculated-channel lambda with explicit deps (#5).
-
-    Use when the channel body is too dynamic for the regex-based dependency
-    extractor in :class:`DataPlotter` (e.g. f-string column names, indirect
-    lookups). Example::
-
-        CALCULATED = {
-            "EngineEff": calc_channel("nEngine", "tThrottle")(
-                lambda df: df["nEngine"] * df["tThrottle"] / 1000.0
-            ),
-        }
-
-    The dependency list is attached as the ``__dls_deps__`` attribute and
-    consumed by ``DataPlotter._extract_calculated_dependencies``.
-    """
     def _wrap(fn):
         try:
             fn.__dls_deps__ = tuple(deps)
@@ -37,10 +20,8 @@ def calc_channel(*deps):
         return fn
     return _wrap
 
-# NumPy 2.0 renamed ``np.trapz`` to ``np.trapezoid``; keep both call sites working.
 _np_trapezoid = getattr(np, "trapezoid", None) or getattr(np, "trapz")
 
-# Shared progress bar wrapper — import in generators as: from datafunctions import _tqdm
 try:
     from tqdm import tqdm as _tqdm_raw
     def _tqdm(it, **kw):
@@ -50,14 +31,10 @@ except ImportError:
     def _tqdm(iterable, **kwargs):
         return iterable
 
-
 def _fmt_g(v, sig=3):
-    """Format v to `sig` significant figures, using compact fixed-point when possible."""
     if v == 0:
         return "0"
     raw = f"{v:.{sig}g}"
-    # If Python chose scientific notation but the value is in a readable range,
-    # switch to fixed-point with thousands separators.
     if "e" in raw or "E" in raw:
         abs_v = abs(v)
         if 1 <= abs_v < 1_000_000:
@@ -68,16 +45,7 @@ def _fmt_g(v, sig=3):
             return formatted
     return raw
 
-
-# ================================================================
-# BASIC CLEANING UTILITIES
-# ================================================================
-
 def _safe_get_config(config_dict, source_type: str, config_name: str) -> dict:
-    """
-    Safely retrieve configuration for a source type.
-    Returns config dict if found, otherwise prints warning and returns empty dict.
-    """
     if config_dict is None:
         return {}
     try:
@@ -86,140 +54,81 @@ def _safe_get_config(config_dict, source_type: str, config_name: str) -> dict:
         log.debug("No %s found for %s - skipping.", config_name, source_type.upper())
         return {}
 
-
 def _to_numeric_safe(series: pd.Series) -> pd.Series:
-    """Convert series to numeric, coercing non-numeric values to NaN."""
     return pd.to_numeric(series, errors="coerce")
 
-
 def convert_yes_no_to_binary(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Convert YES/NO strings to 1/0 in all DataFrame columns.
-    Columns containing mixed string types but INCLUDING YES/NO are converted.
-    Other string columns remain unchanged.
-    """
     columns_converted = []
-
     for col in df.columns:
         dtype = df[col].dtype
-
-        # Only operate on object/string columns
         if dtype == "object" or dtype.name in ["string", "str"]:
             non_nan = df[col].dropna()
             if len(non_nan) == 0:
                 continue
-
-            # upper-case all values for consistency
             str_values = [str(x).upper() for x in non_nan if isinstance(x, str)]
-
             if any(v in ["YES", "NO"] for v in str_values):
                 df[col] = df[col].astype(str).str.upper().replace({"YES": 1, "NO": 0}).infer_objects(copy=False)
                 df[col] = pd.to_numeric(df[col], errors="coerce")
                 columns_converted.append(col)
-
     if columns_converted:
         log.debug("Converted YES/NO to 1/0 in: %s", ', '.join(columns_converted))
-
     return df
 
-
 def sanitize_numeric_series(series: pd.Series) -> pd.Series:
-    """
-    Convert non-numeric values to NaN and replace sentinel int64 min/max and infinities with NaN.
-    """
     numeric = _to_numeric_safe(series)
-
     int64_min = np.iinfo(np.int64).min
     int64_max = np.iinfo(np.int64).max
-
     numeric = numeric.replace([int64_min, int64_max, -np.inf, np.inf], np.nan)
-
     return numeric
 
-
-# ================================================================
-# CHANNEL MAPPINGS & TRANSFORMATIONS
-# ================================================================
-
 def apply_channel_mappings(df: pd.DataFrame, channel_mappings: dict | None, source_type: str) -> pd.DataFrame:
-    """Rename channels per channel_mappings[source_type]. Skip if target already exists."""
     mapping = _safe_get_config(channel_mappings, source_type, "channel mappings")
-
     if not mapping:
         return df
-
     rename_dict = {
         src: tgt
         for src, tgt in mapping.items()
         if src in df.columns and tgt not in df.columns
     }
-
     if rename_dict:
         df = df.rename(columns=rename_dict)
         log.debug("Renamed %d channels for %s", len(rename_dict), source_type.upper())
-
     return df
 
-
 def apply_transformations(df: pd.DataFrame, source_type: str, channel_transforms: dict | None) -> pd.DataFrame:
-    """Apply per-channel numeric transforms (sign flips, unit conversions). 'all' applies globally."""
     transforms = _safe_get_config(channel_transforms, source_type, "channel transformations")
-
     if not transforms:
         return df
-
     transformed_channels = []
-
     for channel, func in transforms.items():
-
-        # apply to all columns
         if channel.lower() == "all":
             for col in df.columns:
                 df[col] = _to_numeric_safe(df[col])
                 df[col] = func(df[col])
             log.debug("Applied 'all' transformations to %s data", source_type.upper())
             continue
-
-        # normal single-column transformation
         if channel in df.columns:
             df[channel] = _to_numeric_safe(df[channel])
             df[channel] = func(df[channel])
             transformed_channels.append(channel)
         else:
             log.warning("Cannot transform missing channel '%s' for source '%s'.", channel, source_type.upper())
-
     log.debug("Applied transformations to %d channels for %s", len(transformed_channels), source_type.upper())
     return df
 
-
-# ================================================================
-# CALCULATED CHANNELS
-# ================================================================
-
 def apply_calculated_channels(df: pd.DataFrame, source_type: str, calculated_channels: dict | None,
                               required_channels: set | None = None) -> pd.DataFrame:
-    """Compute derived channels from lambda(df) definitions.
-
-    If ``required_channels`` is provided, only channels in that set (and their
-    transitive dependencies on other calculated channels) are computed.  Missing
-    dependency warnings are demoted to debug for unrequested channels.
-    """
     if calculated_channels is None:
         return df
-
     if isinstance(calculated_channels, dict) and source_type in calculated_channels:
         calc_set = calculated_channels[source_type]
     else:
         calc_set = calculated_channels
-
     if not isinstance(calc_set, dict):
         return df
-
-    # Restrict to requested channels (+ transitive calc-channel deps).
     target_names = None
     if required_channels is not None:
         target_names = {n for n in required_channels if n in calc_set}
-        # Iteratively expand to include any calc-channel referenced by lambda source.
         if target_names:
             try:
                 import inspect as _inspect, re as _re
@@ -240,9 +149,7 @@ def apply_calculated_channels(df: pd.DataFrame, source_type: str, calculated_cha
                                 changed = True
             except Exception:
                 pass
-
     calculated_channels_done = []
-
     for channel_name, func in calc_set.items():
         is_required = (target_names is None) or (channel_name in target_names)
         try:
@@ -261,26 +168,10 @@ def apply_calculated_channels(df: pd.DataFrame, source_type: str, calculated_cha
     log.debug("Added %d calculated channels for %s", len(calculated_channels_done), source_type.upper())
     return df
 
-
-# ================================================================
-# BUTTERWORTH FILTERING
-# ================================================================
-
 def _apply_butterworth_filter_to_data(data, cutoff, order: int, sample_rate: float, btype: str = "low") -> tuple:
-    """Apply Butterworth filter. Returns (filtered_data, success_flag).
-
-    Parameters
-    ----------
-    cutoff : float or list[float]
-        Cutoff frequency in Hz.  For bandpass, a two-element list [low, high].
-    btype : str
-        Filter type: ``"low"``, ``"high"``, or ``"bandpass"``.
-    """
     if len(data) <= order * 3 or np.all(np.isnan(data)):
         return None, False
-
     nyquist = 0.5 * sample_rate
-
     if btype == "bandpass":
         if not isinstance(cutoff, (list, tuple)) or len(cutoff) != 2:
             return None, False
@@ -291,10 +182,7 @@ def _apply_butterworth_filter_to_data(data, cutoff, order: int, sample_rate: flo
         normal_cutoff = cutoff / nyquist
         if normal_cutoff >= 1.0:
             return None, False
-
     b, a = butter(order, normal_cutoff, btype=btype, analog=False)
-
-    # Interpolate missing data
     mask_nan = np.isnan(data)
     if mask_nan.any():
         interp = pd.Series(data).interpolate("linear", limit_direction="both").values
@@ -302,129 +190,89 @@ def _apply_butterworth_filter_to_data(data, cutoff, order: int, sample_rate: flo
         filtered_data[mask_nan] = np.nan
     else:
         filtered_data = filtfilt(b, a, data)
-
     return filtered_data, True
-
 
 def apply_filters(df: pd.DataFrame, filters: dict | None, sample_rate: float, source_type: str,
                   required_channels: set | None = None) -> pd.DataFrame:
-    """Apply Butterworth filters. Per-channel configs override the 'all' fallback.
-
-    Each filter entry may contain an optional ``"type"`` key (``"low"``,
-    ``"high"``, or ``"bandpass"``).  When omitted the filter defaults to
-    low-pass for full backward compatibility.
-    """
     if not filters:
         return df
-
     applied = []
     channels_to_skip = []
     filter_all = "all" in filters
     all_cfg = filters.get("all", None)
-
-    # ------------------------------
-    # First: specific channels
-    # ------------------------------
     for channel, cfg in filters.items():
         if channel == "all":
             continue
-
         if channel not in df.columns:
             if required_channels is None or channel in required_channels:
                 log.warning("Cannot filter missing channel '%s'.", channel)
             else:
                 log.debug("Skipped filter on missing optional channel '%s'.", channel)
             continue
-
         channels_to_skip.append(channel)
         df[channel] = _to_numeric_safe(df[channel])
-
-        # choose correct config
         if isinstance(cfg, dict) and source_type in cfg:
             config = cfg[source_type]
         else:
             config = cfg
-
         if "cutoff" not in config:
             log.warning("Invalid filter config for channel '%s'.", channel)
             continue
-
         cutoff = config["cutoff"]
         order = config.get("order", 2)
         btype = config.get("type", "low")
-
-        # cutoff=0 disables the filter (unchanged convention)
         if isinstance(cutoff, (int, float)) and cutoff <= 0:
             continue
-
         filtered_data, success = _apply_butterworth_filter_to_data(
             df[channel].values, cutoff, order, sample_rate, btype=btype,
         )
-
         if not success:
             log.warning("Filter failed for channel '%s' (type=%s). Skipping.", channel, btype)
             continue
-
         df[channel] = filtered_data
         label = f"{channel}@{cutoff}Hz({btype})" if btype != "low" else f"{channel}@{cutoff}Hz"
         applied.append(label)
-
-    # ------------------------------
-    # Second: generic "all" channels
-    # ------------------------------
     if filter_all and all_cfg:
         cutoff = all_cfg.get("cutoff", 0)
         order = all_cfg.get("order", 2)
         btype = all_cfg.get("type", "low")
-
         if isinstance(cutoff, (int, float)) and cutoff <= 0:
-            pass  # disabled
+            pass
         else:
             for col in df.columns:
                 if col in channels_to_skip:
                     continue
-
                 df[col] = _to_numeric_safe(df[col])
-
                 filtered_data, success = _apply_butterworth_filter_to_data(
                     df[col].values, cutoff, order, sample_rate, btype=btype,
                 )
-
                 if success:
                     df[col] = filtered_data
                     label = f"{col}@{cutoff}Hz({btype})" if btype != "low" else f"{col}@{cutoff}Hz"
                     applied.append(label)
-
     if applied:
         log.debug("Applied %d filters for %s", len(applied), source_type.upper())
-
     return df
 
-
-# ================================================================
-# PSD CALCULATION
-# ================================================================
-
 def calculate_psd(signal, sample_rate: float, nperseg: int = 512) -> tuple[np.ndarray | None, np.ndarray | None]:
-    """
-    Calculate PSD using Welch's method.
-    Returns (frequencies, power).
-
-    Returns (None, None) when signal is too short.
-    """
     series = _to_numeric_safe(pd.Series(signal)).dropna()
     series = np.asarray(series, dtype=float)
-
     if len(series) < 8:
         return None, None
-
     nperseg = min(nperseg, len(series))
     if nperseg < 8:
         return None, None
-
     freq, power = welch(series, fs=sample_rate, nperseg=nperseg)
     return freq, power
 
+def auto_nperseg(n_samples: int, min_averages: int = 50, max_nperseg: int = 4096) -> int:
+    limit = min(int(2 * n_samples / (min_averages + 1)), max_nperseg)
+    if limit < 64:
+        return 64
+    nperseg = 1
+    while nperseg * 2 <= limit:
+        nperseg *= 2
+    return nperseg
 
 def calculate_segmented_psd(
     signal,
@@ -432,128 +280,72 @@ def calculate_segmented_psd(
     sample_rate: float,
     nperseg: int = 512,
 ) -> tuple[np.ndarray | None, np.ndarray | None, int]:
-    """Compute Welch PSD over contiguous True-segments of ``mask``.
-
-    For each contiguous run of ``True`` values in ``mask`` whose length is
-    at least ``nperseg``, compute a Welch periodogram and accumulate it
-    weighted by the number of Welch sub-segments it contributes (default
-    50% overlap). The returned PSD is the segment-count-weighted average
-    across all qualifying contiguous runs — equivalent to running Welch on
-    the concatenation of the gated regions, but without the boundary
-    discontinuity artefacts caused by simple masking.
-
-    Parameters
-    ----------
-    signal : array-like
-        Time-series samples.
-    mask : array-like of bool
-        Per-sample boolean inclusion mask; same length as ``signal``.
-    sample_rate : float
-        Sampling rate in Hz.
-    nperseg : int
-        Welch window length.
-
-    Returns
-    -------
-    (freq, power, n_welch_segments)
-        ``(None, None, 0)`` when no contiguous run is long enough.
-    """
     signal = np.asarray(signal, dtype=float)
     mask = np.asarray(mask, dtype=bool)
     if signal.size == 0 or mask.size != signal.size:
         return None, None, 0
-
-    # Exclude non-finite samples from inclusion
     mask = mask & np.isfinite(signal)
     if not mask.any():
         return None, None, 0
-
-    # Identify contiguous True-runs via difference of int-cast mask, with
-    # zero sentinels on both ends so leading/trailing runs are captured.
     edges = np.diff(mask.astype(np.int8), prepend=0, append=0)
     starts = np.where(edges == 1)[0]
     ends = np.where(edges == -1)[0]
-
     noverlap = nperseg // 2
-    step = nperseg - noverlap  # = noverlap when overlap is 50%
-
+    step = nperseg - noverlap
     freq_ref = None
     weighted_sum = None
     total_segments = 0
-
     for s, e in zip(starts, ends):
         seg = signal[s:e]
         if len(seg) < nperseg:
             continue
-        # Number of Welch sub-segments this contiguous run contributes
         n_welch = 1 + (len(seg) - nperseg) // step
         freq, power = welch(seg, fs=sample_rate, nperseg=nperseg, noverlap=noverlap)
         if freq_ref is None:
             freq_ref = freq
             weighted_sum = power.astype(float) * n_welch
         else:
-            # Same fs + nperseg → identical frequency grid
             weighted_sum = weighted_sum + power.astype(float) * n_welch
         total_segments += n_welch
-
     if total_segments == 0 or weighted_sum is None:
         return None, None, 0
-
     return freq_ref, weighted_sum / total_segments, total_segments
 
-
-# ================================================================
-# GENERAL PLOT HELPERS
-# ================================================================
-
 def mask_waveform_discontinuities(x_values, y_values):
-    """Mask invalid lap-distance regions so line plots break at discontinuities."""
     xs = pd.Series(x_values).reset_index(drop=True)
     ys = pd.Series(y_values).reset_index(drop=True).copy()
-
     neg_mask = xs < 0
     xs.loc[neg_mask] = np.nan
     ys.loc[neg_mask] = np.nan
-
     if xs.notna().sum() > 1:
         reset_mask = xs.diff() < 0
         ys.loc[reset_mask] = np.nan
-
     return xs, ys
 
-
 def format_psd_ylabel(channel, units_map):
-    """Format PSD y-axis label with units when available."""
     units = ""
     if units_map:
         for key, value in units_map.items():
             if key.lower() == channel.lower():
                 units = value
                 break
-
     if units:
-        return f"{channel} PSD ({units}^2/Hz)"
+        return f"{channel} PSD (${units}^2$/Hz)"
     return f"{channel} PSD"
 
-
 def compute_nice_histogram_bins(data, num_bins=30):
-    """Compute round-number histogram bins with integer-preferred widths."""
     values = np.asarray(data, dtype=float)
     values = values[np.isfinite(values)]
     if values.size == 0:
         return np.array([0.0, 1.0])
-
     data_min = float(np.min(values))
     data_max = float(np.max(values))
-
     if np.isclose(data_min, data_max):
         start = np.floor(data_min)
         return np.array([start, start + 1.0])
-
     raw_step = (data_max - data_min) / max(num_bins, 1)
     exponent = np.floor(np.log10(raw_step))
     fraction = raw_step / (10 ** exponent)
-
     if fraction <= 1:
         nice_fraction = 1
     elif fraction <= 2:
@@ -562,52 +354,35 @@ def compute_nice_histogram_bins(data, num_bins=30):
         nice_fraction = 5
     else:
         nice_fraction = 10
-
     step = nice_fraction * (10 ** exponent)
     if step >= 1:
         step = max(1.0, float(np.round(step)))
-
     start = np.floor(data_min / step) * step
     end = np.ceil(data_max / step) * step
     bins = np.arange(start, end + step * 0.5, step)
-
     if bins.size < 2:
         bins = np.array([start, start + step])
-
     return bins
 
-
 def compute_equal_width_bins_in_limits(xmin, xmax, reference_bins):
-    """Compute equal-width bins in [xmin, xmax] with count derived from a near-nice step."""
     xmin = float(xmin)
     xmax = float(xmax)
     if xmax <= xmin:
         return np.array([xmin, xmin + 1.0])
-
     if reference_bins is not None and len(reference_bins) > 1:
         target_step = float(reference_bins[1] - reference_bins[0])
     else:
         target_step = (xmax - xmin) / 30.0
-
     if target_step <= 0:
         target_step = (xmax - xmin) / 30.0
-
     bin_count = max(1, int(np.round((xmax - xmin) / target_step)))
     return np.linspace(xmin, xmax, bin_count + 1)
 
-
-# ================================================================
-# BAR-PLOT HELPERS
-# ================================================================
-
 def normalize_bar_metric_specs(metric_specs, default_aggregation="last"):
-    """Normalize bar metric specs into [(channel, aggregation), ...]."""
     if isinstance(metric_specs, str):
         metric_specs = (metric_specs,)
-
     if not isinstance(metric_specs, (list, tuple)):
         return []
-
     normalized = []
     try:
         from .plot_definitions import _VALID_BAR_AGGS as valid_aggs
@@ -616,12 +391,10 @@ def normalize_bar_metric_specs(metric_specs, default_aggregation="last"):
             "sum", "mean", "min", "max", "median", "integral",
             "abs_sum", "abs_integral", "first", "last",
         }
-
     for item in metric_specs:
         if isinstance(item, str):
             normalized.append((item, default_aggregation))
             continue
-
         if isinstance(item, (list, tuple)) and len(item) >= 1:
             channel = item[0]
             if not isinstance(channel, str):
@@ -633,18 +406,13 @@ def normalize_bar_metric_specs(metric_specs, default_aggregation="last"):
             if aggregation not in valid_aggs:
                 aggregation = default_aggregation
             normalized.append((channel, aggregation))
-
     return normalized
 
-
 def aggregate_channel_for_bar(series, aggregation="last", sample_rate=100.0, time_series=None):
-    """Aggregate a channel series into a scalar for grouped bar plots."""
     values = _to_numeric_safe(series).dropna()
     if values.empty:
         return np.nan
-
     agg = str(aggregation).lower().strip()
-
     if agg == "sum":
         return float(values.sum())
     if agg == "mean":
@@ -675,41 +443,22 @@ def aggregate_channel_for_bar(series, aggregation="last", sample_rate=100.0, tim
         return float(values.iloc[0])
     if agg == "last":
         return float(values.iloc[-1])
-
-    # fallback
     return float(values.iloc[-1])
-
-
-# ================================================================
-# SCATTER PLOTTING HELPERS
-# ================================================================
-
 
 _DECIMATE_CACHE = {}
 _DECIMATE_CACHE_MAX_ENTRIES = 64
 
-
 def _decimate_xy(x_data, y_data, max_points):
-    """Downsample evenly when data volume is large to keep plots responsive.
-
-    Decimated outputs for the same (x_array, y_array, max_points) inputs are
-    memoized by array ``id()`` so that repeat scatter calls (e.g. when the same
-    run/channel pair is plotted across multiple figures) reuse the work.
-    """
     if max_points is None or max_points <= 0:
         return x_data, y_data
     if len(x_data) <= max_points:
         return x_data, y_data
-
     cache_key = (id(x_data), id(y_data), int(max_points), len(x_data))
     cached = _DECIMATE_CACHE.get(cache_key)
     if cached is not None:
         return cached
-
     stride = max(1, int(np.ceil(len(x_data) / float(max_points))))
     out = (x_data[::stride], y_data[::stride])
-
-    # Bounded cache — drop oldest entries when above the soft cap.
     if len(_DECIMATE_CACHE) >= _DECIMATE_CACHE_MAX_ENTRIES:
         try:
             _DECIMATE_CACHE.pop(next(iter(_DECIMATE_CACHE)))
@@ -718,25 +467,18 @@ def _decimate_xy(x_data, y_data, max_points):
     _DECIMATE_CACHE[cache_key] = out
     return out
 
-
 def _plot_scatter_layer(ax, x_data, y_data, label, color, alpha, size, max_points=45000):
-    """Plot scatter points with optional decimation for dense data."""
     x_plot, y_plot = _decimate_xy(x_data, y_data, max_points=max_points)
     ax.scatter(x_plot, y_plot, alpha=alpha, s=size, color=color, label=label, edgecolors="none")
 
-
 def plot_scatter(ax, x_data, y_data, label, color, alpha, size, x_var="", y_var="", max_points=45000):
-    """Simple scatter plot."""
     if len(x_data) == 0:
         log.warning("No data for scatter: %s (%s vs %s).", label, x_var, y_var)
         return False, None, None
-
     _plot_scatter_layer(ax, x_data, y_data, label, color, alpha, size, max_points=max_points)
     return True, None, None
 
-
 def _plot_scatter_fit_line(ax, x_values, y_values, color, linestyle="-", linewidth=1.8):
-    """Draw a run-colored fit line with a light halo and endpoint markers."""
     line = ax.plot(
         x_values,
         y_values,
@@ -749,7 +491,6 @@ def _plot_scatter_fit_line(ax, x_values, y_values, color, linestyle="-", linewid
     line.set_path_effects(
         [pe.Stroke(linewidth=linewidth + 2.4, foreground=(1.0, 1.0, 1.0, 0.96)), pe.Normal()]
     )
-
     if len(x_values) >= 2:
         ax.plot(
             [x_values[0], x_values[-1]],
@@ -763,7 +504,6 @@ def _plot_scatter_fit_line(ax, x_values, y_values, color, linestyle="-", linewid
             zorder=8,
             alpha=0.99,
         )
-
 
 def plot_scatter_with_1fit(
     ax,
@@ -780,23 +520,14 @@ def plot_scatter_with_1fit(
     robust=False,
     robust_threshold=3.0,
 ):
-    """Scatter + single linear trendline.
-
-    When ``robust=True``, uses Theil-Sen regression with MAD outlier
-    rejection (#18). The 5th return value becomes a dict with diagnostics
-    rather than just the colour; callers may inspect ``info["outlier_mask"]``
-    to render the rejected samples.
-    """
     if len(x_data) == 0:
         log.warning("No data for single fit: %s (%s vs %s).", label, x_var, y_var)
         return False, None, None, None, None
-
     if robust:
         info = fit_robust_theilsen(x_data, y_data, outlier_k=robust_threshold)
         if info is None:
             log.warning("Robust fit failed: %s (%s vs %s).", label, x_var, y_var)
             return False, None, None, None, None
-        # Plot the inliers normally and outliers as faint grey 'x'.
         inlier_mask = ~info["outlier_mask"]
         _plot_scatter_layer(
             ax, np.asarray(x_data)[inlier_mask], np.asarray(y_data)[inlier_mask],
@@ -823,31 +554,24 @@ def plot_scatter_with_1fit(
             f"   [robust: {info['n_outliers']}/{info['n_total']} outliers]"
             if info["n_outliers"] > 0 else "   [robust]"
         )
-        equation = f"y = {_fmt_g(slope)} x {sign} {_fmt_g(abs(interc))}{suffix}"
-        # Stuff the diagnostics dict into the slot historically used for colour.
+        equation = f"$y = {_fmt_g(slope)}x {sign} {_fmt_g(abs(interc))}${suffix}"
         return True, slope, interc, equation, {"color": color, "robust_info": info}
-
     _plot_scatter_layer(ax, x_data, y_data, label, color, alpha, size, max_points=max_points)
-
     if FIT_LINE_X_LIMITS:
         xmin, xmax = FIT_LINE_X_LIMITS
     else:
         xmin, xmax = np.min(x_data), np.max(x_data)
-
     try:
         slope, interc, rval, _, _ = linregress(x_data, y_data)
     except ValueError:
         log.warning("Not enough data for fit: %s (%s vs %s).", label, x_var, y_var)
         return False, None, None, None, None
-
     xr = np.linspace(xmin, xmax, 100)
     yr = slope * xr + interc
     _plot_scatter_fit_line(ax, xr, yr, color=color, linestyle="-", linewidth=1.6)
-
     sign = "−" if interc < 0 else "+"
-    equation = f"y = {_fmt_g(slope)} x {sign} {_fmt_g(abs(interc))}"
+    equation = f"$y = {_fmt_g(slope)}x {sign} {_fmt_g(abs(interc))}$"
     return True, slope, interc, equation, color
-
 
 def plot_scatter_with_multi_fit(
     ax,
@@ -865,40 +589,27 @@ def plot_scatter_with_multi_fit(
     robust=False,
     robust_threshold=3.0,
 ):
-    """Scatter + as many linear fit segments as provided.
-
-    `fit_condition_data` may provide additional aligned channels used as
-    fit-condition axes (for example, axis='SM').
-    When ``robust=True``, each segment uses Theil-Sen with MAD outlier
-    rejection independently.
-    """
     if len(x_data) == 0:
         log.warning("No data for multi-fit: %s (%s vs %s).", label, x_var, y_var)
         return False, None, None, None, None
-
     if not fit_defs:
         return plot_scatter_with_1fit(
             ax, x_data, y_data, label, color, alpha, size, x_var, y_var,
             max_points=max_points, robust=robust, robust_threshold=robust_threshold,
         )
-
     _plot_scatter_layer(ax, x_data, y_data, label, color, alpha, size, max_points=max_points)
-
     slopes_list = []
     intercepts_list = []
     eq_lines = []
     line_styles = ["-", "-", "-"]
     total_outliers = 0
     total_points = 0
-
     def _format_bound(value, is_lower=True, fallback=None):
-        """Format range bounds compactly; use data min/max when bound is open."""
         if value is None or not np.isfinite(value):
             if fallback is not None:
                 return f"{float(fallback):.4g}"
             return "$-\\infty$" if is_lower else "$+\\infty$"
         return f"{float(value):.4g}"
-
     for idx, fit_def in enumerate(fit_defs):
         fit_mask_info = build_multi_fit_mask(
             fit_def,
@@ -920,17 +631,14 @@ def plot_scatter_with_multi_fit(
             slopes_list.append(None)
             intercepts_list.append(None)
             continue
-
         axis_name = fit_mask_info["axis_name"]
         min_bound = fit_mask_info["min_bound"]
         max_bound = fit_mask_info["max_bound"]
         mask = fit_mask_info["mask"]
-
         if mask.sum() <= 1:
             slopes_list.append(None)
             intercepts_list.append(None)
             continue
-
         xb = x_data[mask]
         yb = y_data[mask]
         seg_outlier_count = 0
@@ -966,7 +674,6 @@ def plot_scatter_with_multi_fit(
                 slopes_list.append(None)
                 intercepts_list.append(None)
                 continue
-
         xr = np.linspace(np.min(xb), np.max(xb), 50)
         yr = slope * xr + interc
         _plot_scatter_fit_line(
@@ -977,7 +684,6 @@ def plot_scatter_with_multi_fit(
             linestyle=line_styles[idx % len(line_styles)],
             linewidth=1.6,
         )
-        # Determine fallback bounds from data when min/max_bound is None
         axis_key = fit_def[0].lower() if isinstance(fit_def[0], str) else ""
         if axis_key == "x":
             lo_fallback = float(np.nanmin(x_data[np.isfinite(x_data)])) if np.any(np.isfinite(x_data)) else None
@@ -996,17 +702,15 @@ def plot_scatter_with_multi_fit(
         hi = _format_bound(max_bound, is_lower=False, fallback=hi_fallback)
         eq_sign = "−" if interc < 0 else "+"
         seg_eq = (
-            f"{axis_name} $\\in$ [{lo}, {hi}]   y = {_fmt_g(slope)} x {eq_sign} {_fmt_g(abs(interc))}"
+            f"{axis_name} $\\in$ [{lo}, {hi}]   $y = {_fmt_g(slope)}x {eq_sign} {_fmt_g(abs(interc))}$"
         )
         if robust and seg_outlier_count > 0:
             seg_eq += f"   ({seg_outlier_count} outliers rejected)"
         eq_lines.append(seg_eq)
         slopes_list.append(slope)
         intercepts_list.append(interc)
-
     if not eq_lines:
         return False, tuple(slopes_list), tuple(intercepts_list), None, color
-
     meta = {
         "color": color,
         "robust_info": (
@@ -1016,16 +720,10 @@ def plot_scatter_with_multi_fit(
     }
     return True, tuple(slopes_list), tuple(intercepts_list), "\n".join(eq_lines), meta
 
-
 def collect_multi_fit_condition_channels(fit_defs):
-    """Collect channel names referenced as multi-fit condition axes.
-
-    Conditions using axis 'x' or 'y' are excluded.
-    """
     channels = set()
     if not isinstance(fit_defs, (list, tuple)):
         return channels
-
     for fit_def in fit_defs:
         if not isinstance(fit_def, (list, tuple)) or len(fit_def) != 3:
             continue
@@ -1034,15 +732,9 @@ def collect_multi_fit_condition_channels(fit_defs):
             channels.add(axis)
     return channels
 
-
 def build_fit_condition_data(df, index, fit_defs, plot_name="", run_name=""):
-    """Build aligned numeric series for fit-condition channels.
-
-    Returns a dict keyed by channel name. Missing channels are warned and omitted.
-    """
     condition_channels = collect_multi_fit_condition_channels(fit_defs)
     data = {}
-
     for channel in condition_channels:
         if channel not in df.columns:
             print(
@@ -1054,37 +746,20 @@ def build_fit_condition_data(df, index, fit_defs, plot_name="", run_name=""):
         data[channel] = series.to_numpy(dtype=float)
     return data
 
-
-# ================================================================
-# BOX PLOT UTILITIES
-# ================================================================
-
 def compute_gate_mask(df: pd.DataFrame, gate_spec) -> pd.Series:
-    """Build the boolean mask that ``apply_gate_to_dataframe`` would use.
-
-    Returns a boolean ``pd.Series`` aligned to ``df.index``. Invalid or
-    missing-channel gates return an all-False mask (matching the
-    "skip dataframe" behaviour of ``apply_gate_to_dataframe``).
-    """
     if gate_spec is None:
         return pd.Series(True, index=df.index)
-
     conditions = _normalize_gate_conditions(gate_spec)
     mask = pd.Series(True, index=df.index)
-
     for condition in conditions:
         if not isinstance(condition, (list, tuple)) or len(condition) != 3:
             log.warning("Invalid gate condition.")
             return pd.Series(False, index=df.index)
-
         channel, operator, value = condition
-
         if channel not in df.columns:
             log.warning("Gate channel '%s' missing.", channel)
             return pd.Series(False, index=df.index)
-
         col = pd.to_numeric(df[channel], errors="coerce")
-
         if operator == '>':
             gate_mask = col > value
         elif operator == '<':
@@ -1133,14 +808,10 @@ def compute_gate_mask(df: pd.DataFrame, gate_spec) -> pd.Series:
         else:
             log.warning("Unsupported gate condition for channel '%s'.", channel)
             return pd.Series(False, index=df.index)
-
         mask &= gate_mask.fillna(False)
-
     return mask
 
-
 def apply_gate_to_dataframe(df: pd.DataFrame, gate_spec) -> pd.DataFrame:
-    """Filter a dataframe by gate condition(s). Returns filtered copy (or view if no gate)."""
     if gate_spec is None:
         return df
     mask = compute_gate_mask(df, gate_spec)
@@ -1148,50 +819,28 @@ def apply_gate_to_dataframe(df: pd.DataFrame, gate_spec) -> pd.DataFrame:
         return df.iloc[0:0].copy()
     return df[mask].copy()
 
-
 def resolve_condition_marker(marker, df, x_channel):
-    """Expand a condition-triggered Marker into concrete x-values for one run.
-
-    Returns a list of floats \u2014 the x_channel values at each rising / falling /
-    either edge of the gate condition. Honours ``marker.max_count``.
-    Returns ``[]`` if the condition cannot be evaluated (missing channel etc.)
-    or no transitions are found.
-    """
     if marker.condition is None:
         return []
     if x_channel not in df.columns:
         return []
-
     mask = compute_gate_mask(df, marker.condition).astype(bool).to_numpy()
     if mask.size < 2:
         return []
-
-    # True rising / falling edges: only detect transitions WITHIN the series.
-    # A sample that is already True at index 0 does not count as a rising edge
-    # (the condition didn't "become true" — it started true). Likewise the last
-    # sample alone never counts as a falling edge.
-    diff = np.diff(mask.astype(np.int8))  # length N-1, indexed by the *new* sample
+    diff = np.diff(mask.astype(np.int8))
     if marker.edge == "rising":
         idx = np.flatnonzero(diff == 1) + 1
     elif marker.edge == "falling":
         idx = np.flatnonzero(diff == -1) + 1
-    else:  # both
+    else:
         idx = np.flatnonzero(diff != 0) + 1
-
     if idx.size == 0:
         return []
-
     x_values = pd.to_numeric(df[x_channel], errors="coerce").to_numpy()
-    # Drop any indices where x is NaN.
     x_hits = [float(x_values[i]) for i in idx if i < len(x_values) and np.isfinite(x_values[i])]
-
     if marker.max_count is not None and len(x_hits) > marker.max_count:
         x_hits = x_hits[: marker.max_count]
     return x_hits
-
-
-
-
 
 def aggregate_channel_for_boxplot(
     run_data_dict,
@@ -1200,21 +849,17 @@ def aggregate_channel_for_boxplot(
     gate_spec=None,
     filtered_run_data=None,
 ):
-    """Aggregate channel data for box plotting. Returns per-run or aggregated dicts."""
     if isinstance(channels, str):
         channels = [channels]
     else:
         channels = list(channels)
-    
     result = {}
     if filtered_run_data is None:
         filtered_run_data = {
             run_name: apply_gate_to_dataframe(df, gate_spec) if gate_spec is not None else df
             for run_name, df in run_data_dict.items()
         }
-    
     if aggregation_mode == 'per_run':
-        # Structure: {run_name: {channel: values_array}}
         for run_name, df in filtered_run_data.items():
             run_dict = {}
             for channel in channels:
@@ -1223,23 +868,16 @@ def aggregate_channel_for_boxplot(
                     run_dict[channel] = values
                 else:
                     run_dict[channel] = np.array([])
-            
             result[run_name] = run_dict
-    
     elif aggregation_mode == 'aggregated':
-        # Structure: {channel: aggregated_values_array}
         for channel in channels:
             all_values = []
-            
             for run_name, df in filtered_run_data.items():
                 if channel in df.columns:
                     values = df[channel].dropna().values
                     all_values.extend(values)
-            
             result[channel] = np.array(all_values)
-    
     return result
-
 
 def build_multi_fit_mask(
     fit_def,
@@ -1249,15 +887,6 @@ def build_multi_fit_mask(
     x_var="",
     y_var="",
 ):
-    """Build a boolean mask for one multi-fit definition.
-
-    Fit definition format:
-        (axis_key, min_val, max_val)
-
-    axis_key may be:
-        - 'x' or 'y'
-        - a channel name present in fit_condition_data
-    """
     result = {
         "status": "ok",
         "axis_name": None,
@@ -1265,16 +894,13 @@ def build_multi_fit_mask(
         "max_bound": None,
         "mask": None,
     }
-
     if not isinstance(fit_def, (list, tuple)) or len(fit_def) != 3:
         result["status"] = "invalid_definition"
         return result
-
     axis_key, min_val, max_val = fit_def
     if not isinstance(axis_key, str):
         result["status"] = "invalid_definition"
         return result
-
     axis_lower = axis_key.lower()
     use_inclusive_bounds = False
     if axis_lower == "x":
@@ -1292,7 +918,6 @@ def build_multi_fit_mask(
         condition_values = np.asarray(fit_condition_data[axis_key], dtype=float)
         axis_name = axis_key
         use_inclusive_bounds = True
-
     valid_axis = np.isfinite(condition_values)
     if valid_axis.any():
         min_bound = np.nanmin(condition_values) if min_val is None else min_val
@@ -1300,7 +925,6 @@ def build_multi_fit_mask(
     else:
         min_bound = min_val
         max_bound = max_val
-
     lower_mask = (
         condition_values >= min_bound
         if (min_val is None or use_inclusive_bounds)
@@ -1311,10 +935,8 @@ def build_multi_fit_mask(
         if (max_val is None or use_inclusive_bounds)
         else condition_values < max_bound
     )
-
     xy_finite = np.isfinite(x_data) & np.isfinite(y_data)
     mask = valid_axis & xy_finite & lower_mask & upper_mask
-
     result.update(
         {
             "axis_name": axis_name,
@@ -1325,27 +947,14 @@ def build_multi_fit_mask(
     )
     return result
 
-# ================================================================
-# LABEL HELPERS
-# ================================================================
-
 def add_units_to_label(var_name: str, units_map: dict):
-    """
-    Attach units from units_map to a variable label if present.
-    """
     key = var_name.lower()
     for k, v in units_map.items():
         if k.lower() == key:
             return f"{var_name} ({v})"
     return var_name
 
-
-# ================================================================
-# CPLV (CUMULATIVE PLATFORM LOAD VARIATION)
-# ================================================================
-
 def _running_std(values):
-    """Expanding (cumulative) standard deviation that handles NaN via np.isfinite."""
     valid = np.isfinite(values)
     counts = np.cumsum(valid)
     clean = np.where(valid, values, 0.0)
@@ -1358,59 +967,28 @@ def _running_std(values):
     out[ok] = np.sqrt(np.maximum(variance[ok], 0.0))
     return out
 
-
 def calculate_cplv(df, axle, sample_rate=100.0, highpass_freq=2.0, highpass_order=4):
-    """Calculate CPLV (Cumulative Platform Load Variation) for an axle.
-
-    Parameters
-    ----------
-    df : DataFrame
-        Must contain FzTyreFL/FR/RL/RR columns and a throttle column.
-    axle : {"front", "rear"}
-        Which axle pair to compute.
-    sample_rate : float
-        Data sample rate in Hz (used for highpass filter design).
-    highpass_freq : float
-        Highpass cutoff frequency in Hz.
-    highpass_order : int
-        Butterworth filter order.
-
-    Raises
-    ------
-    KeyError
-        If required FzTyre columns or throttle column are missing.
-    """
     fz_cols = ("FzTyreFL", "FzTyreFR", "FzTyreRL", "FzTyreRR")
     for col in fz_cols:
         if col not in df.columns:
             raise KeyError(col)
-
-    # Resolve throttle column (canonical name after mapping, or fallback).
     throttle_col = next(
         (c for c in ("rThrottle", "rThrottlePedal") if c in df.columns), None
     )
     if throttle_col is None:
         raise KeyError("rThrottle")
-
-    # Resolve lap/time columns for grouping and sorting.
     lap_col = next((c for c in ("nLap", "NLap", "_nLap") if c in df.columns), None)
     time_col = next((c for c in ("tLap", "sLap") if c in df.columns), None)
-
     result = pd.Series(np.nan, index=df.index, dtype=float)
     min_samples = 3 * (highpass_order + 1) + 1
-
-    # Design highpass filter; bail if cutoff exceeds Nyquist.
     fs = float(sample_rate or 100.0)
     if highpass_freq >= fs / 2:
         return result
-
     groups = df.groupby(lap_col, sort=False) if lap_col else [(None, df)]
-
     for _, group in groups:
         lap = group.sort_values(time_col) if time_col else group
         if len(lap) < min_samples:
             continue
-
         hp = {}
         usable = np.ones(len(lap), dtype=bool)
         for col in fz_cols:
@@ -1439,41 +1017,19 @@ def calculate_cplv(df, axle, sample_rate=100.0, highpass_freq=2.0, highpass_orde
                     + _running_std(np.where(gls, hp["FzTyreRR"], np.nan))
                 )
             result.loc[lap.index] = pd.Series(vals, index=lap.index).ffill()
-
     return result
 
-
-# ================================================================
-# SCATTER GATING HELPERS
-# ================================================================
-
-def is_gate_spec(value):
-    """Return True if value matches supported scatter gate formats."""
-    if isinstance(value, (list, tuple)) and len(value) == 3 and isinstance(value[0], str):
-        return True
-    if isinstance(value, (list, tuple)) and value and all(
-        isinstance(v, (list, tuple)) and len(v) == 3 and isinstance(v[0], str)
-        for v in value
-    ):
-        return True
-    return False
-
-
 def _normalize_gate_conditions(gate_spec):
-    """Normalize a gate spec into a list of 3-item conditions."""
     if gate_spec is None:
         return []
     if isinstance(gate_spec, (list, tuple)) and len(gate_spec) == 3 and isinstance(gate_spec[0], str):
         return [gate_spec]
     return list(gate_spec)
 
-
 def collect_gate_channels(gate_spec):
-    """Collect channel names referenced by a scatter gate specification."""
     channels = set()
     if gate_spec is None:
         return channels
-
     conditions = _normalize_gate_conditions(gate_spec)
     for condition in conditions:
         if (
@@ -1484,15 +1040,11 @@ def collect_gate_channels(gate_spec):
             channels.add(condition[0])
     return channels
 
-
 def format_gate_text(gate_spec):
-    """Format scatter gate condition(s) for display in a compact info box."""
     if gate_spec is None:
         return None
-
     conditions = _normalize_gate_conditions(gate_spec)
     lines = ["Gated For:"]
-
     for condition in conditions:
         if not isinstance(condition, (list, tuple)) or len(condition) != 3:
             continue
@@ -1507,30 +1059,13 @@ def format_gate_text(gate_spec):
             lines.append(f"|{channel} - median| $\\leq$ {value}$\\cdot$MAD")
         else:
             lines.append(f"{channel} {operator} {value}")
-
     return "\n".join(lines) if len(lines) > 1 else None
 
-
-# ================================================================
-# FUZZY CHANNEL NAME MATCHING (#10)
-# ================================================================
-
 def suggest_similar_channels(target, available, max_results=5, cutoff=0.5):
-    """Suggest channel names from `available` that resemble `target`.
-
-    Combines:
-      * Substring / prefix matching (case-insensitive)
-      * ``difflib.get_close_matches`` with a tunable cutoff
-
-    Returns a deduplicated, ranked list of suggestions (best first).
-    """
     if not target or not available:
         return []
-
     target_lc = target.lower()
     available_list = list(available)
-
-    # 1. Substring / prefix scoring — fast and catches DLS naming patterns.
     scored = []
     for ch in available_list:
         ch_lc = ch.lower()
@@ -1540,17 +1075,11 @@ def suggest_similar_channels(target, available, max_results=5, cutoff=0.5):
             scored.append((0, ch))
         elif target_lc in ch_lc or ch_lc in target_lc:
             scored.append((1, ch))
-
     scored.sort(key=lambda t: (t[0], t[1].lower()))
     substring_hits = [ch for _, ch in scored[:max_results]]
-
-    # 2. difflib fuzzy match — catches typos.
     fuzzy_hits = difflib.get_close_matches(
         target, available_list, n=max_results, cutoff=cutoff
     )
-
-    # Merge preserving order; substring hits first because they tend to be
-    # more relevant for telemetry channel naming conventions.
     seen = set()
     merged = []
     for ch in substring_hits + fuzzy_hits:
@@ -1561,37 +1090,18 @@ def suggest_similar_channels(target, available, max_results=5, cutoff=0.5):
             break
     return merged
 
-
-# ================================================================
-# ROBUST REGRESSION (#18)
-# ================================================================
-
 def fit_robust_theilsen(x, y, outlier_k=3.0):
-    """Theil-Sen regression with MAD-based outlier rejection.
-
-    Returns a dict with keys:
-        slope, intercept, ci_low, ci_high   - Theil-Sen fit on inliers
-        outlier_mask                        - boolean array (True = outlier)
-        n_total, n_outliers                 - counts
-        pseudo_r2                           - 1 - (MAD residuals / MAD total),
-                                              clipped to [0, 1]; rough robust
-                                              analogue of R².
-    """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     finite = np.isfinite(x) & np.isfinite(y)
     xf, yf = x[finite], y[finite]
     if xf.size < 3:
         return None
-
-    # First pass on all finite data to estimate residual scale.
     slope, intercept, lo, hi = theilslopes(yf, xf, 0.95)
     resid = yf - (slope * xf + intercept)
     mad_r = np.median(np.abs(resid - np.median(resid))) * 1.4826
-
     if mad_r > 0 and np.isfinite(mad_r):
         outlier_mask_f = np.abs(resid) > outlier_k * mad_r
-        # Refit on inliers if we have enough points left.
         inliers = ~outlier_mask_f
         if inliers.sum() >= 3:
             slope, intercept, lo, hi = theilslopes(yf[inliers], xf[inliers], 0.95)
@@ -1599,17 +1109,13 @@ def fit_robust_theilsen(x, y, outlier_k=3.0):
             mad_r = np.median(np.abs(resid_in - np.median(resid_in))) * 1.4826
     else:
         outlier_mask_f = np.zeros_like(xf, dtype=bool)
-
     mad_total = np.median(np.abs(yf - np.median(yf))) * 1.4826
     if mad_total > 0 and np.isfinite(mad_total):
         pseudo_r2 = float(np.clip(1.0 - (mad_r / mad_total) ** 2, 0.0, 1.0))
     else:
         pseudo_r2 = 0.0
-
-    # Re-expand outlier mask to full input length.
     full_mask = np.zeros_like(x, dtype=bool)
     full_mask[finite] = outlier_mask_f
-
     return {
         "slope": float(slope),
         "intercept": float(intercept),
@@ -1621,23 +1127,15 @@ def fit_robust_theilsen(x, y, outlier_k=3.0):
         "pseudo_r2": pseudo_r2,
     }
 
-
-# ================================================================
-# SAMPLE-RATE DETECTION (#17)
-# ================================================================
-
 def _rational_ratio(target: float, src: float,
                     max_denom: int = 1000) -> tuple[int, int]:
-    """Approximate ``target / src`` as a reduced integer ratio (up, down)."""
     from math import gcd
-    # Multiply by 1000 then round, then reduce. Good enough for sample rates.
     up = max(1, int(round(target * 1000)))
     down = max(1, int(round(src * 1000)))
     g = gcd(up, down) or 1
     up //= g
     down //= g
     if up > max_denom or down > max_denom:
-        # Fall back to rounded integer Hz values
         up = max(1, int(round(target)))
         down = max(1, int(round(src)))
         g = gcd(up, down) or 1
@@ -1645,28 +1143,9 @@ def _rational_ratio(target: float, src: float,
         down //= g
     return up, down
 
-
 def resample_to_uniform_rate(df: pd.DataFrame, target_rate: float,
                              time_col: str = "tLap",
                              run_name: str | None = None) -> pd.DataFrame:
-    """Resample every numeric channel to a uniform ``target_rate`` (Hz).
-
-    Pipeline:
-      1. Estimate the source rate from ``time_col`` (median positive dt).
-      2. If src ≈ target (within 0.5 %) the frame is returned unchanged.
-      3. Otherwise each numeric column is resampled with
-         :func:`scipy.signal.resample_poly`, which applies an FIR
-         anti-alias / interpolation filter — preventing the aliasing
-         that naive linear interpolation produces on downsampling and
-         the stair-step harmonics it leaves on upsampling.
-
-    NaNs are filled by linear interpolation before polyphase resampling
-    so the FIR filter has no holes; an all-NaN column becomes an all-NaN
-    column of the new length. Non-numeric columns use nearest-neighbour.
-
-    Called BEFORE filter design so that Butterworth cutoffs at
-    ``target_rate`` are consistent channel-to-channel and run-to-run.
-    """
     if df is None or df.empty:
         return df
     try:
@@ -1679,13 +1158,10 @@ def resample_to_uniform_rate(df: pd.DataFrame, target_rate: float,
         log.debug("resample: skipped (no '%s' column) for %s",
                   time_col, run_name or "<run>")
         return df
-
     t = pd.to_numeric(df[time_col], errors="coerce").to_numpy(dtype=float)
     n_old = len(df)
     if n_old < 4 or not np.isfinite(t).any():
         return df
-
-    # Estimate source rate from the median positive dt (handles per-lap resets).
     dt = np.diff(t)
     valid_dt = (dt > 0) & (dt < 1.0) & np.isfinite(dt)
     if valid_dt.sum() < 5:
@@ -1696,32 +1172,21 @@ def resample_to_uniform_rate(df: pd.DataFrame, target_rate: float,
     if not np.isfinite(med_dt) or med_dt <= 0:
         return df
     src_rate = 1.0 / med_dt
-
-    # Already at target — skip work.
     if abs(src_rate - target_rate) / target_rate < 0.005:
         log.debug("resample: %s already at %.2f Hz (target %.2f) — skipped",
                   run_name or "<run>", src_rate, target_rate)
         return df
-
     up, down = _rational_ratio(target_rate, src_rate)
     if up == down:
         return df
-
     n_new = int(np.floor(n_old * up / down))
     if n_new < 2:
         return df
-
-    # Columns that must NOT pass through the polyphase FIR.
-    #   - Time/distance columns reset to 0 at lap boundaries (sawtooth) — the
-    #     anti-alias filter would ring at every reset, distorting the time axis.
-    #   - Lap counters are integer step functions — must stay integer-valued.
-    # These are interpolated against the resampled time grid directly.
     _LINEAR_INTERP_COLS = {"tlap", "slap"}
     _NEAREST_COLS = {"nlap"}
     idx_old = np.arange(n_old)
     t_src_uniform = idx_old / src_rate
     t_new_uniform = np.arange(n_new) / target_rate
-
     out: dict[str, np.ndarray] = {}
     for col in df.columns:
         s = df[col]
@@ -1733,10 +1198,8 @@ def resample_to_uniform_rate(df: pd.DataFrame, target_rate: float,
                 out[col] = np.full(n_new, np.nan)
                 continue
             if nan_mask.any():
-                # Fill holes so the polyphase filter has no NaN.
                 valid = ~nan_mask
                 y = np.interp(idx_old, idx_old[valid], y[valid])
-            # Control columns bypass polyphase (see comment above).
             if col_key in _LINEAR_INTERP_COLS:
                 y_new = np.interp(t_new_uniform, t_src_uniform, y)
                 out[col] = y_new
@@ -1748,18 +1211,11 @@ def resample_to_uniform_rate(df: pd.DataFrame, target_rate: float,
                 out[col] = y[idx_new]
                 continue
             try:
-                # padtype="line" extends the signal linearly past both ends
-                # before the polyphase FIR convolution. Default ("constant",
-                # i.e. zero-pad) causes severe Gibbs ringing at sample 0 / N
-                # on channels with a non-zero DC offset (e.g. xHubVert,
-                # hRide) because the kernel sees an artificial step from
-                # the channel's mean down to 0 at the boundary.
                 y_new = resample_poly(y, up, down, padtype="line")
             except Exception as exc:  # pragma: no cover - extreme edge cases
                 log.warning("resample: %s column '%s' fell back to linear (%s)",
                             run_name or "<run>", col, exc)
                 y_new = np.interp(t_new_uniform, t_src_uniform, y)
-            # resample_poly may return slightly different length; align.
             if len(y_new) != n_new:
                 if len(y_new) > n_new:
                     y_new = y_new[:n_new]
@@ -1769,7 +1225,6 @@ def resample_to_uniform_rate(df: pd.DataFrame, target_rate: float,
                     )
             out[col] = y_new
         else:
-            # Nearest-neighbour for non-numeric columns.
             if n_new == 1:
                 idx_new = np.array([0])
             else:
@@ -1777,49 +1232,25 @@ def resample_to_uniform_rate(df: pd.DataFrame, target_rate: float,
                     np.linspace(0, n_old - 1, n_new)
                 ).astype(int)
             out[col] = s.to_numpy()[np.clip(idx_new, 0, n_old - 1)]
-
     new_df = pd.DataFrame(out)
     log.info("[%s] resampled %d -> %d rows (%.1f Hz -> %.1f Hz, ratio %d/%d)",
              run_name or "run", n_old, len(new_df), src_rate, target_rate, up, down)
     return new_df
 
-
 def _parse_time_into_export(series: pd.Series) -> pd.Series:
-    """Parse a TimeIntoExport-style column to seconds.
-
-    Accepts numeric series (seconds), or strings in ``HH:MM:SS[.mmm]`` /
-    ``MM:SS[.mmm]`` / ``SS[.mmm]`` form. Anything unparseable becomes NaN.
-    """
     if pd.api.types.is_numeric_dtype(series):
         return pd.to_numeric(series, errors="coerce")
-    # String → seconds.  Use pandas' timedelta parser, which handles
-    # "HH:MM:SS.fff" and "MM:SS.fff" (after prepending "0:") robustly.
     s = series.astype(str).str.strip()
     td = pd.to_timedelta(s, errors="coerce")
     if td.notna().any():
         return td.dt.total_seconds()
-    # Last resort: try plain float
     return pd.to_numeric(s, errors="coerce")
 
-
 def detect_sample_rate(df, default=100.0):
-    """Estimate samples-per-second from a loaded run dataframe.
-
-    Tries (in order):
-        1. ``tLap`` median diff
-        2. ``TimeIntoExport`` (monotonic wall-clock, parsed as seconds
-           or ``HH:MM:SS.mmm`` strings) median diff — the most reliable
-           source on CAR exports where ``sLap`` is ZOH-held below the
-           true grid rate.
-        3. ``sLap``+``vCar`` (vCar in km/h)
-        4. fallback ``default``
-    Returns (rate_hz, source_label).
-    """
     if "tLap" in df.columns:
         t = pd.to_numeric(df["tLap"], errors="coerce").dropna()
         if len(t) > 10:
             dt = t.diff().dropna()
-            # Filter out lap-reset spikes (negative jumps) before taking median.
             dt = dt[(dt > 0) & (dt < 1.0)]
             if len(dt) > 5:
                 med = dt.median()
@@ -1838,7 +1269,6 @@ def detect_sample_rate(df, default=100.0):
         s = pd.to_numeric(df["sLap"], errors="coerce").dropna()
         v = pd.to_numeric(df["vCar"], errors="coerce").reindex(s.index).dropna()
         if len(v) > 50:
-            # vCar in km/h -> m/s; dt = ds / (v * 1000/3600)
             ds = s.diff().dropna()
             v_mps = v.loc[ds.index] / 3.6
             dt = ds / v_mps.replace(0, np.nan)
@@ -1848,4 +1278,3 @@ def detect_sample_rate(df, default=100.0):
                 if med > 0 and np.isfinite(med):
                     return float(1.0 / med), "sLap+vCar"
     return float(default), "default"
-

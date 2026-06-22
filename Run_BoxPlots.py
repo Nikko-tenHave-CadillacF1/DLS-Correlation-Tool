@@ -3,8 +3,8 @@
 from bootstrap import ensure_dependencies
 ensure_dependencies()
 
-from channel_config import get_workflow_dirs, resolve_template_path
-from engine import run_workflow, Slide, BoxPlot, BoxPlotGrid, WaveformPlot
+from channel_config import get_workflow_dirs
+from engine import run_workflow, BoxPlotGrid, WaveformPlot
 
 WORKFLOW_NAME = "boxplots"
 EVENT = "26R05MTL"
@@ -49,24 +49,10 @@ WAVEFORM_PLOT_DEFINITIONS = [
     WaveformPlot(
         name="[CHECK] Filtering",
         channels=('hRideF', 'hRideR', 'aSteerF', 'aRoll', 'nYaw'),
-        axis_limits=(None, None, None, None, None),
         reference_lines=((0,), (0,), (0,), (0,), (0,)),
-        subplot_heights=(0.6, 0.6, 0.6, 0.6, 0.6),
         # highlight_zones=('SM', '>', 0.5)
     ),
 ]
-
-# ─── SCATTER PLOTS ────────────────────────────────────────────────────────────
-SCATTER_PLOT_DEFINITIONS = []
-
-# ─── PSD PLOTS ────────────────────────────────────────────────────────────────
-PSD_PLOT_DEFINITIONS = []
-
-# ─── HISTOGRAM PLOTS ──────────────────────────────────────────────────────────
-HISTOGRAM_PLOT_DEFINITIONS = []
-
-# ─── BAR PLOTS ────────────────────────────────────────────────────────────────
-BAR_PLOT_DEFINITIONS = []
 
 # ─── BOX PLOTS ────────────────────────────────────────────────────────────────
 # aggregation_mode: "per_run" (one box per run) | "aggregated" (all runs merged)
@@ -96,9 +82,6 @@ BOX_PLOT_DEFINITIONS = [
     BoxPlotGrid(name="Typical Roll Angles",  channels=("aRoll",),  aggregation_mode="aggregated", rows=SPEED_BANDS, cols=CORNER_PHASE, render_mode="grid"),
 ]
 
-# ─── HEATMAP PLOTS ────────────────────────────────────────────────────────────
-HEATMAP_PLOT_DEFINITIONS = []
-
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -109,11 +92,6 @@ if __name__ == "__main__":
         root_folder=_INPUT_DIR,
         output_dir=_OUTPUT_DIR,
         waveforms=WAVEFORM_PLOT_DEFINITIONS,
-        scatters=SCATTER_PLOT_DEFINITIONS,
-        psds=PSD_PLOT_DEFINITIONS,
-        histograms=HISTOGRAM_PLOT_DEFINITIONS,
-        bars=BAR_PLOT_DEFINITIONS,
         boxes=BOX_PLOT_DEFINITIONS,
-        heatmaps=HEATMAP_PLOT_DEFINITIONS,
         box_plot_settings=BOX_PLOT_SETTINGS,
     )
