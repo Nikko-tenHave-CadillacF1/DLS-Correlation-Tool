@@ -218,6 +218,33 @@ baseline. That run is the reference for waveform delta subplots
 (`show_delta=True`) and the `tDiff` channel (lap-time difference vs reference
 at each `sLap`). If no run is flagged, the first loaded run is used.
 
+### Folder-based runs
+
+To load every matching file in a directory as its own run, replace `file`
+with `folder` + `filetype`. The entry is expanded into one run per file at
+load time, with names derived from the filename stems and colours auto-shaded
+from the `type` colormap.
+
+```python
+RUNS = [
+    {"folder": "2xStopChoc", "filetype": ".parquet", "type": "DLS", "nlap": 1},
+    {"folder": "2xStopChoc", "filetype": ".txt",     "type": "CAR"},
+]
+```
+
+Optional keys for folder runs:
+
+| Key | Description |
+|-----|-------------|
+| `contains` | Case-insensitive substring filter. Only files whose names contain this string are loaded. Lets a single folder feed multiple per-condition configurations (e.g. `"FP1"`, `"Q"`). |
+| `name_prefix` | String prepended to each auto-generated run name. |
+| `colors` | Explicit list of hex colours, cycled per file (overrides auto-shading). |
+| `color` | Single hex colour applied to every expanded run. |
+
+Any other keys (`nlap`, `nrun`, `type`, etc.) are forwarded to each expanded
+run. An empty folder, an unknown `filetype`, or a `contains` filter with no
+matches raises a clear error before plotting starts.
+
 ---
 
 ## Filtering plots programmatically

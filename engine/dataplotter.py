@@ -366,12 +366,20 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         self.SCATTER_TRANSPARENCY = scatter_transparency
         self.SCATTER_MAX_POINTS = scatter_max_points
         if isinstance(fig_size, dict):
-            self.waveform_figsize = fig_size.get("waveform", (15.5, 6.4))
-            self.scatter_FIGSIZE = fig_size.get("scatter", (10, 8))
-            self.psd_FIGSIZE = fig_size.get("psd", (10, 8))
-            self.histogram_FIGSIZE = fig_size.get("histogram", (10, 8))
-            self.bar_FIGSIZE = fig_size.get("bar", (10, 6))
-            self.boxplot_FIGSIZE = fig_size.get("box", fig_size.get("bar", (10, 6)))
+            default = fig_size.get("default", (10, 8))
+            self.waveform_figsize  = fig_size.get("waveform",  fig_size.get("default", (15.5, 6.4)))
+            self.scatter_FIGSIZE   = fig_size.get("scatter",   default)
+            self.psd_FIGSIZE       = fig_size.get("psd",       default)
+            self.histogram_FIGSIZE = fig_size.get("histogram", default)
+            self.bar_FIGSIZE       = fig_size.get("bar",       fig_size.get("default", (10, 6)))
+            self.boxplot_FIGSIZE   = fig_size.get("box",       self.bar_FIGSIZE)
+        elif (
+            isinstance(fig_size, (list, tuple)) and len(fig_size) == 2
+            and all(isinstance(v, (int, float)) for v in fig_size)
+        ):
+            size = (float(fig_size[0]), float(fig_size[1]))
+            self.waveform_figsize = self.scatter_FIGSIZE = self.psd_FIGSIZE = size
+            self.histogram_FIGSIZE = self.bar_FIGSIZE = self.boxplot_FIGSIZE = size
         else:
             self.waveform_figsize = fig_size[0]
             self.scatter_FIGSIZE = fig_size[1]
@@ -618,6 +626,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         source_columns = set()
         mappings = self._reverse_mappings.get(source_type, {})
         for ch in resolved_channels:
+            source_columns.add(ch)
             source_columns.add(mappings.get(ch, ch))
         return source_columns
     def _available_parquet_engines(self):
@@ -881,8 +890,19 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     )
                 if columns_to_load:
                     requested = sorted(set(columns_to_load))
-                    available = [c for c in requested if c in df.columns]
-                    missing = [c for c in requested if c not in df.columns]
+                    df_cols = set(df.columns)
+                    available = []
+                    missing = []
+                    for c in requested:
+                        if c in df_cols:
+                            available.append(c)
+                        elif (
+                            c.startswith("_") and len(c) > 1 and c[1].isalpha()
+                            and (c[1].upper() + c[2:]) in df_cols
+                        ):
+                            available.append(c[1].upper() + c[2:])
+                        else:
+                            missing.append(c)
                     if missing and self.verbose:
                         log.debug(
                             "Parquet '%s' missing %d channel(s): %s%s",
@@ -1248,7 +1268,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 continue
             required = self.run_required_cols.get(name)
             required_set = set(required) if required else None
-            datafunctions.apply_calculated_channels(
+            self.run_data[name] = datafunctions.apply_calculated_channels(
                 self.run_data[name], name, self.CALCULATED_CHANNELS,
                 required_channels=required_set,
             )

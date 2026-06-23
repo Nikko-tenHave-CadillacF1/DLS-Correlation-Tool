@@ -81,6 +81,116 @@ def _resolve_export_map(export_map, plot_definitions, start_slide=1):
     return {i + offset: slide for i, slide in enumerate(export_map)}
 
 _VALID_RUN_TYPES = {"OC", "CAR", "DLS", "DIL"}
+_VALID_RUN_FILETYPES = {".csv", ".parquet", ".txt"}
+_FOLDER_RUN_COLOR_PALETTE = (
+    "#FF8000", "#2000BF", "#D70000", "#008CFF",
+    "#00CC88", "#CC0066", "#FFD700", "#4C00BF",
+)
+_TYPE_COLORMAPS = {
+    "CAR": "Oranges",
+    "DLS": "Blues",
+    "DIL": "Greens",
+    "OC":  "Purples",
+}
+
+def _shades_from_cmap(cmap_name: str, n: int, offset: int = 0) -> list[str]:
+    import matplotlib.cm as _cm
+    from matplotlib.colors import to_hex
+    cmap = _cm.get_cmap(cmap_name)
+    total = max(n + offset, 2)
+    pts = [0.45 + 0.5 * (i / max(total - 1, 1)) for i in range(offset, offset + n)]
+    return [to_hex(cmap(p)) for p in pts]
+
+def _expand_folder_runs(runs: list, root_folder: Path) -> list:
+    if not runs:
+        return list(runs)
+    root_path = Path(root_folder).resolve()
+    expanded: list = []
+    type_offsets: dict[str, int] = {}
+    for i, run in enumerate(runs):
+        if "folder" not in run:
+            expanded.append(run)
+            continue
+        folder_rel = run["folder"]
+        filetype = run.get("filetype")
+        if not filetype:
+            raise ValueError(
+                f"Folder run[{i}] {folder_rel!r}: missing 'filetype' "
+                f"(one of {sorted(_VALID_RUN_FILETYPES)})."
+            )
+        ext = filetype.lower()
+        if not ext.startswith("."):
+            ext = "." + ext
+        if ext not in _VALID_RUN_FILETYPES:
+            raise ValueError(
+                f"Folder run[{i}] {folder_rel!r}: filetype {filetype!r} "
+                f"must be one of {sorted(_VALID_RUN_FILETYPES)}."
+            )
+        run_type = run.get("type")
+        if run_type and run_type not in _VALID_RUN_TYPES:
+            raise ValueError(
+                f"Folder run[{i}] {folder_rel!r}: unknown type {run_type!r}. "
+                f"Expected one of: {', '.join(sorted(_VALID_RUN_TYPES))}"
+            )
+        folder_path = (root_path / folder_rel).resolve()
+        if not folder_path.is_dir():
+            raise FileNotFoundError(
+                f"Folder run[{i}]: directory not found -> {folder_path}"
+            )
+        files = sorted(
+            p for p in folder_path.iterdir()
+            if p.is_file() and p.suffix.lower() == ext
+        )
+        if not files:
+            raise FileNotFoundError(
+                f"Folder run[{i}] {folder_rel!r}: no '{ext}' files in {folder_path}."
+            )
+        contains = run.get("contains")
+        if contains:
+            if not isinstance(contains, str):
+                raise ValueError(
+                    f"Folder run[{i}] {folder_rel!r}: 'contains' must be a string, "
+                    f"got {type(contains).__name__}."
+                )
+            needle = contains.lower()
+            files = [p for p in files if needle in p.name.lower()]
+            if not files:
+                raise FileNotFoundError(
+                    f"Folder run[{i}] {folder_rel!r}: no '{ext}' files in "
+                    f"{folder_path} matched contains={contains!r}."
+                )
+        colors = run.get("colors")
+        single_color = run.get("color")
+        name_prefix = run.get("name_prefix", "")
+        reserved = {"folder", "filetype", "colors", "name_prefix",
+                    "name", "file", "color", "contains"}
+        common = {k: v for k, v in run.items() if k not in reserved}
+        n_files = len(files)
+        if not colors and not single_color and run_type in _TYPE_COLORMAPS:
+            offset = type_offsets.get(run_type, 0)
+            auto_colors = _shades_from_cmap(_TYPE_COLORMAPS[run_type], n_files, offset)
+            type_offsets[run_type] = offset + n_files
+        else:
+            auto_colors = None
+        for j, f in enumerate(files):
+            entry = dict(common)
+            entry["name"] = f"{name_prefix}{f.stem}"
+            try:
+                entry["file"] = str(f.relative_to(root_path))
+            except ValueError:
+                entry["file"] = str(f)
+            if colors:
+                entry["color"] = colors[j % len(colors)]
+            elif single_color:
+                entry["color"] = single_color
+            elif auto_colors is not None:
+                entry["color"] = auto_colors[j]
+            else:
+                entry["color"] = _FOLDER_RUN_COLOR_PALETTE[
+                    j % len(_FOLDER_RUN_COLOR_PALETTE)
+                ]
+            expanded.append(entry)
+    return expanded
 
 def validate_config(config: PlotJobConfig) -> list[str]:
     issues: list[str] = []
@@ -186,7 +296,8 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
     if cli_args is not None and getattr(cli_args, "list_plots", False):
         _print_plot_list(config.plot_definitions)
         return
-    runs = config.runs
+    runs = _expand_folder_runs(config.runs, config.root_folder)
+    config.runs = runs
     if cli_args is not None and getattr(cli_args, "runs", None):
         requested = {r.lower() for r in cli_args.runs}
         runs = [r for r in runs if r["name"].lower() in requested]

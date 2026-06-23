@@ -4,18 +4,16 @@ from bootstrap import ensure_dependencies
 ensure_dependencies()
 
 from channel_config import get_workflow_dirs
-from engine import run_workflow, WaveformPlot, ScatterPlot
+from engine import run_workflow, WaveformPlot, ScatterPlot, PsdPlot
 
 WORKFLOW_NAME = "dampers"
-EVENT = "26R04MIA"
+EVENT = "26R06MCO"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 
 RUNS = [
-    {"name": "Front Heave - 7A", "file": "VPG Baselines  MIA  26R04MIA v1b_-7A FRONT HEAVE_LTS_Iteration_8.parquet",    "color": "#D70000", "nlap": 1, "type": "DLS"},
-    {"name": "Front Heave - 7B", "file": "VPG Baselines  MIA  26R04MIA v1b_-7B FRONT HEAVE_LTS_Iteration_8.parquet",    "color": "#059E00", "nlap": 1, "type": "DLS"},
-    {"name": "Front Heave - 7C", "file": "VPG Baselines  MIA  26R04MIA v1b_- 7C FRONT HEAVE_LTS_Iteration_8.parquet",  "color": "#008CFF", "nlap": 1, "type": "DLS"},
+    {"folder": ".", "filetype": ".parquet", "nlap": 1, "type": "DLS"},
 ]
 
 # ─── WAVEFORM PLOTS ───────────────────────────────────────────────────────────
@@ -56,6 +54,26 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("rLLTD vs. CosPhi", "rLLTD", "CosPhi"),
 ]
 
+# ─── PSD PLOTS ────────────────────────────────────────────────────────────
+
+PSD_PLOT_DEFINITIONS = [
+    PsdPlot("Front Vertical Acceleration PSD", "gVertF",       axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(5, 10)),
+    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR",       axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(4, 8)),
+    PsdPlot("Front Ride PSD",                  "hRideF (raw)", axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 7)),
+    PsdPlot("Rear Ride PSD",                   "hRideR (raw)", axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 7)),
+
+    PsdPlot("FPushrodFL PSD", "FProdFL_High",  axis_limits=[(0, 20), (1e4, None)]),
+    PsdPlot("FPushrodFR PSD", "FProdFR_High",  axis_limits=[(0, 20), (1e4, None)]),
+    PsdPlot("FPushrodRL PSD", "FProdRL_High",  axis_limits=[(0, 20), (1e4, None)]),
+    PsdPlot("FPushrodRR PSD", "FProdRR_High",  axis_limits=[(0, 20), (1e4, None)]),
+
+    PsdPlot("Heave Mode PSD - ungated",  "FPRodHeave", axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(4, 7)),
+    PsdPlot("Pitch Mode PSD - ungated",  "FPRodPitch", axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(7, 11)),
+    PsdPlot("Roll Mode PSD - ungated",   "FPRodRoll",  axis_limits=[(0, 30), (1e4, None)], lorentz_fit=[(4, 7), (9, 12)]),
+    PsdPlot("Warp Mode PSD - ungated",   "FPRodWarp",  axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(20, 30)),
+
+]
+
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -67,5 +85,6 @@ if __name__ == "__main__":
         output_dir=_OUTPUT_DIR,
         waveforms=WAVEFORM_PLOT_DEFINITIONS,
         scatters=SCATTER_PLOT_DEFINITIONS,
+        psds=PSD_PLOT_DEFINITIONS,
         fig_size={"waveform": (9.5, 8)},
     )

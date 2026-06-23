@@ -20,6 +20,11 @@ Validates a `Run_*.py` configuration file without generating plots.
 python tools/validate_config.py Run_Correlation.py
 ```
 
+Runs the configuration in `--dry-run` mode, which also exercises folder-based
+run expansion (`folder` + `filetype`, including the optional `contains`
+substring filter). Empty folders, unknown filetypes, and `contains` filters
+that match no files are reported as errors before any plotting starts.
+
 ## `vibrations.py`
 
 Fits a 4-DOF body dynamics transfer function (Heave, Pitch, Roll, Warp)

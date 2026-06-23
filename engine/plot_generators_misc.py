@@ -11,14 +11,12 @@ def _lorentz_peak_model(f, f0, zeta, amp, baseline):
     denom = (f0 ** 2 - f ** 2) ** 2 + (2.0 * zeta * f0 * f) ** 2
     return amp * f0 ** 4 / np.maximum(denom, 1e-30) + baseline
 
-_ZETA_LO_PSD, _ZETA_HI_PSD = 1e-3, 0.7
+_ZETA_LO_PSD, _ZETA_HI_PSD = 1e-3, 1.0
 _SATURATION_MARGIN = 0.05
 
-def _fit_lorentz_peak(freq, power, f0_user, half_width_hz=None, min_points=8):
+def _fit_lorentz_peak(freq, power, f_lo, f_hi, min_points=8):
     from scipy.optimize import least_squares
-    hw = float(half_width_hz) if half_width_hz is not None else max(f0_user * 0.25, 1.0)
-    lo, hi = max(0.5, f0_user - hw), f0_user + hw
-    mask = (freq >= lo) & (freq <= hi)
+    mask = (freq >= f_lo) & (freq <= f_hi)
     if int(mask.sum()) < min_points:
         return None
     f_fit = np.asarray(freq[mask], dtype=float)
@@ -27,13 +25,12 @@ def _fit_lorentz_peak(freq, power, f0_user, half_width_hz=None, min_points=8):
         return None
     p_peak = float(np.max(p_fit))
     p_base = float(np.percentile(p_fit, 10))
-    f0_lo = max(0.5, f0_user - 0.5 * hw)
-    f0_hi = f0_user + 0.5 * hw
+    f0_init = float(f_fit[int(np.argmax(p_fit))])
     amp_hi = max(p_peak * 1e3, 1.0)
     base_hi = max(p_peak, 1e-9)
-    p0 = [f0_user, 0.05, max(p_peak - p_base, 1e-12), p_base]
-    lo_bounds = [f0_lo, _ZETA_LO_PSD, 0.0, 0.0]
-    hi_bounds = [f0_hi, _ZETA_HI_PSD, amp_hi, base_hi]
+    p0 = [f0_init, 0.05, max(p_peak - p_base, 1e-12), p_base]
+    lo_bounds = [f_lo, _ZETA_LO_PSD, 0.0, 0.0]
+    hi_bounds = [f_hi, _ZETA_HI_PSD, amp_hi, base_hi]
     log_p = np.log(np.maximum(p_fit, 1e-30))
     def residual(params):
         model = _lorentz_peak_model(f_fit, *params)
@@ -61,7 +58,7 @@ def _fit_lorentz_peak(freq, power, f0_user, half_width_hz=None, min_points=8):
         pass
     saturated = False
     for val, b_lo, b_hi in (
-        (f0_fit, f0_lo, f0_hi),
+        (f0_fit, f_lo, f_hi),
         (zeta_fit, _ZETA_LO_PSD, _ZETA_HI_PSD),
     ):
         span = b_hi - b_lo
@@ -69,9 +66,11 @@ def _fit_lorentz_peak(freq, power, f0_user, half_width_hz=None, min_points=8):
                          or b_hi - val < _SATURATION_MARGIN * span):
             saturated = True
             break
-    return f0_fit, zeta_fit, amp_fit, base_fit, lo, hi, sigma_zeta, r_squared, saturated
+    return f0_fit, zeta_fit, amp_fit, base_fit, f_lo, f_hi, sigma_zeta, r_squared, saturated
 
 class PsdHistMixin:
+
+    LORENTZ_COMPACT_THRESHOLD = 5
 
     def generate_psd_plots(self):
         self._ensure_preprocessed()
@@ -90,7 +89,7 @@ class PsdHistMixin:
             gate_spec     = getattr(plot_def, "gate", None)
             show_envelope = bool(getattr(plot_def, "show_envelope", False))
             reference_lines = getattr(plot_def, "reference_lines", None)
-            lorentz_fit_freqs = getattr(plot_def, "lorentz_fit", None) or []
+            lorentz_fit_windows = getattr(plot_def, "lorentz_fit", None) or []
             channels_list = [channel] if isinstance(channel, str) else list(channel)
             if plot_def.nperseg is not None:
                 nperseg = plot_def.nperseg
@@ -105,20 +104,6 @@ class PsdHistMixin:
                             sample_counts.append(int(np.isfinite(df[ch].to_numpy(dtype=float)).sum()))
                 n_min = min(sample_counts) if sample_counts else 0
                 nperseg = datafunctions.auto_nperseg(n_min) if n_min >= 16 else 512
-            clipped_hw = [None] * len(lorentz_fit_freqs)
-            if lorentz_fit_freqs:
-                ranked = sorted(range(len(lorentz_fit_freqs)),
-                                key=lambda i: lorentz_fit_freqs[i][0])
-                for rank, idx in enumerate(ranked):
-                    f0_u, hw_u = lorentz_fit_freqs[idx]
-                    hw_eff = float(hw_u) if hw_u is not None else max(f0_u * 0.25, 1.0)
-                    if rank > 0:
-                        f0_prev = lorentz_fit_freqs[ranked[rank - 1]][0]
-                        hw_eff = min(hw_eff, 0.5 * (f0_u - f0_prev))
-                    if rank < len(ranked) - 1:
-                        f0_next = lorentz_fit_freqs[ranked[rank + 1]][0]
-                        hw_eff = min(hw_eff, 0.5 * (f0_next - f0_u))
-                    clipped_hw[idx] = max(hw_eff, 0.1)
             line_styles = ["-", "--", ":", "-."]
             if self.verbose:
                 log.debug("Creating PSD plot: %s (%s)", plot_name, ', '.join(channels_list))
@@ -215,13 +200,12 @@ class PsdHistMixin:
                         )
                     psd_curves.append((group_color, freq, power_mean))
                     plotted_any = True
-                    for fit_idx, (f0_user, _hw_raw) in enumerate(lorentz_fit_freqs):
+                    for f_lo_u, f_hi_u in lorentz_fit_windows:
                         fit_res = _fit_lorentz_peak(
-                            freq, power_mean, f0_user,
-                            half_width_hz=clipped_hw[fit_idx])
+                            freq, power_mean, f_lo_u, f_hi_u)
                         if fit_res is None:
                             self._record_lorentz_fit(
-                                plot_name, group_name, ch, f0_user,
+                                plot_name, group_name, ch, f_lo_u, f_hi_u,
                                 None, None, None, None, None, failed=True)
                             continue
                         (f0_fit, zeta_fit, amp_fit, base_fit, f_lo, f_hi,
@@ -233,12 +217,14 @@ class PsdHistMixin:
                             f_dense, y_dense, linewidth=1.6, color=group_color,
                             linestyle=":", alpha=0.95, label=None, zorder=5,
                         )
-                        model_peak = float(np.max(y_dense))
+                        peak_idx = int(np.argmax(y_dense))
+                        f_peak_vis = float(f_dense[peak_idx])
+                        model_peak = float(y_dense[peak_idx])
                         lorentz_results.append(
-                            (f0_user, model_peak, group_color, zeta_fit,
-                             f0_fit, sigma_zeta))
+                            (f_lo, f_hi, model_peak, f_peak_vis, group_color,
+                             zeta_fit, f0_fit, sigma_zeta, group_name))
                         self._record_lorentz_fit(
-                            plot_name, group_name, ch, f0_user,
+                            plot_name, group_name, ch, f_lo, f_hi,
                             f0_fit, zeta_fit, sigma_zeta, r_squared, saturated)
             if not plotted_any:
                 log.warning(
@@ -269,9 +255,15 @@ class PsdHistMixin:
                 if gate_text:
                     legend_obj = ax.get_legend()
                     self._display_gate_info(ax, gate_text, legend=legend_obj)
-            lorentz_by_key = {}
-            for (lf0u, _lmp, lcol, lzf, lff, lsz) in lorentz_results:
-                lorentz_by_key[(round(float(lf0u), 4), lcol)] = (lzf, lsz, lff)
+            lorentz_by_color = {}
+            for (lf_lo, lf_hi, _lmp, _lfpv, lcol, lzf, lff, lsz, _lgn) in lorentz_results:
+                lorentz_by_color.setdefault(lcol, []).append((lf_lo, lf_hi, lzf, lff, lsz))
+            def _find_lorentz_for(color_e, f_at):
+                for entry in lorentz_by_color.get(color_e, []):
+                    lo_, hi_, _zf, _ff, _sz = entry
+                    if lo_ <= f_at <= hi_:
+                        return entry
+                return None
             consumed_lorentz_keys = set()
             if annotate_at is not None and psd_curves:
                 if isinstance(annotate_at, (list, tuple)):
@@ -295,7 +287,7 @@ class PsdHistMixin:
                         trans = ax.transData
                         display_ys = [trans.transform((f_at, item[0]))[1] for item in ann_items]
                         has_two_line = any(
-                            (round(f_at, 4), c) in lorentz_by_key for _, c in ann_items
+                            _find_lorentz_for(c, f_at) is not None for _, c in ann_items
                         )
                         min_sep = 30 if has_two_line else 16
                         adjusted_display_ys = list(display_ys)
@@ -310,15 +302,14 @@ class PsdHistMixin:
                             y_offset = 8 + nudge_pts
                             ax.scatter([f_at], [p_at], color=color_e, s=50, zorder=10,
                                        edgecolors="white", linewidths=1.2)
-                            key = (round(f_at, 4), color_e)
-                            extra_zeta = lorentz_by_key.get(key)
-                            if extra_zeta is not None:
-                                zf, sz, ff = extra_zeta
+                            extra = _find_lorentz_for(color_e, f_at)
+                            if extra is not None:
+                                lo_, hi_, zf, ff, sz = extra
                                 if sz is not None and np.isfinite(sz):
                                     label = f"{p_at:.3g}\n$f_0$={ff:.2f}Hz $\\zeta$={zf:.3f}\u00b1{sz:.3f}"
                                 else:
                                     label = f"{p_at:.3g}\n$f_0$={ff:.2f}Hz $\\zeta$={zf:.3f}"
-                                consumed_lorentz_keys.add(key)
+                                consumed_lorentz_keys.add((round(lo_, 4), round(hi_, 4), color_e))
                             else:
                                 label = f"{p_at:.3g}"
                             ax.annotate(
@@ -334,17 +325,26 @@ class PsdHistMixin:
                             )
             remaining_lorentz = [
                 t for t in lorentz_results
-                if (round(float(t[0]), 4), t[2]) not in consumed_lorentz_keys
+                if (round(float(t[0]), 4), round(float(t[1]), 4), t[4]) not in consumed_lorentz_keys
             ]
             if remaining_lorentz:
                 xl, xr = ax.get_xlim()
                 trans = ax.transData
-                by_mode = {}
-                for f0u, model_pk, col, zf, ff, sz in remaining_lorentz:
-                    by_mode.setdefault(f0u, []).append((model_pk, col, zf, ff, sz))
-                for f0u, items in by_mode.items():
+                by_window = {}
+                for f_lo, f_hi, model_pk, f_peak_vis, col, zf, ff, sz, gname in remaining_lorentz:
+                    by_window.setdefault((f_lo, f_hi), []).append(
+                        (model_pk, f_peak_vis, col, zf, ff, sz, gname))
+                for _win_key, items in by_window.items():
                     items.sort(key=lambda t: t[0])
-                    display_ys = [trans.transform((it[3], it[0]))[1] for it in items]
+                    if len(items) >= self.LORENTZ_COMPACT_THRESHOLD:
+                        for model_pk, f_peak_vis, color_e, _zf, _ff, _sz, _gn in items:
+                            if xl <= f_peak_vis <= xr:
+                                ax.scatter([f_peak_vis], [model_pk],
+                                           color=color_e, s=40, zorder=10,
+                                           edgecolors="white", linewidths=1.2)
+                        self._draw_lorentz_compact_box(ax, _win_key, items, psd_curves)
+                        continue
+                    display_ys = [trans.transform((it[1], it[0]))[1] for it in items]
                     min_sep = 30
                     adjusted = list(display_ys)
                     for i in range(1, len(adjusted)):
@@ -353,12 +353,12 @@ class PsdHistMixin:
                             adjusted[i] = adjusted[i - 1] + min_sep
                     n_items = len(items)
                     for i in reversed(range(n_items)):
-                        model_pk, color_e, zf, f0_fit, sz = items[i]
-                        if not (xl <= f0_fit <= xr):
+                        model_pk, f_peak_vis, color_e, zf, f0_fit, sz, _gn = items[i]
+                        if not (xl <= f_peak_vis <= xr):
                             continue
                         nudge_pts = adjusted[i] - display_ys[i]
                         y_offset = 8 + nudge_pts
-                        ax.scatter([f0_fit], [model_pk], color=color_e, s=50, zorder=10,
+                        ax.scatter([f_peak_vis], [model_pk], color=color_e, s=50, zorder=10,
                                    edgecolors="white", linewidths=1.2)
                         if sz is not None and np.isfinite(sz):
                             label = f"$a_0$={model_pk:.3g}\n$f_0$={f0_fit:.2f}Hz $\\zeta$={zf:.3f}\u00b1{sz:.3f}"
@@ -366,7 +366,7 @@ class PsdHistMixin:
                             label = f"$a_0$={model_pk:.3g}\n$f_0$={f0_fit:.2f}Hz $\\zeta$={zf:.3f}"
                         ax.annotate(
                             label,
-                            xy=(f0_fit, model_pk), xytext=(10, y_offset),
+                            xy=(f_peak_vis, model_pk), xytext=(10, y_offset),
                             textcoords="offset points",
                             fontsize=9, fontweight="bold", color=color_e,
                             zorder=11 + (n_items - 1 - i),
@@ -404,7 +404,94 @@ class PsdHistMixin:
             if self.verbose:
                 log.debug("Saved: %s", filename)
         self._log_lorentz_fit_summary()
-    def _record_lorentz_fit(self, plot, group, channel, f0_user,
+    def _draw_lorentz_compact_box(self, ax, window, items, psd_curves):
+        """Render a single info box listing per-run Lorentz fits for one window.
+
+        items: list of (model_pk, f_peak_vis, color, zeta, f0, sigma_zeta, group_name)
+        Used when len(items) >= LORENTZ_COMPACT_THRESHOLD to avoid callout clutter.
+        """
+        from matplotlib.offsetbox import AnnotationBbox, TextArea, VPacker
+        f_lo, f_hi = window
+        fontsize = 9
+        header = TextArea(
+            f"Lorentz fit [{f_lo:.1f}\u2013{f_hi:.1f} Hz]",
+            textprops=dict(color="#1A1A1A", fontsize=fontsize,
+                           fontweight="bold", family="Montserrat"),
+        )
+        children = [header]
+        for _mp, _fpv, color, zf, f0, sz, gname in items:
+            label = gname.upper() if gname else ""
+            if sz is not None and np.isfinite(sz):
+                txt = f"  {label}: $f_0$={f0:.2f}Hz $\\zeta$={zf:.3f}\u00b1{sz:.3f}"
+            else:
+                txt = f"  {label}: $f_0$={f0:.2f}Hz $\\zeta$={zf:.3f}"
+            children.append(TextArea(
+                txt,
+                textprops=dict(color=color, fontsize=fontsize,
+                               fontweight="bold", family="Montserrat"),
+            ))
+        vpacker = VPacker(children=children, pad=2, sep=2)
+        if psd_curves:
+            xs_data = np.concatenate([np.asarray(f) for _, f, _ in psd_curves])
+            ys_data = np.concatenate([np.asarray(p) for _, _, p in psd_curves])
+            try:
+                trans = ax.transAxes.inverted().transform(
+                    ax.transData.transform(np.column_stack([xs_data, ys_data]))
+                )
+                xs_ax = trans[:, 0]
+                ys_ax = trans[:, 1]
+                in_view = (xs_ax >= 0) & (xs_ax <= 1) & (ys_ax >= 0) & (ys_ax <= 1)
+                xs_ax = xs_ax[in_view]
+                ys_ax = ys_ax[in_view]
+            except Exception:
+                xs_ax = ys_ax = np.array([])
+        else:
+            xs_ax = ys_ax = np.array([])
+        legend = ax.get_legend()
+        legend_corner = None
+        if legend is not None:
+            try:
+                bbox = legend.get_window_extent()
+                inv = ax.transAxes.inverted()
+                (lx0, ly0) = inv.transform((bbox.x0, bbox.y0))
+                (lx1, ly1) = inv.transform((bbox.x1, bbox.y1))
+                cx_ax = 0.5 * (lx0 + lx1)
+                cy_ax = 0.5 * (ly0 + ly1)
+                legend_corner = (
+                    "left" if cx_ax < 0.5 else "right",
+                    "bottom" if cy_ax < 0.5 else "top",
+                )
+            except Exception:
+                pass
+        w_frac, h_frac = 0.32, 0.38
+        def _density(corner):
+            ha, va = corner
+            x_min = 0.0 if ha == "left" else (1.0 - w_frac)
+            x_max = x_min + w_frac
+            y_max = 1.0 if va == "top" else h_frac
+            y_min = y_max - h_frac
+            if xs_ax.size == 0:
+                return 0
+            return int(((xs_ax >= x_min) & (xs_ax <= x_max)
+                        & (ys_ax >= y_min) & (ys_ax <= y_max)).sum())
+        corners = [c for c in self._INFO_CORNER_XY if c != legend_corner
+                   and c[0] in ("left", "right") and c[1] in ("top", "bottom")]
+        corners.sort(key=_density)
+        halign, valign = corners[0]
+        x_anchor, y_anchor = self._INFO_CORNER_XY[(halign, valign)]
+        ab = AnnotationBbox(
+            vpacker,
+            xy=(x_anchor, y_anchor),
+            xycoords="axes fraction",
+            box_alignment=(0.0 if halign == "left" else 1.0,
+                           1.0 if valign == "top" else 0.0),
+            bboxprops=dict(boxstyle="round,pad=0", facecolor="white",
+                           alpha=0.92, edgecolor="#3C3C3C", linewidth=1.4),
+            frameon=True, pad=0.3,
+        )
+        ab.set_zorder(11)
+        ax.add_artist(ab)
+    def _record_lorentz_fit(self, plot, group, channel, f_lo, f_hi,
                             f0_fit, zeta, sigma_zeta, r_squared, saturated,
                             failed=False):
         records = getattr(self, "_lorentz_fit_records", None)
@@ -413,7 +500,8 @@ class PsdHistMixin:
             self._lorentz_fit_records = records
         records.append({
             "plot": plot, "group": group, "channel": channel,
-            "f0_user": f0_user, "f0_fit": f0_fit, "zeta": zeta,
+            "f_lo": f_lo, "f_hi": f_hi,
+            "f0_fit": f0_fit, "zeta": zeta,
             "sigma_zeta": sigma_zeta, "r_squared": r_squared,
             "saturated": saturated, "failed": failed,
         })
@@ -421,17 +509,18 @@ class PsdHistMixin:
         records = getattr(self, "_lorentz_fit_records", None)
         if not records:
             return
-        header = ("%-32s %-10s %-14s %7s %7s %7s %7s %5s %s"
+        header = ("%-32s %-10s %-14s %15s %7s %7s %7s %5s %s"
                   % ("Plot", "Run", "Channel",
-                     "f0_in", "f0_fit", "zeta", "sig_z", "R^2", "Notes"))
+                     "window (Hz)", "f0_fit", "zeta", "sig_z", "R^2", "Notes"))
         log.info("Lorentz fit summary (%d entries):", len(records))
         log.info(header)
         log.info("-" * len(header))
         for r in records:
+            win_str = f"[{r['f_lo']:5.2f},{r['f_hi']:5.2f}]"
             if r["failed"]:
-                log.info("%-32s %-10s %-14s %7.2f %7s %7s %7s %5s %s",
+                log.info("%-32s %-10s %-14s %15s %7s %7s %7s %5s %s",
                          r["plot"][:32], r["group"][:10], r["channel"][:14],
-                         r["f0_user"], "-", "-", "-", "-", "failed")
+                         win_str, "-", "-", "-", "-", "failed")
                 continue
             sig = r["sigma_zeta"]
             sig_str = (f"{sig:7.4f}" if (sig is not None and np.isfinite(sig))
@@ -439,9 +528,9 @@ class PsdHistMixin:
             r2 = r["r_squared"]
             r2_str = f"{r2:5.2f}" if (r2 is not None and np.isfinite(r2)) else "  nan"
             notes = "saturated" if r["saturated"] else ""
-            log.info("%-32s %-10s %-14s %7.2f %7.3f %7.4f %s %s %s",
+            log.info("%-32s %-10s %-14s %15s %7.3f %7.4f %s %s %s",
                      r["plot"][:32], r["group"][:10], r["channel"][:14],
-                     r["f0_user"], r["f0_fit"], r["zeta"], sig_str, r2_str, notes)
+                     win_str, r["f0_fit"], r["zeta"], sig_str, r2_str, notes)
     def generate_histogram_plots(self):
         self._ensure_preprocessed()
         plots = self._get_plot_group(3)

@@ -150,11 +150,29 @@ def apply_calculated_channels(df: pd.DataFrame, source_type: str, calculated_cha
             except Exception:
                 pass
     calculated_channels_done = []
+    # Accumulate new columns in a dict and concat in batches to avoid
+    # the PerformanceWarning about a fragmented DataFrame caused by repeated
+    # single-column inserts (`df[name] = ...`).
+    new_cols: dict[str, pd.Series] = {}
+    working = df
+    BATCH = 50
+
+    def _flush(target, pending):
+        if not pending:
+            return target, {}
+        extra = pd.DataFrame(pending, index=target.index)
+        return pd.concat([target, extra], axis=1), {}
+
     for channel_name, func in calc_set.items():
         is_required = (target_names is None) or (channel_name in target_names)
         try:
-            df[channel_name] = _to_numeric_safe(func(df))
+            new_cols[channel_name] = _to_numeric_safe(func(working))
             calculated_channels_done.append(channel_name)
+            # Rebuild lightweight view so subsequent calcs see prior new cols.
+            working = pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1, copy=False)
+            if len(new_cols) >= BATCH:
+                df, new_cols = _flush(df, new_cols)
+                working = df
         except KeyError as e:
             if is_required:
                 log.warning("Missing dependency %s for calculated channel '%s'.", e, channel_name)
@@ -165,6 +183,7 @@ def apply_calculated_channels(df: pd.DataFrame, source_type: str, calculated_cha
                 log.warning("Could not compute calculated channel '%s': %s", channel_name, e)
             else:
                 log.debug("Skipped optional calc channel '%s': %s", channel_name, e)
+    df, _ = _flush(df, new_cols)
     log.debug("Added %d calculated channels for %s", len(calculated_channels_done), source_type.upper())
     return df
 

@@ -127,38 +127,29 @@ def _coerce_flat_reference_lines(value: Any, where: str) -> Optional[List[float]
         return out
     raise TypeError(f"{where} must be None, a number, or a list of numbers. Got {value!r}.")
 
-def _coerce_lorentz_fit(value: Any, where: str) -> Optional[List[Tuple[float, Optional[float]]]]:
-    def _coerce_pair(item: Any, idx_label: str) -> Tuple[float, Optional[float]]:
-        if isinstance(item, (int, float)):
-            f0 = float(item)
-            if f0 <= 0:
-                raise ValueError(f"{where}: {idx_label} must be > 0 (Hz).")
-            return (f0, None)
+def _coerce_lorentz_fit(value: Any, where: str) -> Optional[List[Tuple[float, float]]]:
+    def _coerce_window(item: Any, idx_label: str) -> Tuple[float, float]:
         if isinstance(item, (list, tuple)) and len(item) == 2 \
                 and all(isinstance(v, (int, float)) for v in item):
-            f0 = float(item[0])
-            hw = float(item[1])
-            if f0 <= 0 or hw <= 0:
+            lo = float(item[0])
+            hi = float(item[1])
+            if not (0 < lo < hi):
                 raise ValueError(
-                    f"{where}: {idx_label} (f0, half_width_hz) values must be > 0."
+                    f"{where}: {idx_label} must be (f_lo, f_hi) with 0 < f_lo < f_hi."
                 )
-            return (f0, hw)
+            return (lo, hi)
         raise TypeError(
-            f"{where}: {idx_label} must be a frequency or "
-            f"(f0, half_width_hz) tuple; got {item!r}."
+            f"{where}: {idx_label} must be an (f_lo, f_hi) tuple; got {item!r}."
         )
     if value is None:
         return None
     if isinstance(value, tuple) and len(value) == 2 \
             and all(isinstance(v, (int, float)) for v in value):
-        return [_coerce_pair(value, "value")]
-    if isinstance(value, (int, float)):
-        return [_coerce_pair(value, "value")]
-    if isinstance(value, (list, tuple)):
-        return [_coerce_pair(item, f"entry #{i}") for i, item in enumerate(value)]
+        return [_coerce_window(value, "value")]
+    if isinstance(value, list):
+        return [_coerce_window(item, f"entry #{i}") for i, item in enumerate(value)]
     raise TypeError(
-        f"{where} must be None, a frequency, an (f0, half_width_hz) tuple, "
-        f"or a list of either. Got {value!r}."
+        f"{where} must be an (f_lo, f_hi) tuple or list of such tuples. Got {value!r}."
     )
 
 @dataclass

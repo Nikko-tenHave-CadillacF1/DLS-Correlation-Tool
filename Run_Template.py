@@ -47,6 +47,19 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 #               subplots (``show_delta=True``) and for the ``tDiff`` channel
 #               (lap-time delta vs reference at each sLap). If no run has
 #               ``reference=True``, the first loaded run is used.
+#
+# ── Folder-based runs ────────────────────────────────────────────────────────
+# Instead of an explicit ``file``, supply ``folder`` + ``filetype`` to load
+# every matching file in a directory as its own run (auto-named & coloured):
+#
+#   {"folder": "2xStopChoc", "filetype": ".parquet", "type": "DLS", "nlap": 1}
+#
+# Optional folder-mode keys:
+#   contains:    substring filter (case-insensitive) — only files whose name
+#                contains this string are loaded. Useful for slicing a folder
+#                by session, driver, lap qualifier, etc.
+#   name_prefix: string prepended to each auto-generated run name
+#   colors:      list of hex colours, cycled per file (overrides auto colours)
 
 RUNS = [
     # ── DLS / LTS example ──────────────────────────────────────────────────────
@@ -84,6 +97,15 @@ RUNS = [
     #     "nlap": 1,
     #     "type": "DIL",
     # },
+
+    # ── Folder-based runs ──────────────────────────────────────────────────────
+    # Load every matching file in a directory as its own run. The ``contains``
+    # key narrows the selection to filenames containing a given substring
+    # (case-insensitive), so a single folder can drive multiple per-condition
+    # configurations.
+    #
+    # {"folder": "2xStopChoc", "filetype": ".parquet", "contains": "FP1", "type": "DLS", "nlap": 1},
+    # {"folder": "2xStopChoc", "filetype": ".txt",     "contains": "FP1", "type": "CAR"},
 
     # ── Cross-event comparison ─────────────────────────────────────────────────
     # To compare runs from different events, set EVENT = None above and prefix
@@ -415,12 +437,11 @@ SCATTER_PLOT_DEFINITIONS = [
 # gate:           segment-aware Welch — filter data before PSD computation
 # show_envelope:  True to show ±1σ shading when multiple runs are present
 # markers:        list of Marker() — static vertical reference lines
-# lorentz_fit:    one frequency (Hz) or list of frequencies — fits a single-DOF
-#                 Lorentzian + baseline near each f₀ (±25% window, floored at
-#                 1 Hz; f₀ bounded to ±5% of the user value) and annotates the
-#                 estimated damping ratio ζ on the plot. For manual window
-#                 control pass (f0, half_width_hz) tuples, e.g.
-#                 lorentz_fit=[(5.5, 1.0), (10.5, 2.0)].
+# lorentz_fit:    (f_lo, f_hi) tuple or list of such tuples — fits a single-DOF
+#                 Lorentzian + baseline inside each [f_lo, f_hi] window and
+#                 annotates the fitted f₀ and damping ratio ζ on the plot.
+#                 The optimiser seeds f₀ at the in-window argmax. Example:
+#                 lorentz_fit=[(4, 7), (13, 17)].
 
 PSD_PLOT_DEFINITIONS = [
     # ── Single channel PSD ─────────────────────────────────────────────────────
@@ -470,17 +491,15 @@ PSD_PLOT_DEFINITIONS = [
     ),
 
     # ── Lorentzian damping estimator ───────────────────────────────────────────
-    # Provide one f₀ (Hz) or a list of f₀s. Each curve gets a single-DOF
-    # Lorentzian + baseline fit on a ±25% window (floored at 1 Hz). The
-    # fitted f₀ is held within ±5% of the user value to prevent it sliding
-    # onto neighbouring peaks. The estimated damping ratio ζ is annotated
-    # in the curve's colour. Pass (f0, half_width_hz) tuples to override.
+    # Provide an (f_lo, f_hi) window or a list of windows. Each curve gets a
+    # single-DOF Lorentzian + baseline fit inside the window; f₀ is seeded
+    # at the in-window argmax and free to roam across the full window. The
+    # fitted f₀ and damping ratio ζ are annotated in the curve's colour.
     PsdPlot(
         name="Lorentz Fit Demo",
         channel="gVertF",
         axis_limits=[(0, 30), (1e-4, None)],
-        lorentz_fit=[5.5, 15.0],            # default window
-        # lorentz_fit=[(5.5, 1.0), (15.0, 2.0)],  # manual window override
+        lorentz_fit=[(4, 7), (13, 17)],
     ),
 ]
 

@@ -18,25 +18,46 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 RUNS = [
     {
         "name": "CAR",
-        "file": r"26R07BCN_260613_MAC26-01_PER_Q_R02.txt",
+        "file": r"26R07BCN_260612_MAC26-01_HER_P1_R02PARTIAL.txt",
         "color": "#CA5B00",
         # "nlap": 1,
         "type": "CAR",
     },
     {
-        "name": "OC",
-        "file": r"20260528-OC-XPG - 26R07BCN - RVS Corr - v1-BCN.parquet",
-        "color": "#00953E",
-        "nrun": 1,
-        "type": "OC",
+        "name": "DLS - BSL",
+        "file": r"26R07BCN_HER_FP1R2_Baseline_DLS.parquet",
+        "color": "#0058A0",
+        "nlap": 1,
+        "type": "DLS",
     },
     {
-        "name": "DIL",
-        "file": r"Barcelona_260608_GMDiL-08_PAG_R12PARTIAL_1.txt",
-        "color": "#000595",
-        # "nrun": 1,
-        "type": "DIL",
+        "name": "DLS - 700 DAMP",
+        "file": r"26R07BCN_Offline_Correlation_R24_ComplianceOn_700Damp_46massDist_HER_DriverLine_DLS.parquet",
+        "color": "#8400FF",
+        "nlap": 1,
+        "type": "DLS",
     },
+    {
+        "name": "DLS - RIGID",
+        "file": r"26R07BCN_Offline_Correlation_R24_700Damp_46massDist_RigidChassis_DLS.parquet",
+        "color": "#C00086",
+        "nlap": 1,
+        "type": "DLS",
+    },
+    # {
+    #     "name": "OC",
+    #     "file": r"20260615-OC-XPG - 26R08SPB - RVS Corr v0 - v2-SPB.parquet",
+    #     "color": "#25CA00",
+    #     "nrun": 1,
+    #     "type": "OC",
+    # },
+    # {
+    #     "name": "DLS",
+    #     "file": r"26R08SPB v1 LF - Soft kHeave F and R_DLS.parquet",
+    #     "color": "#0004FF",
+    #     "nlap": 1,
+    #     "type": "DLS",
+    # }
 ]
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
@@ -213,16 +234,16 @@ SCATTER_PLOT_DEFINITIONS = [
 
 # ─── PSD PLOTS ────────────────────────────────────────────────────────────────
 PSD_PLOT_DEFINITIONS = [
-    PsdPlot("Front Vertical Acceleration PSD", "gVertF",       axis_limits=[(0, 20), (1e-4, None)], annotate_at=(9,)),
-    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR",       axis_limits=[(0, 20), (1e-4, None)], annotate_at=(9, 15)),
-    PsdPlot("Front Ride PSD",                  "hRideF (raw)", axis_limits=[(0, 20), (1e-4, None)], annotate_at=(5, 15)),
-    PsdPlot("Rear Ride PSD",                   "hRideR (raw)", axis_limits=[(0, 20), (1e-4, None)], annotate_at=(5, 15)),
-    # PsdPlot("Front Heave PSD",                 ["FPRodAvgF", "FPRodAvgR"],    axis_limits=[(0, 20), (1e-4, None)], annotate_at=(5, 15)),
-    # PsdPlot("Front Roll PSD",                  ["FPRodDeltaF", "FPRodDeltaR"],  axis_limits=[(0, 20), (1e-4, None)], annotate_at=(5, 15)),
-    # PsdPlot("FL gHub PSD",                  "gHubVertFL",    axis_limits=[(0, 20), (1e-3, None)], annotate_at=(5, 15)),
-    # PsdPlot("FR gHub PSD",                  "gHubVertFR",    axis_limits=[(0, 20), (1e-3, None)], annotate_at=(5, 15)),
-    # PsdPlot("RL gHub PSD",                  "gHubVertRL",    axis_limits=[(0, 20), (1e-3, None)], annotate_at=(5, 15)),
-    # PsdPlot("RR gHub PSD",                  "gHubVertRR",    axis_limits=[(0, 20), (1e-3, None)], annotate_at=(5, 15)),
+    PsdPlot("Front Vertical Acceleration PSD", "gVertF",       axis_limits=[(0, 20), (1e-4, None)]), #lorentz_fit=(6, 12)
+    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR",       axis_limits=[(0, 20), (1e-4, None)]), #lorentz_fit=(4, 8)
+    PsdPlot("Front Ride PSD",                  "hRideF (raw)", axis_limits=[(0, 20), (1e-4, None)]), #lorentz_fit=(3, 7)
+    PsdPlot("Rear Ride PSD",                   "hRideR (raw)", axis_limits=[(0, 20), (1e-4, None)]), #lorentz_fit=(3, 7)
+    # PsdPlot("Front Heave PSD",                 ["FPRodAvgF", "FPRodAvgR"],    axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 7)),
+    # PsdPlot("Front Roll PSD",                  ["FPRodDeltaF", "FPRodDeltaR"],  axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 7)),
+    # PsdPlot("FL gHub PSD",                  "gHubVertFL",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
+    # PsdPlot("FR gHub PSD",                  "gHubVertFR",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
+    # PsdPlot("RL gHub PSD",                  "gHubVertRL",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
+    # PsdPlot("RR gHub PSD",                  "gHubVertRR",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
 ]
 
 # ─── HISTOGRAM PLOTS ──────────────────────────────────────────────────────────

@@ -9,18 +9,17 @@ from engine import (
     WaveformPlot, ScatterPlot, PsdPlot,
 )
 
-WORKFLOW_NAME = "ride_dil"
-EVENT = "26R07BCN"
+WORKFLOW_NAME = "bumpstops"
+EVENT = None
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
-
-
 RUNS = [
-    #{"name": "DLS", "type": "DLS", "file": r"26R07BCN - HER FP1R2 - Correlation_DLS.parquet", "color": "#0011FF"},
-    {"name": "CAR", "type": "CAR", "file": r"26R07BCN_260612_MAC26-01_HER_P1_R02PARTIAL.txt", "color": "#FF0000"},
-    {"name": "DIL", "type": "DIL", "file": r"Barcelona_260608_GMDiL-08_PAG_R12PARTIAL_4.txt", "color": "#0048FF"},
+    {"folder": "4xStopChoc", "contains": "OG", "filetype": ".parquet", "nlap": 1, "type": "DLS"},
+    {"folder": "4xStopChoc", "contains": "COMP", "filetype": ".parquet", "nlap": 1, "type": "DLS", "colors": ["#8000FF", "#EA00FF", "#FF00A6"]},
+    # {"folder": "3xStopChoc", "contains": "MAC26", "filetype": ".txt", "type": "CAR"},
 ]
+
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
 EXPORT_TO_POWERPOINT  = False
@@ -41,41 +40,6 @@ WAVEFORM_PLOT_DEFINITIONS = [
         reference_lines=(None, None, (-350, 0, 350), None, (0,), None),
         subplot_heights=(0.15, 0.2, 0.3, 0.5, 0.3, 0.3),
     ),
-    WaveformPlot(
-        name="Prod Forces",
-        channels=(('vCar', 'NGear'), 'FPushrodFL', 'FPushrodFR', 'FPushrodRL', 'FPushrodRR'),
-        axis_limits=(((None, 400), (-1, 9)), None, None, None, None),
-        reference_lines=(None, None, None, None, None),
-        subplot_heights=(0.8, 0.8, 0.8, 0.8, 0.8),
-    ),
-    WaveformPlot(
-        name="Damper Displacements",
-        channels=(('vCar', 'NGear'), 'xDamperFL', 'xDamperFR', 'xDamperRL', 'xDamperRR'),
-        axis_limits=(((None, 400), (-1, 9)), None, None, None, None),
-        reference_lines=(None, None, None, None, None),
-        subplot_heights=(0.8, 0.8, 0.8, 0.8, 0.8),
-    ),
-    WaveformPlot(
-        name="Damper Variations",
-        channels=(('vCar', 'NGear'), 'xDamperVarFL', 'xDamperVarFR', 'xDamperVarRL', 'xDamperVarRR'),
-        axis_limits=(((None, 400), (-1, 9)), None, None, None, None),
-        reference_lines=(None, None, None, None, None),
-        subplot_heights=(0.8, 0.8, 0.8, 0.8, 0.8),
-    ),
-    WaveformPlot(
-        name="Prod Force Variations",
-        channels=(('vCar', 'NGear'), 'FProdVarFL', 'FProdVarFR', 'FProdVarRL', 'FProdVarRR'),
-        axis_limits=(((None, 400), (-1, 9)), None, None, None, None),
-        reference_lines=(None, None, None, None, None),
-        subplot_heights=(0.8, 0.8, 0.8, 0.8, 0.8),
-    ),
-    WaveformPlot(
-        name="Vertical Accelerations",
-        channels=(('vCar', 'NGear'), 'gVert', 'gVertF', 'gVertR'),
-        axis_limits=(((None, 400), (-1, 9)), None, None, None),
-        reference_lines=(None, None, None, None),
-        subplot_heights=(0.8, 0.8, 0.8, 0.8),
-    ),
 ]
 
 # ─── SCATTER PLOTS ────────────────────────────────────────────────────────────
@@ -83,7 +47,7 @@ WAVEFORM_PLOT_DEFINITIONS = [
 
 SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF",
-                best_fit=[('y', -7500, None), ('y', None, -9000)]),
+                best_fit=[('y', 11000, None)]),
     ScatterPlot("Front Roll",              "xDamperDeltaF", "FPRodDeltaF",          best_fit=[('x', None, None)]),
     ScatterPlot("Rear Heave",              "xDamperAvgR",   "FPRodAvgR",
                 best_fit=[('y', None, 13000)]), #, ('y', 16500, None)
@@ -109,33 +73,6 @@ PSD_PLOT_DEFINITIONS = [
     PsdPlot("Roll Mode PSD - abs",   "FPRodRoll",  axis_limits=[(0, 30), (1e4, None)], lorentz_fit=[(4, 7), (9, 12)],      log_scale=False),
     PsdPlot("Warp Mode PSD - abs",   "FPRodWarp",  axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(20, 30),               log_scale=False),
 
-    PsdPlot("FPushrod FL PSD - ungated",  "FPushrodFL", axis_limits=[(0, 20), (1e4, None)], annotate_at=(4, 9), log_scale=False),
-    PsdPlot("FPushrod FR PSD - ungated",  "FPushrodFR", axis_limits=[(0, 20), (1e4, None)], annotate_at=(6),    log_scale=False),
-    PsdPlot("FPushrod RL PSD - ungated",  "FPushrodRL", axis_limits=[(0, 20), (1e4, None)], annotate_at=(5, 9), log_scale=False),
-    PsdPlot("FPushrod RR PSD - ungated",  "FPushrodRR", axis_limits=[(0, 20), (1e4, None)], annotate_at=(5, 9), log_scale=False),
-
-    # ── Vertical chassis accelerations (ungated -> use larger nperseg for resolution) ──
-    PsdPlot("Front Vertical Acceleration PSD", "gVertF", axis_limits=[(0, 30), (None, None)], lorentz_fit=[(7, 11), (13, 19)]),
-    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR", axis_limits=[(0, 30), (None, None)], lorentz_fit=[(4, 7), (7, 11)]),
-    PsdPlot("Front Vertical Acceleration PSD - ABS", "gVertF", axis_limits=[(0, 30), (None, None)], lorentz_fit=[(7, 11), (13, 19)], log_scale=False),
-    PsdPlot("Rear Vertical Acceleration PSD - ABS",  "gVertR", axis_limits=[(0, 30), (None, None)], lorentz_fit=[(4, 7), (7, 11)],   log_scale=False),
-
-
-    PsdPlot("hRideF PSD", "hRideF (raw)", axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5.5, 9, 15)),
-    PsdPlot("hRideR PSD", "hRideR (raw)", axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5.5, 14.5)),
-
-    PsdPlot("hRideF PSD - abs", "hRideF (high)", axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5.5, 9, 15), log_scale=False),
-    PsdPlot("hRideR PSD - abs", "hRideR (high)", axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5.5, 14.5), log_scale=False),
-
-    PsdPlot("xDamperFL", "xDamperFL_High",  log_scale=False),
-    PsdPlot("xDamperFR", "xDamperFR_High",  log_scale=False),
-    PsdPlot("xDamperRL", "xDamperRL_High",  log_scale=False),
-    PsdPlot("xDamperRR", "xDamperRR_High",  log_scale=False),
-
-    PsdPlot("FPushrodFL PSD", "FProdFL_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
-    PsdPlot("FPushrodFR PSD", "FProdFR_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
-    PsdPlot("FPushrodRL PSD", "FProdRL_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
-    PsdPlot("FPushrodRR PSD", "FProdRR_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
 ]
 
 # ─── POWERPOINT EXPORT MAP ────────────────────────────────────────────────────
