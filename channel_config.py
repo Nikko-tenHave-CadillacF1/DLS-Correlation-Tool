@@ -85,6 +85,7 @@ CHANNEL_MAPPINGS = {
         "pBrakeF1": "pBrakeF",
         "CAN_6_632_aSteerWheel_Can": "aSteerWheel",
         "CAN_6_637_gVert_Can": "gVert",
+        "sLapCan": "sLap",
     },
     "DLS": {
         "aRollCarTrack": "aRoll",
@@ -416,6 +417,15 @@ _UNFILTERED_CHANNELS = {
     "PBrakeFR":     _NO_FILTER,
     "PBrakeRL":     _NO_FILTER,
     "PBrakeRR":     _NO_FILTER,
+    "dtLap_dhCoGStatic": _NO_FILTER,
+    "dtLap_dxCoGStatic": _NO_FILTER,
+    "dtLap_dCDragTotal": _NO_FILTER,
+    "dtLap_dCLiftTotal": _NO_FILTER,
+    "dtLap_dhCoGStatic_Integral": _NO_FILTER,
+    "dtLap_dxCoGStatic_Integral": _NO_FILTER,
+    "dtLap_dCDragTotal_Integral": _NO_FILTER,
+    "dtLap_dCLiftTotal_Integral": _NO_FILTER,
+    
 }
 
 # Default filter set used by all workflows (and custom workflows).

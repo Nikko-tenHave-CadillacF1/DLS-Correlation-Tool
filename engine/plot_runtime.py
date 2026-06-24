@@ -53,8 +53,10 @@ class PlotJobConfig:
     powerpoint_output: Optional[Path] = None
     export_map: Optional[list] = None
     powerpoint_start_slide: int = 1
+    powerpoint_exports: Optional[list] = None  # list of (template, output, export_map[, start_slide]) tuples
     open_output: bool = True
     output_dpi: int = 300
+    vibrations_fit: Optional[dict] = None
 
 def Slide(layout: str, *plot_refs: str) -> dict:
     images = [_plot_ref_to_filename(ref) for ref in plot_refs]
@@ -93,13 +95,182 @@ _TYPE_COLORMAPS = {
     "OC":  "Purples",
 }
 
-def _shades_from_cmap(cmap_name: str, n: int, offset: int = 0) -> list[str]:
+def _shades_from_cmap(
+    cmap_name: str, n: int, offset: int = 0,
+    low: float = 0.45, high: float = 0.95,
+) -> list[str]:
     import matplotlib.cm as _cm
     from matplotlib.colors import to_hex
     cmap = _cm.get_cmap(cmap_name)
     total = max(n + offset, 2)
-    pts = [0.45 + 0.5 * (i / max(total - 1, 1)) for i in range(offset, offset + n)]
+    span = high - low
+    pts = [low + span * (i / max(total - 1, 1)) for i in range(offset, offset + n)]
     return [to_hex(cmap(p)) for p in pts]
+
+def _interleave_indices(n: int) -> list[int]:
+    """Return a permutation of range(n) that alternates between the
+    two ends of the sequence (0, n-1, 1, n-2, 2, n-3, ...).
+
+    Used to colour split-by children so neighbouring legend entries land
+    at opposite ends of the colormap and contrast strongly, while the
+    full set still spans the type's hue range.
+    """
+    if n <= 1:
+        return list(range(n))
+    lo, hi = 0, n - 1
+    out: list[int] = []
+    while lo <= hi:
+        out.append(lo)
+        lo += 1
+        if lo <= hi:
+            out.append(hi)
+            hi -= 1
+    return out
+
+def _interpolate_two_colors(start: str, end: str, n: int) -> list[str]:
+    """Return ``n`` colours interpolated through HSV space between two
+    user-supplied endpoints (hex strings, named colours, or any
+    matplotlib-recognised colour spec).
+
+    Hue is interpolated linearly without shortest-arc wrap correction so
+    the path traces the rainbow when the endpoints span the spectrum
+    (e.g. red ``#FF0000`` to blue-violet ``#4800FF`` passes through
+    orange, yellow, green, cyan, blue). Saturation and value are also
+    interpolated linearly so the endpoints reproduce the user's colours
+    exactly.
+
+    For ``n == 1`` returns the midpoint; for ``n >= 2`` the first
+    colour is ``start`` and the last is ``end``.
+    """
+    from matplotlib.colors import to_rgb, to_hex, rgb_to_hsv, hsv_to_rgb
+    rgb1 = to_rgb(start)
+    rgb2 = to_rgb(end)
+    h1, s1, v1 = rgb_to_hsv(rgb1)
+    h2, s2, v2 = rgb_to_hsv(rgb2)
+    if n <= 0:
+        return []
+    if n == 1:
+        mid_hsv = (
+            ((h1 + h2) / 2) % 1.0,
+            (s1 + s2) / 2,
+            (v1 + v2) / 2,
+        )
+        return [to_hex(hsv_to_rgb(mid_hsv))]
+    out: list[str] = []
+    for i in range(n):
+        t = i / (n - 1)
+        h = (h1 + (h2 - h1) * t) % 1.0
+        s = s1 + (s2 - s1) * t
+        v = v1 + (v2 - v1) * t
+        out.append(to_hex(hsv_to_rgb((h, s, v))))
+    return out
+
+_VALID_CONSOLIDATE_MODES = {True, "only"}
+
+# Preset extractors for `consolidate_by`. Each takes a Path and returns the
+# group key string (or None to exclude the file from any consolidated group).
+def _session_token_from_stem(path: Path) -> Optional[str]:
+    """Standard race-data filename convention places the session token at
+    position -2 (e.g. ``<event>_<date>_<car>_<driver>_<session>_<run>``).
+    Returns e.g. ``"P1"`` / ``"P2"`` / ``"Q"`` / ``"GP"``.
+    """
+    parts = path.stem.split("_")
+    return parts[-2] if len(parts) >= 2 else None
+
+_CONSOLIDATE_BY_PRESETS = {
+    "session": _session_token_from_stem,
+}
+
+def _resolve_consolidate_by(spec):
+    """Return a callable ``(Path) -> Optional[str]`` for a ``consolidate_by`` spec.
+
+    Accepted forms:
+      * ``None``           — no partitioning (all sources → single group).
+      * ``"session"`` (str)— preset extractor for race-data filenames.
+      * regex ``str``      — pattern with one capture group, applied to the
+                             file stem; the captured group becomes the key.
+      * ``callable``       — receives the file ``Path`` and returns the key.
+    """
+    if spec is None:
+        return None
+    if callable(spec):
+        return spec
+    if isinstance(spec, str):
+        if spec in _CONSOLIDATE_BY_PRESETS:
+            return _CONSOLIDATE_BY_PRESETS[spec]
+        import re
+        try:
+            pattern = re.compile(spec)
+        except re.error as exc:
+            raise ValueError(
+                f"consolidate_by={spec!r} is not a valid regex: {exc}"
+            ) from exc
+        if pattern.groups < 1:
+            raise ValueError(
+                f"consolidate_by regex {spec!r} must contain at least one "
+                "capture group identifying the partition key."
+            )
+        def _extract(p: Path, _pat=pattern) -> Optional[str]:
+            m = _pat.search(p.stem)
+            return m.group(1) if m else None
+        return _extract
+    raise TypeError(
+        f"consolidate_by must be None, a preset name, a regex string, or a "
+        f"callable; got {type(spec).__name__}."
+    )
+
+def _make_consolidated_entry(
+    source_entries: list,
+    run: dict,
+    ext: str,
+    *,
+    group_key: Optional[str] = None,
+) -> dict:
+    """Build a synthetic 'consolidated' run dict from already-expanded sources.
+
+    The returned dict has no 'file' key but carries `_consolidate_sources`
+    (list of source run names, lowercased) for DataPlotter to merge after
+    preprocessing.
+    """
+    name_tpl = run.get("consolidated_name")
+    if name_tpl and "{group}" in name_tpl:
+        name = name_tpl.format(group=group_key or "consolidated")
+    elif name_tpl and group_key:
+        name = f"{name_tpl}_{group_key}"
+    elif name_tpl:
+        name = name_tpl
+    elif run.get("name"):
+        name = run["name"]
+        if group_key:
+            name = f"{name}_{group_key}"
+    else:
+        prefix = run.get("name_prefix", "")
+        folder_label = run.get("folder", "ALL")
+        if folder_label == ".":
+            folder_label = "ALL"
+        suffix = group_key or "consolidated"
+        name = f"{prefix}{folder_label}_{suffix}".strip("_")
+    color = run.get("consolidated_color") or run.get("color")
+    if not color:
+        run_type = run.get("type")
+        if run_type and run_type in _TYPE_COLORMAPS:
+            color = _shades_from_cmap(_TYPE_COLORMAPS[run_type], 1, offset=0)[0]
+    entry = {
+        "name": name,
+        "_consolidate_sources": [s["name"].lower() for s in source_entries],
+        "_consolidate_ext": ext,
+    }
+    if group_key:
+        entry["_consolidate_group"] = group_key
+    if color:
+        entry["color"] = color
+    for k in ("type", "group", "use_python_engine"):
+        if k in run:
+            entry[k] = run[k]
+    for extra in ("session_index", "session_label"):
+        if extra in run:
+            entry[extra] = run[extra]
+    return entry
 
 def _expand_folder_runs(runs: list, root_folder: Path) -> list:
     if not runs:
@@ -109,6 +280,14 @@ def _expand_folder_runs(runs: list, root_folder: Path) -> list:
     type_offsets: dict[str, int] = {}
     for i, run in enumerate(runs):
         if "folder" not in run:
+            if run.get("split_by") and (
+                run.get("consolidate") or run.get("consolidate_by")
+                or "_consolidate_sources" in run
+            ):
+                raise ValueError(
+                    f"Run[{i}] {run.get('name', '?')!r}: split_by cannot be "
+                    f"combined with consolidate / consolidate_by on the same entry."
+                )
             expanded.append(run)
             continue
         folder_rel = run["folder"]
@@ -163,7 +342,9 @@ def _expand_folder_runs(runs: list, root_folder: Path) -> list:
         single_color = run.get("color")
         name_prefix = run.get("name_prefix", "")
         reserved = {"folder", "filetype", "colors", "name_prefix",
-                    "name", "file", "color", "contains"}
+                    "name", "file", "color", "contains",
+                    "consolidate", "consolidate_by",
+                    "consolidated_name", "consolidated_color"}
         common = {k: v for k, v in run.items() if k not in reserved}
         n_files = len(files)
         if not colors and not single_color and run_type in _TYPE_COLORMAPS:
@@ -172,6 +353,25 @@ def _expand_folder_runs(runs: list, root_folder: Path) -> list:
             type_offsets[run_type] = offset + n_files
         else:
             auto_colors = None
+        consolidate = run.get("consolidate")
+        if consolidate not in (None, *_VALID_CONSOLIDATE_MODES):
+            raise ValueError(
+                f"Folder run[{i}] {folder_rel!r}: consolidate must be True or 'only'; "
+                f"got {consolidate!r}."
+            )
+        if run.get("split_by") and consolidate is not None:
+            raise ValueError(
+                f"Folder run[{i}] {folder_rel!r}: split_by cannot be combined "
+                f"with consolidate / consolidate_by on the same entry."
+            )
+        try:
+            partition_fn = _resolve_consolidate_by(run.get("consolidate_by"))
+        except (ValueError, TypeError) as exc:
+            raise ValueError(
+                f"Folder run[{i}] {folder_rel!r}: {exc}"
+            ) from exc
+        produced: list = []
+        produced_paths: list[Path] = []
         for j, f in enumerate(files):
             entry = dict(common)
             entry["name"] = f"{name_prefix}{f.stem}"
@@ -189,7 +389,42 @@ def _expand_folder_runs(runs: list, root_folder: Path) -> list:
                 entry["color"] = _FOLDER_RUN_COLOR_PALETTE[
                     j % len(_FOLDER_RUN_COLOR_PALETTE)
                 ]
-            expanded.append(entry)
+            produced.append(entry)
+            produced_paths.append(f)
+        if consolidate is None or consolidate is True:
+            expanded.extend(produced)
+        if consolidate in (True, "only"):
+            if partition_fn is None:
+                cons = _make_consolidated_entry(produced, run, ext)
+                if consolidate == "only":
+                    cons["_consolidate_drop_sources"] = True
+                    expanded.extend(produced)
+                expanded.append(cons)
+            else:
+                groups: dict[str, list] = {}
+                for entry, path in zip(produced, produced_paths):
+                    key = partition_fn(path)
+                    if key is None:
+                        continue
+                    groups.setdefault(str(key), []).append(entry)
+                if not groups:
+                    raise ValueError(
+                        f"Folder run[{i}] {folder_rel!r}: consolidate_by produced "
+                        f"no groups (all files returned None)."
+                    )
+                if consolidate == "only":
+                    expanded.extend(produced)
+                for gkey, gentries in groups.items():
+                    cons = _make_consolidated_entry(
+                        gentries, run, ext, group_key=gkey,
+                    )
+                    if consolidate == "only":
+                        cons["_consolidate_drop_sources"] = True
+                    expanded.append(cons)
+                log.info(
+                    "consolidate_by partitioned %d source file(s) into %d group(s): %s",
+                    len(produced), len(groups), ", ".join(sorted(groups)),
+                )
     return expanded
 
 def validate_config(config: PlotJobConfig) -> list[str]:
@@ -200,9 +435,16 @@ def validate_config(config: PlotJobConfig) -> list[str]:
         label = run.get("name", f"<unnamed run[{i}]>")
         if not run.get("name"):
             issues.append(f"Run[{i}]: missing 'name' key.")
-        if not run.get("file"):
+        is_consolidated = "_consolidate_sources" in run
+        if is_consolidated:
+            sources = run.get("_consolidate_sources") or []
+            if not sources:
+                issues.append(
+                    f"Run '{label}': consolidated entry has empty _consolidate_sources."
+                )
+        elif not run.get("file"):
             issues.append(f"Run '{label}': missing 'file' key.")
-        else:
+        elif not is_consolidated:
             file_path = config.root_folder / run["file"]
             if not file_path.exists():
                 issues.append(f"Run '{label}': file not found -> {file_path}")
@@ -267,6 +509,8 @@ def run_workflow(
     powerpoint_template=None,
     powerpoint_output=None,
     export_map=None,
+    powerpoint_exports=None,
+    vibrations_fit=None,
     fig_size=None,
     cli_description: Optional[str] = None,
     **overrides,
@@ -283,6 +527,8 @@ def run_workflow(
         powerpoint_template=powerpoint_template,
         powerpoint_output=powerpoint_output,
         export_map=export_map,
+        powerpoint_exports=powerpoint_exports,
+        vibrations_fit=vibrations_fit,
         fig_size=fig_size,
         **overrides,
     )
@@ -293,6 +539,20 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
     resolved_export_map = _resolve_export_map(
         config.export_map, config.plot_definitions, start_slide=config.powerpoint_start_slide,
     )
+    resolved_exports: list = []
+    if config.powerpoint_exports:
+        for i, entry in enumerate(config.powerpoint_exports):
+            if not isinstance(entry, (list, tuple)) or len(entry) < 3:
+                log.warning(
+                    "powerpoint_exports[%d] must be (template, output, export_map[, start_slide]); got %r",
+                    i, entry,
+                )
+                continue
+            tpl, out, exp_map = entry[0], entry[1], entry[2]
+            start = int(entry[3]) if len(entry) >= 4 else 1
+            resolved_exports.append(
+                (tpl, out, _resolve_export_map(exp_map, config.plot_definitions, start_slide=start))
+            )
     if cli_args is not None and getattr(cli_args, "list_plots", False):
         _print_plot_list(config.plot_definitions)
         return
@@ -356,6 +616,7 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
         verbose=config.verbose,
         output_dpi=config.output_dpi,
         resample_rate=config.resample_rate,
+        vibrations_fit=config.vibrations_fit,
     )
     if cli_args is not None and getattr(cli_args, "list_channels", False):
         _print_run_channels(plotter.run_data)
@@ -382,8 +643,10 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
         powerpoint_template=config.powerpoint_template,
         powerpoint_output=config.powerpoint_output,
         export_map=resolved_export_map,
+        powerpoint_exports=resolved_exports or None,
         open_output=open_output,
     )
+    return plotter
 
 def parse_plot_cli(description: str = "Run plotting job"):
     parser = argparse.ArgumentParser(description=description)
@@ -624,6 +887,8 @@ def workflow_config(
     powerpoint_template=None,
     powerpoint_output=None,
     export_map=None,
+    powerpoint_exports=None,
+    vibrations_fit=None,
     fig_size=None,
     **overrides,
 ) -> PlotJobConfig:
@@ -677,6 +942,8 @@ def workflow_config(
         powerpoint_template=powerpoint_template,
         powerpoint_output=powerpoint_output,
         export_map=export_map,
+        powerpoint_exports=powerpoint_exports,
+        vibrations_fit=vibrations_fit,
         **overrides,
     )
 
@@ -689,6 +956,7 @@ def run_plot_job(
     powerpoint_template=None,
     powerpoint_output=None,
     export_map=None,
+    powerpoint_exports=None,
     open_output=True,
 ):
     import time as _time
@@ -720,24 +988,39 @@ def run_plot_job(
         if p not in pre_mtimes or p.stat().st_mtime > pre_mtimes[p]
     )
     print(f"\nGenerated {plot_count} plot(s) in {elapsed:.1f}s -> {plotter.plots_dir}")
+    exports: list = []
+    if powerpoint_exports:
+        exports.extend(powerpoint_exports)
     if powerpoint_template and powerpoint_output and export_map:
-        print("\nExporting to PowerPoint...")
+        exports.append((powerpoint_template, powerpoint_output, export_map))
+    for i, exp in enumerate(exports):
+        if len(exp) == 3:
+            tpl, out, exp_map = exp
+        elif len(exp) == 4:
+            tpl, out, exp_map, _start = exp
+        else:
+            log.warning("PowerPoint export entry #%d has invalid shape: %r", i, exp)
+            continue
+        if not (tpl and out and exp_map):
+            continue
+        label = Path(out).name
+        print(f"\nExporting to PowerPoint [{i+1}/{len(exports)}]: {label}")
         try:
-            powerpoint_output.parent.mkdir(parents=True, exist_ok=True)
+            Path(out).parent.mkdir(parents=True, exist_ok=True)
             export_report_to_powerpoint(
-                template_path=powerpoint_template,
-                output_path=powerpoint_output,
+                template_path=tpl,
+                output_path=out,
                 plots_dir=plotter.plots_dir,
-                export_map=export_map,
+                export_map=exp_map,
                 visible=False,
             )
             try:
-                os.startfile(powerpoint_output)
+                os.startfile(out)
             except Exception as open_err:
                 log.warning("Could not auto-open PowerPoint file: %s", open_err)
-                print(f"File saved to: {powerpoint_output}")
+                print(f"File saved to: {out}")
         except Exception as export_err:
-            log.error("PowerPoint export failed: %s", export_err)
+            log.error("PowerPoint export failed (%s): %s", label, export_err)
             traceback.print_exc()
     if open_output:
         try:

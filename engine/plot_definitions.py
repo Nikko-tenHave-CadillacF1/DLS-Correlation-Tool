@@ -326,6 +326,7 @@ class BarPlot:
     axis_limits: Optional[Tuple[Optional[float], Optional[float]]] = None
     gate: Any = None
     reference_lines: Optional[List[float]] = None
+    error_metrics: Optional[Tuple[Any, ...]] = None
     kind: ClassVar[str] = "bar"
     def __post_init__(self) -> None:
         where = f"BarPlot {self.name!r}"
@@ -337,6 +338,23 @@ class BarPlot:
             )
         _validate_gate(self.gate, f"{where}.gate")
         self.reference_lines = _coerce_flat_reference_lines(self.reference_lines, f"{where}.reference_lines")
+        if self.error_metrics is not None:
+            if not isinstance(self.error_metrics, (list, tuple)):
+                raise TypeError(
+                    f"{where}.error_metrics must be a tuple/list (one entry per metric) "
+                    "or None."
+                )
+            if len(self.error_metrics) != len(self.metrics):
+                raise ValueError(
+                    f"{where}.error_metrics has length {len(self.error_metrics)} "
+                    f"but metrics has {len(self.metrics)}."
+                )
+            for i, em in enumerate(self.error_metrics):
+                if em is not None and (not isinstance(em, str) or not em.strip()):
+                    raise TypeError(
+                        f"{where}.error_metrics[{i}] must be a channel name string or None; "
+                        f"got {em!r}."
+                    )
 
 @dataclass
 class BoxPlot:

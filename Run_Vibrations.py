@@ -1,23 +1,34 @@
 """Vibration modal analysis — fits 4-DOF body modes (Heave/Pitch/Roll/Warp)
 to FPushrod (or damperpot) PSDs across one or more runs."""
 
+import os
 from bootstrap import ensure_dependencies
 ensure_dependencies()
 
 from channel_config import get_workflow_dirs
-from tools.vibrations import run_fit, plot_comparison
+from engine.vibrations import run_fit, plot_comparison, expand_runs
 
-WORKFLOW_NAME = "correlation"
+WORKFLOW_NAME = "ride_dil"
 EVENT = "26R07BCN"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 # `type` selects the per-source pushrod sign convention (DLS / CAR / DIL).
 # Auto-detected from the filename if omitted, but explicit is safer.
+#
+# Two styles are supported (mix freely):
+#   1. Explicit single file:
+#        {"name": "CAR", "type": "CAR", "file": r"...txt", "color": "#FF6200"}
+#   2. Folder shorthand (same as the other Run_*.py workflows) — auto-expands
+#      to one entry per matching file, auto-coloured by `type`:
+#        {"folder": ".",          "filetype": ".txt",     "type": "CAR"}
+#        {"folder": "DLS",        "filetype": ".parquet", "type": "DLS"}
+#      Optional keys for folder entries: `contains` (substring filter),
+#      `name_prefix`, `colors` (list), `color` (single override).
 RUNS = [
-    {"name": "DLS", "type": "DLS", "file": r"26R07BCN - HER FP1R2 - Correlation_DLS.parquet", "color": "#0011FF"},
-    {"name": "CAR", "type": "CAR", "file": r"26R07BCN_260612_MAC26-01_HER_P1_R02PARTIAL.txt", "color": "#FF6200"},
-    {"name": "DIL", "type": "DIL", "file": r"Barcelona_260608_GMDiL-08_PAG_R12PARTIAL_1.txt", "color": "#00FF00"},
+    # {"folder": ".", "filetype": ".parquet", "type": "DLS"},
+    {"name": "CAR", "type": "CAR", "file": r"26R07BCN_260614_MAC26-03_BOT_GP_R02.txt", "color": "#FF6200"},
+    # {"name": "DIL", "type": "DIL", "file": r"Barcelona_260608_GMDiL-08_PAG_R12PARTIAL_1.txt", "color": "#00FF00"},
 ]
 
 # ─── SETTINGS ─────────────────────────────────────────────────────────────────
@@ -36,7 +47,7 @@ EXPECTED_FREQS = {
     "warp":  (8, 11),
 }
 
-NPERSEG = "auto"          # int or "auto" (Δf scales with run length, ≥50 averages)
+NPERSEG = 512          # int or "auto" (Δf scales with run length, ≥50 averages)
 SHOW_INDIVIDUAL_PLOTS = True
 DISPLACEMENT_MODE = False # True → fit damperpot displacements instead of forces
 
@@ -44,10 +55,13 @@ DISPLACEMENT_MODE = False # True → fit damperpot displacements instead of forc
 # "body4dof"            → 13-parameter MCK fit producing a self-consistent body model.
 METHOD = "lorentzian_combined"
 
+OPEN_OUTPUT_FOLDER = True   # auto-open the plots folder in Explorer when done
+
 # ─── RUN ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    runs = expand_runs(RUNS, _INPUT_DIR)
     results = []
-    for run in RUNS:
+    for run in runs:
         filepath = _INPUT_DIR / run["file"]
         print(f"\n{'#'*60}\n# RUN: {run['name']}\n{'#'*60}")
         fit_result = run_fit(
@@ -64,7 +78,14 @@ if __name__ == "__main__":
         results.append(fit_result)
 
     plot_comparison(
-        results=results, fs=FS,
-        fmin=F_MIN, fmax=F_MAX, nperseg=NPERSEG,
+        results=results,
+        fmin=F_MIN, fmax=F_MAX,
         event=EVENT, output_dir=_OUTPUT_DIR,
     )
+
+    if OPEN_OUTPUT_FOLDER:
+        plots_dir = _OUTPUT_DIR / "plots" / "vibrations"
+        try:
+            os.startfile(plots_dir)
+        except Exception:
+            pass

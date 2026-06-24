@@ -9,17 +9,16 @@ from engine import (
     WaveformPlot, ScatterPlot, PsdPlot,
 )
 
-WORKFLOW_NAME = "ride_dil"
-EVENT = "26R07BCN"
+WORKFLOW_NAME = "correlation"
+EVENT = "26R07BCN-GM"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 
 
 RUNS = [
-    #{"name": "DLS", "type": "DLS", "file": r"26R07BCN - HER FP1R2 - Correlation_DLS.parquet", "color": "#0011FF"},
-    {"name": "CAR", "type": "CAR", "file": r"26R07BCN_260612_MAC26-01_HER_P1_R02PARTIAL.txt", "color": "#FF0000"},
-    {"name": "DIL", "type": "DIL", "file": r"Barcelona_260608_GMDiL-08_PAG_R12PARTIAL_4.txt", "color": "#0048FF"},
+    {"folder": ".", "filetype": ".txt", "type": "CAR"},
+    {"folder": ".", "filetype": ".parquet", "nlap": 1, "type": "DLS"},
 ]
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
@@ -115,7 +114,7 @@ PSD_PLOT_DEFINITIONS = [
     PsdPlot("FPushrod RR PSD - ungated",  "FPushrodRR", axis_limits=[(0, 20), (1e4, None)], annotate_at=(5, 9), log_scale=False),
 
     # ── Vertical chassis accelerations (ungated -> use larger nperseg for resolution) ──
-    PsdPlot("Front Vertical Acceleration PSD", "gVertF", axis_limits=[(0, 30), (None, None)], lorentz_fit=[(7, 11), (13, 19)]),
+    PsdPlot("Front Vertical Acceleration PSD", "gVertF", axis_limits=[(0, 30), (None, None)], lorentz_fit=[(7, 11)]),
     PsdPlot("Rear Vertical Acceleration PSD",  "gVertR", axis_limits=[(0, 30), (None, None)], lorentz_fit=[(4, 7), (7, 11)]),
     PsdPlot("Front Vertical Acceleration PSD - ABS", "gVertF", axis_limits=[(0, 30), (None, None)], lorentz_fit=[(7, 11), (13, 19)], log_scale=False),
     PsdPlot("Rear Vertical Acceleration PSD - ABS",  "gVertR", axis_limits=[(0, 30), (None, None)], lorentz_fit=[(4, 7), (7, 11)],   log_scale=False),

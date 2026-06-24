@@ -23,6 +23,7 @@ class BarBoxMixin:
             axis_limits = plot_def.axis_limits
             reference_lines = plot_def.reference_lines
             gate_spec = plot_def.gate
+            error_metrics = getattr(plot_def, "error_metrics", None)
             metric_specs = datafunctions.normalize_bar_metric_specs(
                 metric_specs_raw, default_aggregation=default_agg
             )
@@ -52,7 +53,8 @@ class BarBoxMixin:
                     df = datafunctions.apply_gate_to_dataframe(df, gate_spec)
                     if df is None or df.empty:
                         run_bar_data.append({"run": run, "offsets": x + left_edge + (run_index + 0.5) * bar_width,
-                                             "values": np.full(len(metric_specs), np.nan)})
+                                             "values": np.full(len(metric_specs), np.nan),
+                                             "errors": None})
                         continue
                 values = []
                 for channel, aggregation in metric_specs:
@@ -71,8 +73,26 @@ class BarBoxMixin:
                         sample_rate=self.FILTER_SAMPLE_RATE,
                         time_series=df["tLap"] if "tLap" in df.columns else None,
                     ))
+                errors = None
+                if error_metrics:
+                    errors = []
+                    for idx, (channel, aggregation) in enumerate(metric_specs):
+                        err_ch = error_metrics[idx] if idx < len(error_metrics) else None
+                        if not err_ch or err_ch not in df.columns:
+                            errors.append(np.nan)
+                            continue
+                        errors.append(datafunctions.aggregate_channel_for_bar(
+                            df[err_ch],
+                            aggregation=aggregation,
+                            sample_rate=self.FILTER_SAMPLE_RATE,
+                            time_series=df["tLap"] if "tLap" in df.columns else None,
+                        ))
                 offsets = x + left_edge + (run_index + 0.5) * bar_width
-                run_bar_data.append({"run": run, "offsets": offsets, "values": np.array(values, dtype=float)})
+                run_bar_data.append({
+                    "run": run, "offsets": offsets,
+                    "values": np.array(values, dtype=float),
+                    "errors": (np.array(errors, dtype=float) if errors is not None else None),
+                })
                 all_values.extend([abs(v) for v in values if not np.isnan(v)])
             ax2 = None
             secondary_threshold = None
@@ -127,6 +147,18 @@ class BarBoxMixin:
                            alpha=0.9, label=lbl, edgecolor="white", linewidth=0.6)
                     for offset, value in zip(offsets, values):
                         bar_info.append((offset, value, ax))
+                errs = item.get("errors")
+                if errs is not None and ax2 is None:
+                    err_finite = np.array([
+                        e if (np.isfinite(e) and not np.isnan(v)) else np.nan
+                        for v, e in zip(values, errs)
+                    ])
+                    if np.isfinite(err_finite).any():
+                        ax.errorbar(
+                            offsets, values, yerr=err_finite,
+                            fmt="none", ecolor="#1A1A1A", elinewidth=1.4,
+                            capsize=4, capthick=1.4, alpha=0.85, zorder=4,
+                        )
             ax.set_xticks(x)
             metric_labels = [f"{m}\n({a})" for m, a in metric_specs]
             ax.set_xticklabels(metric_labels, rotation=0, fontweight="bold")
@@ -145,17 +177,38 @@ class BarBoxMixin:
             self._add_axis_edge_padding(ax, x_pad_ratio=0.06, y_pad_ratio=0.04)
             if ax2 is not None:
                 self._add_axis_edge_padding(ax2, x_pad_ratio=0.06, y_pad_ratio=0.04)
+            # When many runs share the same metric group the bars become
+            # thin and horizontal value labels overlap. Rotate the labels
+            # 90° (and shrink the font slightly) once we exceed ~4 runs,
+            # and add extra y-padding so the rotated text doesn't clip.
+            many_runs = len(loaded_runs) >= 5
+            label_rotation = 90 if many_runs else 0
+            label_fontsize = 8 if many_runs else 10
+            label_pad_ratio = 0.04 if many_runs else 0.02
+            if many_runs:
+                # Vertical labels need headroom equal to roughly the
+                # longest formatted value rendered upright; ~12% of the
+                # axis range covers a typical "0.0053599"-length label.
+                for axis in ([ax2, ax] if ax2 is not None else [ax]):
+                    y0, y1 = axis.get_ylim()
+                    extra = 0.12 * (y1 - y0)
+                    if y1 > 0:
+                        axis.set_ylim(top=y1 + extra)
+                    if y0 < 0:
+                        axis.set_ylim(bottom=y0 - extra)
             axis_ranges = {ax: ax.get_ylim()[1] - ax.get_ylim()[0]}
             if ax2 is not None:
                 axis_ranges[ax2] = ax2.get_ylim()[1] - ax2.get_ylim()[0]
             for offset, value, axis in bar_info:
                 if not np.isnan(value):
                     y_range = axis_ranges.get(axis, 1.0)
-                    padding = 0.02 * y_range
+                    padding = label_pad_ratio * y_range
                     y_pos = value + (padding if value >= 0 else -padding)
                     va = "bottom" if value >= 0 else "top"
                     axis.text(offset, y_pos, datafunctions._fmt_g(value, sig=5),
-                              ha="center", va=va, fontsize=10, fontweight="bold", color="#1A1A1A")
+                              ha="center", va=va, fontsize=label_fontsize,
+                              fontweight="bold", color="#1A1A1A",
+                              rotation=label_rotation)
             for axis in ([ax2, ax] if ax2 is not None else [ax]):
                 y0, y1 = axis.get_ylim()
                 if y0 <= 0 <= y1:

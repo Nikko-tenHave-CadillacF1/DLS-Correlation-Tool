@@ -38,6 +38,57 @@ def make_unique(names):
             unique_names.append(name)
     return unique_names
 
+def _find_split_column(df: pd.DataFrame, column: str) -> Optional[str]:
+    """Resolve a split_by column name against a DataFrame, case-insensitively.
+
+    Also tries the parquet-style ``_<column>`` / ``<column>`` underscore alias
+    so users can write ``nRun`` even when the source column is ``_nRun``.
+    """
+    if column in df.columns:
+        return column
+    lower_map = {str(c).lower(): c for c in df.columns}
+    target = column.lower()
+    if target in lower_map:
+        return lower_map[target]
+    if not target.startswith("_") and ("_" + target) in lower_map:
+        return lower_map["_" + target]
+    if target.startswith("_") and target[1:] in lower_map:
+        return lower_map[target[1:]]
+    return None
+
+def _format_split_key(value) -> str:
+    """Render a split_by group value as a filesystem-friendly suffix."""
+    if value is None:
+        return "None"
+    if isinstance(value, float):
+        if pd.isna(value):
+            return "NaN"
+        if float(value).is_integer():
+            return str(int(value))
+        return f"{value:g}".replace(".", "p").replace("-", "neg")
+    if isinstance(value, (int, np.integer)):
+        return str(int(value))
+    s = str(value).strip()
+    return s.replace(" ", "_") if s else "blank"
+
+def _split_by_required_columns(spec) -> Optional[list[str]]:
+    """Return the source column(s) a split_by spec depends on.
+
+    Returns ``None`` for callable specs (caller should disable column
+    projection and load every column). Returns an empty list for falsy
+    specs.
+    """
+    if not spec:
+        return []
+    if callable(spec):
+        return None
+    if isinstance(spec, str):
+        return [spec]
+    if isinstance(spec, dict):
+        col = spec.get("column")
+        return [col] if col else []
+    return []
+
 _CALC_DEP_CACHE = {}
 
 def _extract_calculated_dependencies(func):
@@ -103,6 +154,11 @@ def collect_referenced_channels(plot_definitions):
             elif kind == "bar":
                 for ch, _agg in datafunctions.normalize_bar_metric_specs(plot_def.metrics):
                     _add(ch)
+                err_metrics = getattr(plot_def, "error_metrics", None)
+                if err_metrics:
+                    for em in err_metrics:
+                        if em:
+                            _add(em)
             elif kind == "box":
                 _add(plot_def.channels)
                 if plot_def.gate is not None:
@@ -324,6 +380,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         verbose: bool = False,
         output_dpi: int = 300,
         resample_rate: float | None = None,
+        vibrations_fit: dict | None = None,
     ):
         if fig_size is None:
             fig_size = {"waveform": (15.5, 6.4), "scatter": (10, 8), "psd": (10, 8),
@@ -394,6 +451,8 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         self.run_units = {}
         self.run_required_cols = {}
         self.run_sample_rates = {}
+        self.modal_results = {}
+        self.VIBRATIONS_FIT = vibrations_fit
         self._gated_data_cache = {}
         self._psd_cache = {}
         self._outlier_log = []
@@ -689,6 +748,10 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             for raw in schema_cols:
                 if raw.startswith("_") and len(raw) > 1 and raw[1].isalpha():
                     canonical = raw[1].upper() + raw[2:]
+                    # Also expose the camelCase form so users can write
+                    # 'nRun' when the parquet column is '_nRun'.
+                    camelcase = raw[1].lower() + raw[2:]
+                    canonical_to_raw.setdefault(camelcase, raw)
                 else:
                     canonical = raw
                 canonical_to_raw.setdefault(canonical, raw)
@@ -890,19 +953,38 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     )
                 if columns_to_load:
                     requested = sorted(set(columns_to_load))
-                    df_cols = set(df.columns)
+                    df_cols = list(df.columns)
+                    df_cols_set = set(df_cols)
+                    df_cols_lower = {str(c).lower(): c for c in df_cols}
                     available = []
                     missing = []
+                    seen_avail = set()
                     for c in requested:
-                        if c in df_cols:
-                            available.append(c)
+                        hit = None
+                        if c in df_cols_set:
+                            hit = c
                         elif (
                             c.startswith("_") and len(c) > 1 and c[1].isalpha()
-                            and (c[1].upper() + c[2:]) in df_cols
+                            and (c[1].upper() + c[2:]) in df_cols_set
                         ):
-                            available.append(c[1].upper() + c[2:])
-                        else:
+                            hit = c[1].upper() + c[2:]
+                        elif (
+                            len(c) > 1 and c[0].isalpha() and c[0].islower()
+                            and (c[0].upper() + c[1:]) in df_cols_set
+                        ):
+                            # e.g. user asked for 'nRun'; parquet column
+                            # normalised from '_nRun' is 'NRun'.
+                            hit = c[0].upper() + c[1:]
+                        elif c.lower() in df_cols_lower:
+                            # Case-insensitive fallback (e.g. user 'nRun',
+                            # parquet column 'nrun' with no underscore).
+                            hit = df_cols_lower[c.lower()]
+                        if hit is None:
                             missing.append(c)
+                            continue
+                        if hit not in seen_avail:
+                            available.append(hit)
+                            seen_avail.add(hit)
                     if missing and self.verbose:
                         log.debug(
                             "Parquet '%s' missing %d channel(s): %s%s",
@@ -1130,6 +1212,12 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         loaded_runs = []
         for run in self.runs:
             run_name = run["name"].lower()
+            if "_consolidate_sources" in run:
+                # Synthetic consolidated run — data is built post-preprocess in
+                # _build_consolidated_runs(). Skip file load; keep it in
+                # self.runs so downstream steps know it exists.
+                loaded_runs.append(run)
+                continue
             file_path = root_folder / run["file"]
             if not file_path.exists():
                 log.warning(
@@ -1142,10 +1230,23 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 self.run_required_cols[run_name] = self._get_required_source_columns(
                     run.get("type", run_name)
                 )
+                # Ensure the split_by column survives parquet column
+                # projection — otherwise the loader would strip it.
+                split_cols = _split_by_required_columns(run.get("split_by"))
+                if split_cols is None:
+                    columns_to_load = None  # load all (callable spec)
+                else:
+                    if self.run_required_cols[run_name] is None:
+                        columns_to_load = None
+                    else:
+                        columns_to_load = (
+                            set(self.run_required_cols[run_name]) | set(split_cols)
+                        )
+                        self.run_required_cols[run_name] = columns_to_load
                 data, _, units = self._load_run_data(
                     file_path,
                     use_python_engine=use_python_engine,
-                    columns_to_load=self.run_required_cols[run_name],
+                    columns_to_load=columns_to_load,
                     parquet_nrun=run.get("nrun"),
                     parquet_nlap=run.get("nlap"),
                     run_name=run_name,
@@ -1216,6 +1317,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             loaded_runs.append(run)
         self.runs = loaded_runs if loaded_runs else []
         self._loaded = True
+        self._expand_split_runs()
         return self.run_data
     def preprocess_data(self) -> None:
         if not self._loaded:
@@ -1283,8 +1385,422 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 self.run_data[name], self.FILTERS, self.FILTER_SAMPLE_RATE, name,
                 required_channels=required_set,
             )
+        self._build_consolidated_runs()
+        self._run_modal_fits()
         self._preprocessed = True
         return self.run_data
+    def _expand_split_runs(self) -> None:
+        """Partition entries with ``split_by`` set into one run per group value.
+
+        Operates on already-loaded data: each entry whose original spec carries
+        ``split_by`` is replaced in-place inside ``self.runs`` by N children
+        (one per unique non-null group value in first-occurrence order). The
+        parent DataFrame is removed from ``self.run_data``; each child receives
+        a row-filtered ``reset_index`` copy. Per-run metadata (units, sample
+        rates, source path, required columns) is duplicated to each child.
+
+        Spec forms accepted:
+          - ``"colName"`` – partition by every unique non-null value
+          - ``{"column": "colName", "values": [v1, v2, ...]}`` – keep only the
+            listed values, one run per value
+          - ``callable(df) -> Series`` – custom group keys (same length as df)
+
+        Column names are resolved case-insensitively and tolerate the parquet
+        ``_nRun`` / ``nRun`` underscore alias. ``split_by`` cannot be combined
+        with ``consolidate`` / ``consolidate_by`` on the same entry.
+        """
+        if not getattr(self, "runs", None):
+            return
+        if not any(r.get("split_by") for r in self.runs):
+            return
+        try:
+            from .plot_runtime import (
+                _shades_from_cmap,
+                _interpolate_two_colors,
+                _FOLDER_RUN_COLOR_PALETTE,
+                _TYPE_COLORMAPS,
+            )
+        except Exception:
+            _shades_from_cmap = None
+            _interpolate_two_colors = None
+            _FOLDER_RUN_COLOR_PALETTE = (
+                "#FF8000", "#2000BF", "#D70000", "#008CFF",
+                "#00CC88", "#CC0066", "#FFD700", "#4C00BF",
+            )
+            _TYPE_COLORMAPS = {}
+        new_runs: list = []
+        for run in self.runs:
+            spec = run.get("split_by")
+            if not spec:
+                new_runs.append(run)
+                continue
+            base_name = run["name"]
+            if (run.get("consolidate") or run.get("consolidate_by")
+                    or "_consolidate_sources" in run):
+                raise ValueError(
+                    f"Run '{base_name}': split_by cannot be combined with "
+                    f"consolidate / consolidate_by on the same entry."
+                )
+            base_lower = base_name.lower()
+            df = self.run_data.get(base_lower)
+            if df is None or df.empty:
+                log.warning(
+                    "Run '%s': split_by requested but no loaded data; "
+                    "leaving run intact.", base_name,
+                )
+                new_runs.append(run)
+                continue
+            try:
+                partitions = self._partition_for_split_by(spec, df, base_name)
+            except (KeyError, ValueError, TypeError) as exc:
+                log.error(
+                    "Run '%s': split_by failed (%s). Leaving run intact.",
+                    base_name, exc,
+                )
+                new_runs.append(run)
+                continue
+            if not partitions:
+                log.warning(
+                    "Run '%s': split_by produced no groups; leaving run intact.",
+                    base_name,
+                )
+                new_runs.append(run)
+                continue
+            if len(partitions) == 1:
+                log.info(
+                    "Run '%s': split_by produced a single group %r; "
+                    "leaving run intact (no split).",
+                    base_name, partitions[0][0],
+                )
+                new_runs.append(run)
+                continue
+            n = len(partitions)
+            colors_list = run.get("colors")
+            color_range = run.get("color_range")
+            run_type = run.get("type")
+            if isinstance(colors_list, (list, tuple)) and colors_list:
+                child_colors = [colors_list[i % len(colors_list)] for i in range(n)]
+            elif (
+                _interpolate_two_colors is not None
+                and isinstance(color_range, (list, tuple))
+                and len(color_range) == 2
+            ):
+                # User-supplied gradient endpoints, HSV-interpolated.
+                child_colors = _interpolate_two_colors(
+                    color_range[0], color_range[1], n,
+                )
+            elif _shades_from_cmap is not None and run_type in _TYPE_COLORMAPS:
+                # Use the saturated half of the type colormap (low=0.55
+                # avoids near-white tints).
+                child_colors = _shades_from_cmap(
+                    _TYPE_COLORMAPS[run_type], n, low=0.55, high=1.0,
+                )
+            else:
+                child_colors = [
+                    _FOLDER_RUN_COLOR_PALETTE[i % len(_FOLDER_RUN_COLOR_PALETTE)]
+                    for i in range(n)
+                ]
+            units = self.run_units.get(base_lower)
+            fp = self.run_filepaths.get(base_lower)
+            req = self.run_required_cols.get(base_lower)
+            child_names: list[str] = []
+            for i, (key, sub_df) in enumerate(partitions):
+                suffix = _format_split_key(key)
+                child_name = f"{base_name}_{suffix}"
+                child = {k: v for k, v in run.items() if k != "split_by"}
+                child["name"] = child_name
+                child["color"] = child_colors[i]
+                child["_split_parent"] = base_name
+                child["_split_key"] = key
+                new_runs.append(child)
+                child_lower = child_name.lower()
+                self.run_data[child_lower] = sub_df.reset_index(drop=True)
+                if units is not None:
+                    self.run_units[child_lower] = (
+                        dict(units) if isinstance(units, dict) else units
+                    )
+                if fp is not None:
+                    self.run_filepaths[child_lower] = fp
+                if req is not None:
+                    self.run_required_cols[child_lower] = (
+                        set(req) if isinstance(req, (set, frozenset, list, tuple))
+                        else req
+                    )
+                child_names.append(child_name)
+            self.run_data.pop(base_lower, None)
+            self.run_units.pop(base_lower, None)
+            self.run_filepaths.pop(base_lower, None)
+            self.run_required_cols.pop(base_lower, None)
+            log.info(
+                "Run '%s': split_by produced %d sub-runs (%d rows total): %s",
+                base_name, n, sum(len(sub) for _, sub in partitions),
+                ", ".join(child_names),
+            )
+        self.runs = new_runs
+    def _partition_for_split_by(self, spec, df: pd.DataFrame,
+                                run_label: str) -> list[tuple]:
+        """Compute (group_key, sub_df) partitions for a split_by spec.
+
+        Preserves first-occurrence order of group keys, skips NaN keys, and
+        raises KeyError if a referenced column is missing.
+        """
+        if callable(spec):
+            keys = spec(df)
+            if not isinstance(keys, pd.Series):
+                keys = pd.Series(keys)
+            if len(keys) != len(df):
+                raise ValueError(
+                    f"split_by callable returned a series of length "
+                    f"{len(keys)}, expected {len(df)}."
+                )
+            keys = keys.reset_index(drop=True)
+        else:
+            column: Optional[str]
+            filter_values = None
+            if isinstance(spec, str):
+                column = spec
+            elif isinstance(spec, dict):
+                column = spec.get("column")
+                filter_values = spec.get("values")
+                if column is None:
+                    raise ValueError(
+                        "split_by dict must include a 'column' key."
+                    )
+            else:
+                raise ValueError(
+                    f"unsupported split_by={spec!r}; expected column name "
+                    f"(str), dict with 'column', or callable."
+                )
+            resolved = _find_split_column(df, column)
+            if resolved is None:
+                raise KeyError(
+                    f"split_by column {column!r} not found in DataFrame "
+                    f"(have: {list(df.columns)[:20]}{'...' if len(df.columns) > 20 else ''})."
+                )
+            keys = df[resolved].reset_index(drop=True)
+            if filter_values is not None:
+                try:
+                    wanted = set(filter_values)
+                except TypeError:
+                    wanted = set(list(filter_values))
+                keys = keys.where(keys.isin(wanted))
+        df_indexed = df.reset_index(drop=True)
+        order: list = []
+        seen: set = set()
+        for v in keys.tolist():
+            if v is None:
+                continue
+            try:
+                if pd.isna(v):
+                    continue
+            except (TypeError, ValueError):
+                pass
+            # Use a stable hashable proxy for the seen-set when possible.
+            try:
+                key_hash = v
+                if key_hash in seen:
+                    continue
+                seen.add(key_hash)
+            except TypeError:
+                key_hash = repr(v)
+                if key_hash in seen:
+                    continue
+                seen.add(key_hash)
+            order.append(v)
+        partitions: list[tuple] = []
+        for v in order:
+            mask = (keys == v)
+            if hasattr(mask, "fillna"):
+                mask = mask.fillna(False)
+            sub = df_indexed[mask.to_numpy()]
+            if not sub.empty:
+                partitions.append((v, sub))
+        return partitions
+    def _build_consolidated_runs(self) -> None:
+        """Construct synthetic 'consolidated' runs by concatenating sources.
+
+        Sources are appended end-to-end with a one-second NaN gap between
+        segments to prevent Welch from seeing false continuity across joins.
+        Time-like columns (tLap, sLap) are reset to start at zero at the head
+        of each segment and offset so the consolidated run has a monotonic
+        time axis; this keeps PSD/waveform plots usable.
+        """
+        consolidated = [r for r in self.runs if "_consolidate_sources" in r]
+        if not consolidated:
+            return
+        keep_runs = []
+        drop_source_names: set[str] = set()
+        for run in consolidated:
+            cname = run["name"].lower()
+            src_names = run.get("_consolidate_sources") or []
+            src_dfs = [self.run_data.get(s) for s in src_names if s in self.run_data]
+            src_dfs = [df for df in src_dfs if df is not None and not df.empty]
+            if not src_dfs:
+                log.warning(
+                    "Consolidated run '%s': no source data available; skipping.",
+                    cname,
+                )
+                continue
+            # detect sample rate from first source (they should match after resample)
+            first_src = next(s for s in src_names if s in self.run_data)
+            sr_pair = self.run_sample_rates.get(first_src)
+            fs = sr_pair[0] if sr_pair else self.FILTER_SAMPLE_RATE
+            gap_samples = max(1, int(round(fs)))
+            # NaN-row template: upcast integer columns so they accept NaN
+            gap_template = src_dfs[0].iloc[0:1].copy()
+            for col in gap_template.columns:
+                if pd.api.types.is_integer_dtype(gap_template[col]):
+                    gap_template[col] = gap_template[col].astype("float64")
+            gap_template.loc[:, :] = np.nan
+            gap_rows = pd.concat([gap_template] * gap_samples, ignore_index=True)
+            # rebase time columns per segment, accumulate offsets
+            segments = []
+            t_offset = 0.0
+            s_offset = 0.0
+            for i, df in enumerate(src_dfs):
+                seg = df.copy().reset_index(drop=True)
+                if "tLap" in seg.columns:
+                    t_col = pd.to_numeric(seg["tLap"], errors="coerce")
+                    t_min = float(t_col.min()) if t_col.notna().any() else 0.0
+                    seg["tLap"] = t_col - t_min + t_offset
+                    t_offset = float(seg["tLap"].max()) + gap_samples / fs
+                if "sLap" in seg.columns:
+                    s_col = pd.to_numeric(seg["sLap"], errors="coerce")
+                    s_min = float(s_col.min()) if s_col.notna().any() else 0.0
+                    seg["sLap"] = s_col - s_min + s_offset
+                    s_offset = float(seg["sLap"].max()) + 1.0
+                segments.append(seg)
+                if i < len(src_dfs) - 1:
+                    segments.append(gap_rows.copy())
+            merged = pd.concat(segments, ignore_index=True)
+            self.run_data[cname] = merged
+            self.run_units[cname] = self.run_units.get(first_src, {})
+            self.run_sample_rates[cname] = (fs, f"inherited from {first_src}")
+            log.info(
+                "Consolidated '%s' built from %d source(s) -> %d rows (%.1f s @ %.0f Hz).",
+                cname, len(src_dfs), len(merged), len(merged) / max(fs, 1.0), fs,
+            )
+            if run.get("_consolidate_drop_sources"):
+                drop_source_names.update(s for s in src_names)
+        if drop_source_names:
+            for s in drop_source_names:
+                self.run_data.pop(s, None)
+                self.run_units.pop(s, None)
+                self.run_sample_rates.pop(s, None)
+                self.run_filepaths.pop(s, None)
+            keep_runs = [
+                r for r in self.runs if r["name"].lower() not in drop_source_names
+            ]
+            self.runs = keep_runs
+            log.info(
+                "Consolidation 'only' mode: removed %d source run(s) from active set.",
+                len(drop_source_names),
+            )
+    def _run_modal_fits(self) -> None:
+        """Run vibrations Lorentz/body4dof fit per run and inject constants.
+
+        Skips silently when self.VIBRATIONS_FIT is None. For each run that
+        has FPushrod* (or xDamperPot*) channels available the fit is executed
+        and the resulting modal parameters are broadcast as constant columns
+        named `modal_<mode>_f0`, `modal_<mode>_zeta`, `modal_<mode>_f0_sigma`,
+        `modal_<mode>_zeta_sigma` so existing BarPlot/ScatterPlot generators
+        can consume them.
+        """
+        cfg = self.VIBRATIONS_FIT
+        if not cfg:
+            return
+        try:
+            from . import vibrations as _vib
+        except Exception as exc:
+            log.warning("Modal fit skipped — failed to import engine.vibrations: %s", exc)
+            return
+        displacement_mode = bool(cfg.get("displacement_mode", False))
+        fmin = float(cfg.get("fmin", 2.0))
+        fmax = float(cfg.get("fmax", 13.0))
+        nperseg = cfg.get("nperseg", "auto")
+        method = cfg.get("method", "lorentzian_combined")
+        expected_freqs = cfg.get("expected_freqs")
+        primary_channels = _vib.DISPLACEMENT_CHANNELS if displacement_mode else _vib.FORCE_CHANNELS
+        for run in list(self.runs):
+            name = run["name"].lower()
+            df = self.run_data.get(name)
+            if df is None or df.empty:
+                continue
+            missing = [c for c in primary_channels if c not in df.columns]
+            if missing:
+                if self.verbose:
+                    log.debug(
+                        "Modal fit skipped for '%s' — missing channel(s): %s",
+                        name, missing,
+                    )
+                continue
+            sr_pair = self.run_sample_rates.get(name)
+            fs = sr_pair[0] if sr_pair else self.FILTER_SAMPLE_RATE
+            try:
+                arr = np.stack([
+                    pd.to_numeric(df[c], errors="coerce")
+                      .interpolate(limit=int(fs))
+                      .ffill().bfill().to_numpy(dtype=float)
+                    for c in primary_channels
+                ])
+            except Exception as exc:
+                log.warning("Modal fit '%s': channel extraction failed: %s", name, exc)
+                continue
+            source_type = run.get("type")
+            try:
+                result = _vib.run_fit_from_arrays(
+                    arr, fs=fs,
+                    source_type=source_type,
+                    fmin=fmin, fmax=fmax, nperseg=nperseg,
+                    method=method, expected_freqs=expected_freqs,
+                    displacement_mode=displacement_mode,
+                    label=run["name"], output_dir=self.plots_dir.parent,
+                    event=cfg.get("event", ""),
+                    show_plots=bool(cfg.get("show_plots", False)),
+                    output_dpi=self.output_dpi,
+                )
+            except Exception as exc:
+                log.warning("Modal fit failed for run '%s': %s", name, exc)
+                continue
+            self.modal_results[name] = result
+
+            def _as_list(v):
+                if v is None:
+                    return []
+                try:
+                    return list(v)
+                except TypeError:
+                    return [v]
+
+            mode_labels = _as_list(result.get("mode_labels"))
+            fn = _as_list(result.get("fn"))
+            zeta = _as_list(result.get("zeta"))
+            sigma_fn_raw = result.get("sigma_fn")
+            sigma_zeta_raw = result.get("sigma_zeta")
+            sigma_fn = _as_list(sigma_fn_raw) if sigma_fn_raw is not None else None
+            sigma_zeta = _as_list(sigma_zeta_raw) if sigma_zeta_raw is not None else None
+            n_rows = len(df)
+            for i, mlabel in enumerate(mode_labels):
+                key = str(mlabel).lower()
+                f0 = float(fn[i]) if i < len(fn) else float("nan")
+                z = float(zeta[i]) if i < len(zeta) else float("nan")
+                sf = (float(sigma_fn[i]) if sigma_fn is not None
+                      and i < len(sigma_fn) else float("nan"))
+                sz = (float(sigma_zeta[i]) if sigma_zeta is not None
+                      and i < len(sigma_zeta) else float("nan"))
+                df[f"modal_{key}_f0"] = np.full(n_rows, f0, dtype=float)
+                df[f"modal_{key}_zeta"] = np.full(n_rows, z, dtype=float)
+                df[f"modal_{key}_f0_sigma"] = np.full(n_rows, sf, dtype=float)
+                df[f"modal_{key}_zeta_sigma"] = np.full(n_rows, sz, dtype=float)
+            self.run_data[name] = df
+            log.info(
+                "Modal fit '%s' (%s): %s",
+                name, method,
+                ", ".join(
+                    f"{m}={float(fn[i]):.2f}Hz/{float(zeta[i]):.3f}"
+                    for i, m in enumerate(mode_labels)
+                ),
+            )
     def _align_slap(self) -> None:
         if not self.runs:
             return

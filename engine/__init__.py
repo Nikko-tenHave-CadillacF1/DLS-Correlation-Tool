@@ -18,3 +18,12 @@ from engine.plot_runtime import (  # noqa: F401
     HeatmapPlot,
 )
 from engine.datafunctions import calc_channel  # noqa: F401
+from engine.modal_plots import plot_modal_evolution  # noqa: F401
+
+# NOTE: `engine.vibrations` is NOT re-exported here because it transitively
+# imports `channel_config`, which imports `engine.datafunctions` — eager
+# re-export creates a circular import while `engine/__init__.py` itself is
+# still mid-load. Import it explicitly when needed:
+#     from engine.vibrations import run_fit, plot_comparison, expand_runs
+# The lazy import inside `DataPlotter._run_modal_fits` is unaffected because
+# it executes at runtime, after `channel_config` has fully loaded.

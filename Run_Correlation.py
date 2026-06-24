@@ -9,55 +9,56 @@ from engine import (
     WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot, BarPlot,
 )
 
-WORKFLOW_NAME = "correlation"
-EVENT = "26R07BCN"
+WORKFLOW_NAME = "tests"
+EVENT = "SF Line Test SPB"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 
 RUNS = [
-    {
-        "name": "CAR",
-        "file": r"26R07BCN_260612_MAC26-01_HER_P1_R02PARTIAL.txt",
-        "color": "#CA5B00",
-        # "nlap": 1,
-        "type": "CAR",
-    },
-    {
-        "name": "DLS - BSL",
-        "file": r"26R07BCN_HER_FP1R2_Baseline_DLS.parquet",
-        "color": "#0058A0",
-        "nlap": 1,
-        "type": "DLS",
-    },
-    {
-        "name": "DLS - 700 DAMP",
-        "file": r"26R07BCN_Offline_Correlation_R24_ComplianceOn_700Damp_46massDist_HER_DriverLine_DLS.parquet",
-        "color": "#8400FF",
-        "nlap": 1,
-        "type": "DLS",
-    },
-    {
-        "name": "DLS - RIGID",
-        "file": r"26R07BCN_Offline_Correlation_R24_700Damp_46massDist_RigidChassis_DLS.parquet",
-        "color": "#C00086",
-        "nlap": 1,
-        "type": "DLS",
-    },
     # {
     #     "name": "OC",
-    #     "file": r"20260615-OC-XPG - 26R08SPB - RVS Corr v0 - v2-SPB.parquet",
-    #     "color": "#25CA00",
+    #     "file": r"20260624-OC-XPG - 26R09SIL - Baseline V0 - v2-SIL.parquet",
+    #     "color": "#00950A",
     #     "nrun": 1,
     #     "type": "OC",
     # },
     # {
-    #     "name": "DLS",
-    #     "file": r"26R08SPB v1 LF - Soft kHeave F and R_DLS.parquet",
-    #     "color": "#0004FF",
+    #     "name": "DLS -  VPG BSL SPB",
+    #     "file": r"VPG Baselines  SIL  26R09SIL v0 LF_LTS_Iteration_3.parquet",
+    #     "color": "#0022CA",
     #     "nlap": 1,
     #     "type": "DLS",
-    # }
+    # },
+    {
+        "name": "DLS -  VPG BSL SPB",
+        "file": r"VPG Baselines  SPB  26R08SPB v0 LF_-Normal_DLS.parquet",
+        "color": "#0022CA",
+        "nlap": 1,
+        "type": "DLS",
+    },
+    {
+        "name": "DIL - sLapCan", 
+        "file": r"Spielberg_260618_GMDiL-08_FIT_R12PARTIAL_1.txt",
+        "color": "#CA0000",
+        #"nlap": 1,
+        "type": "DIL",
+    },
+    {
+        "name": "DIL - sLap",
+        "file": r"Spielberg_260618_GMDiL-08_FIT_R12PARTIAL.txt",
+        "color": "#91CA00",
+        #"nlap": 1,
+        "type": "DIL",
+    },
+
+    # {
+    #     "name": "DLS -  VPG SPB v25",
+    #     "file": r"VPG Baselines  SPB  26R08SPB v0 LF_-v25_DLS.parquet",
+    #     "color": "#0022CA",
+    #     "nlap": 1,
+    #     "type": "DLS",
+    # },
 ]
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
@@ -197,21 +198,21 @@ SCATTER_PLOT_DEFINITIONS = [
     #             best_fit=[('y', None, 15000), ('y', 15000, None)], error_as_factor=True),
     # ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)], error_as_factor=True),
 
-    ## CAR SUSPENSION CORRELATION - FOR REPORT
-    ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF",
-                best_fit=[('y', None, None)]), #, ('y', 9000, None)]
-    ScatterPlot("Front Roll",              "xDamperDeltaF", "FPRodDeltaF",          best_fit=[('x', None, None)]),
-    ScatterPlot("Rear Heave",              "xDamperAvgR",   "FPRodAvgR",
-                best_fit=[('y', None, 13000), ('y', 16500, None)]),
-    ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)]),
+    # ## CAR SUSPENSION CORRELATION - FOR REPORT
+    # ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF",
+    #             best_fit=[('y', None, None)]), #, ('y', 9000, None)]
+    # ScatterPlot("Front Roll",              "xDamperDeltaF", "FPRodDeltaF",          best_fit=[('x', None, None)]),
+    # ScatterPlot("Rear Heave",              "xDamperAvgR",   "FPRodAvgR",
+    #             best_fit=[('y', None, 13000), ('y', 16500, None)]),
+    # ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)]),
 
-    # ## OC SUSPENSION CORRELATION - FOR OC CHECKS
-    # ScatterPlot("Front Heave",             "xHubVertF_Avg",   "FzTyreF_Avg",
-    #              best_fit=[('y', 2500, None), ('y', None, 2500)]),
-    # ScatterPlot("Front Roll",              "xHubVertF_Delta", "FzTyreF_Delta",          best_fit=[('x', None, None)]),
-    # ScatterPlot("Rear Heave",              "xHubVertR_Avg",   "FzTyreR_Avg",
-    #              best_fit=[('y', None, 5000), ('y', 5000, None)]),
-    # ScatterPlot("Rear Roll",               "xHubVertR_Delta", "FzTyreR_Delta",          best_fit=[('x', None, None)]),
+    ## OC SUSPENSION CORRELATION - FOR OC CHECKS
+    ScatterPlot("Front Heave",             "xHubVertF_Avg",   "FzTyreF_Avg",
+                 best_fit=[('y', 2500, None), ('y', None, 2500)]),
+    ScatterPlot("Front Roll",              "xHubVertF_Delta", "FzTyreF_Delta",          best_fit=[('x', None, None)]),
+    ScatterPlot("Rear Heave",              "xHubVertR_Avg",   "FzTyreR_Avg",
+                 best_fit=[('y', None, 5000), ('y', 5000, None)]),
+    ScatterPlot("Rear Roll",               "xHubVertR_Delta", "FzTyreR_Delta",          best_fit=[('x', None, None)]),
     
     ScatterPlot("Roll angle gLat",         "gLat",          "aRoll",                best_fit=[('x', None, None)]),
     ScatterPlot("Front Pushrod vCar",      "vCar",          "FPRodAvgF",
