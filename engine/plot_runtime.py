@@ -431,6 +431,23 @@ def validate_config(config: PlotJobConfig) -> list[str]:
     issues: list[str] = []
     if not config.runs:
         issues.append("RUNS list is empty — nothing to plot.")
+    # Run names are the primary key into run_data / run_sample_rates / modal_results.
+    # Duplicates silently overwrite earlier loads and cause the preprocessing
+    # pipeline (mappings, transforms, calculated channels, filters) to iterate
+    # the same DataFrame twice, producing duplicate columns and a TypeError in
+    # apply_filters. Catch it here so the message is actionable.
+    name_to_indices: dict[str, list[int]] = {}
+    for i, run in enumerate(config.runs):
+        key = str(run.get("name", "")).strip().lower()
+        if key:
+            name_to_indices.setdefault(key, []).append(i)
+    for key, idxs in name_to_indices.items():
+        if len(idxs) > 1:
+            issues.append(
+                f"Duplicate run name '{config.runs[idxs[0]]['name']}' "
+                f"at RUNS positions {idxs}. Run names must be unique — "
+                f"distinguish them (e.g. 'DLS RED R' vs 'DLS BLUE R')."
+            )
     for i, run in enumerate(config.runs):
         label = run.get("name", f"<unnamed run[{i}]>")
         if not run.get("name"):
@@ -977,14 +994,14 @@ def run_plot_job(
         print_quality_summary(sections)
         print(f"  Full report: {report_path}\n")
     pre_mtimes = {
-        p: p.stat().st_mtime for p in plotter.plots_dir.glob("*.png")
+        p: p.stat().st_mtime for p in plotter.plots_dir.rglob("*.png")
     }
     t0 = _time.perf_counter()
     print("\nGenerating plots...")
     plotter.plot_data(plot_types=plot_types, plot_names=plot_names)
     elapsed = _time.perf_counter() - t0
     plot_count = sum(
-        1 for p in plotter.plots_dir.glob("*.png")
+        1 for p in plotter.plots_dir.rglob("*.png")
         if p not in pre_mtimes or p.stat().st_mtime > pre_mtimes[p]
     )
     print(f"\nGenerated {plot_count} plot(s) in {elapsed:.1f}s -> {plotter.plots_dir}")

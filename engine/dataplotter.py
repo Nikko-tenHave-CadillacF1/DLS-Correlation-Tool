@@ -418,7 +418,15 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             if rr > 0:
                 self.FILTER_SAMPLE_RATE = rr
         else:
-            self.RESAMPLE_RATE = float(sample_rate) if sample_rate else 0.0
+            # `resample_rate=None` means "disable resampling" -- the per-run
+            # detected sample rate is kept as-is. `FILTER_SAMPLE_RATE` (the
+            # `sample_rate` constructor arg) stays in place purely as a
+            # fallback for `_run_fs(run_name)` before per-run detection has
+            # populated `run_sample_rates`. We deliberately do NOT copy
+            # `sample_rate` into `RESAMPLE_RATE` here -- doing so silently
+            # re-enabled resampling at the 100 Hz default and pulled
+            # native-1000 Hz DLS runs down with it.
+            self.RESAMPLE_RATE = 0.0
         self.SCATTER_DOT_SIZE = scatter_dot_size
         self.SCATTER_TRANSPARENCY = scatter_transparency
         self.SCATTER_MAX_POINTS = scatter_max_points
@@ -518,6 +526,18 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         if which in ("minor", "both"):
             ax.grid(True, which="minor", axis=axis, **self.GRID_STYLE["minor"])
         ax.set_axisbelow(True)
+    def _run_fs(self, run_name: str) -> float:
+        """Sample rate for a run: detected per-run value, else the global default.
+
+        After ``_preprocess_data`` the per-run rate equals ``RESAMPLE_RATE`` when
+        resampling is enabled, otherwise the rate inferred from the run's time
+        column. ``FILTER_SAMPLE_RATE`` is only used as a fallback before detection
+        has run (e.g. inside ``_clean_data`` on the very first call).
+        """
+        pair = self.run_sample_rates.get(run_name)
+        if pair and pair[0]:
+            return float(pair[0])
+        return float(self.FILTER_SAMPLE_RATE)
     @staticmethod
     def _apply_2d_axis_limits(ax, axis_limits, *, log_scale_y=False, y_floor=1e-4):
         if not axis_limits:
@@ -1045,9 +1065,15 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             log.error("Failed to load '%s': %s", file_path, e)
             raise
     def _clean_data(self):
-        interp_limit = max(1, int(self.FILTER_SAMPLE_RATE))
         for run_name in list(self.run_data.keys()):
             df = datafunctions.convert_yes_no_to_binary(self.run_data[run_name])
+            # Per-run interp limit (= 1 s of samples) so high-rate sources don't
+            # get bridged with stale 100 Hz spacing. Detection here is independent
+            # of the post-resample detection a few steps later in _preprocess_data.
+            detected_rate, _ = datafunctions.detect_sample_rate(
+                df, default=self.FILTER_SAMPLE_RATE,
+            )
+            interp_limit = max(1, int(detected_rate))
             drop_cols = []
             for col in list(df.columns):
                 if col == "TimeIntoExport" and not pd.api.types.is_numeric_dtype(df[col]):
@@ -1323,6 +1349,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         if not self._loaded:
             raise RuntimeError("Data must be loaded before preprocessing.")
         self._gated_data_cache.clear()
+        missing_transform_warned: set = set()
         for run in self.runs:
             name = run["name"].lower()
             if name not in self.run_data:
@@ -1332,7 +1359,8 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 self.run_data[name], self.CHANNEL_MAPPINGS, source_type
             )
             self.run_data[name] = datafunctions.apply_transformations(
-                self.run_data[name], source_type, self.CHANNEL_TRANSFORMS
+                self.run_data[name], source_type, self.CHANNEL_TRANSFORMS,
+                missing_warned=missing_transform_warned,
             )
         self._clean_data()
         if self.RESAMPLE_RATE and self.RESAMPLE_RATE > 0:
@@ -1358,10 +1386,23 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 log.debug("[%s] sample rate: %.1f Hz (source: %s)", name, rate, source)
         if detected_rates:
             rmin, rmax = min(detected_rates), max(detected_rates)
+            # Keep the global FILTER_SAMPLE_RATE in sync with reality so any
+            # consumer that still reads it directly (or has no per-run name in
+            # scope) gets a sensible value. When resampling is active every run
+            # is already at RESAMPLE_RATE, so we don't overwrite that.
+            if not (self.RESAMPLE_RATE and self.RESAMPLE_RATE > 0):
+                representative = float(np.median(detected_rates))
+                if representative > 0 and representative != self.FILTER_SAMPLE_RATE:
+                    log.debug(
+                        "FILTER_SAMPLE_RATE updated from %.1f Hz to %.1f Hz (per-run detection).",
+                        self.FILTER_SAMPLE_RATE, representative,
+                    )
+                    self.FILTER_SAMPLE_RATE = representative
             if rmin > 0 and (rmax / rmin) > 1.05:
                 log.warning(
                     "Per-run sample rates vary by %.2fx (%.1f–%.1f Hz). "
-                    "This may affect PSD comparisons.",
+                    "Filters and PSDs use each run's own rate; cross-run peak "
+                    "comparisons may still show different frequency resolution.",
                     rmax / rmin, rmin, rmax,
                 )
         for run in self.runs:
@@ -1382,7 +1423,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             required = self.run_required_cols.get(name)
             required_set = set(required) if required else None
             self.run_data[name] = datafunctions.apply_filters(
-                self.run_data[name], self.FILTERS, self.FILTER_SAMPLE_RATE, name,
+                self.run_data[name], self.FILTERS, self._run_fs(name), name,
                 required_channels=required_set,
             )
         self._build_consolidated_runs()
@@ -1710,9 +1751,9 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         if not cfg:
             return
         try:
-            from . import vibrations as _vib
+            from . import vibrations_io as _vib
         except Exception as exc:
-            log.warning("Modal fit skipped — failed to import engine.vibrations: %s", exc)
+            log.warning("Modal fit skipped — failed to import engine.vibrations_io: %s", exc)
             return
         displacement_mode = bool(cfg.get("displacement_mode", False))
         fmin = float(cfg.get("fmin", 2.0))
@@ -1779,6 +1820,16 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             sigma_zeta_raw = result.get("sigma_zeta")
             sigma_fn = _as_list(sigma_fn_raw) if sigma_fn_raw is not None else None
             sigma_zeta = _as_list(sigma_zeta_raw) if sigma_zeta_raw is not None else None
+            amp_front_raw = result.get("amp_front")
+            amp_rear_raw = result.get("amp_rear")
+            amp_front = _as_list(amp_front_raw) if amp_front_raw is not None else None
+            amp_rear = _as_list(amp_rear_raw) if amp_rear_raw is not None else None
+            sigma_amp_front_raw = result.get("sigma_amp_front")
+            sigma_amp_rear_raw = result.get("sigma_amp_rear")
+            sigma_amp_front = (_as_list(sigma_amp_front_raw)
+                               if sigma_amp_front_raw is not None else None)
+            sigma_amp_rear = (_as_list(sigma_amp_rear_raw)
+                              if sigma_amp_rear_raw is not None else None)
             n_rows = len(df)
             for i, mlabel in enumerate(mode_labels):
                 key = str(mlabel).lower()
@@ -1792,6 +1843,18 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 df[f"modal_{key}_zeta"] = np.full(n_rows, z, dtype=float)
                 df[f"modal_{key}_f0_sigma"] = np.full(n_rows, sf, dtype=float)
                 df[f"modal_{key}_zeta_sigma"] = np.full(n_rows, sz, dtype=float)
+                af = (float(amp_front[i]) if amp_front is not None
+                      and i < len(amp_front) else float("nan"))
+                ar = (float(amp_rear[i]) if amp_rear is not None
+                      and i < len(amp_rear) else float("nan"))
+                saf = (float(sigma_amp_front[i]) if sigma_amp_front is not None
+                       and i < len(sigma_amp_front) else float("nan"))
+                sar = (float(sigma_amp_rear[i]) if sigma_amp_rear is not None
+                       and i < len(sigma_amp_rear) else float("nan"))
+                df[f"modal_{key}_amp_front"] = np.full(n_rows, af, dtype=float)
+                df[f"modal_{key}_amp_rear"] = np.full(n_rows, ar, dtype=float)
+                df[f"modal_{key}_amp_front_sigma"] = np.full(n_rows, saf, dtype=float)
+                df[f"modal_{key}_amp_rear_sigma"] = np.full(n_rows, sar, dtype=float)
             self.run_data[name] = df
             log.info(
                 "Modal fit '%s' (%s): %s",

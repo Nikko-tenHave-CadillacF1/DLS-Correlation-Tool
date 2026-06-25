@@ -27,19 +27,30 @@ that match no files are reported as errors before any plotting starts.
 
 ## `vibrations.py` — moved to `engine/`
 
-The vibrations pipeline now lives under `engine/vibrations.py`,
-`engine/vibrations_lorentz.py`, and `engine/vibrations_body4dof.py`.
-Import the public API directly from the submodule:
+The vibrations pipeline now lives under three files in `engine/`:
+
+| File | Role |
+|------|------|
+| `engine/vibrations_io.py` | I/O, body-frame transform, fit dispatch, plotting, CLI |
+| `engine/vibrations_lorentz.py` | Pure-math Lorentzian fit kernel (standalone) |
+| `engine/vibrations_body4dof.py` | Pure-math 13-parameter MCK fit kernel (standalone) |
+
+Each fit kernel imports nothing from the other (and nothing from
+`vibrations_io`), so the two methods can be audited in isolation. The
+I/O layer is the only place that wires them together — it optionally
+runs `vibrations_lorentz.run_fit` first to seed the body4dof DE basin.
+
+Import the public API directly from the I/O module:
 
 ```python
-from engine.vibrations import run_fit, run_fit_from_arrays, plot_comparison, expand_runs
+from engine.vibrations_io import run_fit, run_fit_from_arrays, plot_comparison, expand_runs
 ```
 
-(`engine.vibrations` is intentionally not re-exported from `engine/__init__.py`
-because it transitively imports `channel_config`, which imports
-`engine.datafunctions` — eager re-export would create a circular import while
-`engine/__init__.py` is still mid-load. The lazy import inside
-`DataPlotter._run_modal_fits` is unaffected.)
+(`engine.vibrations_io` is intentionally not re-exported from
+`engine/__init__.py` because it transitively imports `channel_config`,
+which imports `engine.datafunctions` — eager re-export would create a
+circular import while `engine/__init__.py` is still mid-load. The lazy
+import inside `DataPlotter._run_modal_fits` is unaffected.)
 
 **Preferred usage** — edit settings in `Run_Vibrations.py` and run directly:
 
@@ -50,8 +61,8 @@ python Run_Vibrations.py
 Standalone CLI is also available:
 
 ```bash
-python -m engine.vibrations Data/inputs/ride_dil/26R07BCN/26R07BCN_260612_MAC26-03_BOT_P2_R01.txt
-python -m engine.vibrations path/to/file.txt --fmin 1.5 --fmax 15 --no-plots
+python -m engine.vibrations_io Data/inputs/ride_dil/26R07BCN/26R07BCN_260612_MAC26-03_BOT_P2_R01.txt
+python -m engine.vibrations_io path/to/file.txt --fmin 1.5 --fmax 15 --no-plots
 ```
 
 ### Fit methods

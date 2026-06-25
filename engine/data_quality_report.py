@@ -39,6 +39,11 @@ def build_quality_sections(
         df = run_data[run_name]
         n_rows = len(df)
         n_cols = len(df.columns)
+        # Consolidated runs concatenate source files with NaN gaps; high-NaN is
+        # expected there and not a data-quality problem. Modal injection columns
+        # are intentionally constant per run; they would always trip the
+        # flatlined check. Exclude both from the corresponding lists.
+        is_consolidated = "_consolidate_sources" in run
         missing = [ch for ch in referenced if ch not in df.columns]
         if missing:
             missing_rows.append([run["name"].upper(), ", ".join(missing[:20]) + (" …" if len(missing) > 20 else "")])
@@ -47,13 +52,14 @@ def build_quality_sections(
         for ch in referenced:
             if ch not in df.columns:
                 continue
+            is_modal_const = ch.startswith("modal_")
             series = pd.to_numeric(df[ch], errors="coerce")
             nan_ratio = float(series.isna().mean()) if len(series) else 0.0
-            if nan_ratio > 0.20:
+            if nan_ratio > 0.20 and not is_consolidated and not is_modal_const:
                 nan_count += 1
                 high_nan_rows.append([run["name"].upper(), ch, f"{nan_ratio:.1%}"])
             valid = series.dropna()
-            if len(valid) > 20 and float(valid.std()) < 1e-9:
+            if len(valid) > 20 and float(valid.std()) < 1e-9 and not is_modal_const:
                 flat_count += 1
                 flatlined_rows.append([run["name"].upper(), ch])
         resets = 0

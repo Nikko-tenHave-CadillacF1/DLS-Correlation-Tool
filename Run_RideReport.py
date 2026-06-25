@@ -68,34 +68,45 @@ NPERSEG = 512
 RUNS = [
     # One consolidated run per session (FP1, FP2, FP3, Q, GP) — car setup
     # changes between sessions so a single weekend-wide merge is not valid.
-    # Individual files are also kept so per-run modal fits feed the evolution
-    # plots; switch to `"consolidate": "only"` to drop the individuals.
+    # The car-tag prefix in `consolidated_name` guarantees RED and BLUE
+    # consolidated runs have distinct names (otherwise BLUE would overwrite 
+    # RED in `plotter.modal_results`, which keys by run name).
+
     {"folder": "RED", "filetype": ".txt", "type": "CAR",
      "consolidate": "only", "consolidate_by": "session",
-     "consolidated_name": EVENT},
-    # Example: a second car or event would go here with a `group` key, e.g.
-    # {"folder": "BLUE", "filetype": ".txt", "type": "CAR", "group": "BLUE"},
+     "consolidated_name": EVENT + "_RED", "group": "RED"},
+    # {"name": "DLS RED R", "type": "DLS", "file": r"RED/26R07BCN  11  Race_DLS.parquet", "group": "RED"},
+    {"folder": "BLUE", "filetype": ".txt", "type": "CAR",
+     "consolidate": "only", "consolidate_by": "session",
+     "consolidated_name": EVENT + "_BLUE", "group": "BLUE"},
+    # {"name": "DLS BLUE R", "type": "DLS", "file": r"BLUE/26R07BCN  77  Race_DLS.parquet", "group": "BLUE"},
+    # {"name": "BSL", "type": "DLS", "file": r"VPG Baselines  SPB  26R08SPB v1 LF_DLS.parquet", "color": "#FF0000"},
+    # {"name": "500 HS", "type": "DLS", "file": r"VPG Baselines  SPB  26R08SPB v1 LF_HS500_DLS.parquet", "color": "#FF9900"},
+    # {"name": "750 HS", "type": "DLS", "file": r"VPG Baselines  SPB  26R08SPB v1 LF_HS750_DLS.parquet", "color": "#8EB200"},
+    # {"name": "1000 HS", "type": "DLS", "file": r"VPG Baselines  SPB  26R08SPB v1 LF_HS1000_DLS.parquet", "color": "#00A088"},
+    # {"name": "7A HD", "type": "DLS", "file": r"VPG Baselines  SPB  26R08SPB v1 LF_7AFH_DLS.parquet", "color": "#0026FF"},
+    # {"name": "7C HD", "type": "DLS", "file": r"VPG Baselines  SPB  26R08SPB v1 LF_7CFH_DLS.parquet", "color": "#6200FF"},
 ]
 
-# ─── VIBRATIONS FIT ───────────────────────────────────────────────────────────
+# ─── VIBRATIONS FIT ─────────────────
 # When set, DataPlotter runs the modal fit per run after preprocessing and
 # injects `modal_<mode>_f0/_zeta/_f0_sigma/_zeta_sigma` constant channels.
 # Set to None to disable (workflow runs as before, no modal artefacts).
 
 VIBRATIONS_FIT = {
     "method": "lorentzian_combined",   # or "body4dof"
-    "fmin": 2.0,
+    "fmin": 3.0,
     "fmax": 13.0,
     "nperseg": NPERSEG,                # shared with PSD plots below
     "displacement_mode": False,
     "expected_freqs": {
         "heave": (4.0, 6.5),
         "pitch": (7.0, 10.5),
-        "roll":  (4.0, 6.5),
-        "warp":  (9.0, 12.0),
+        "roll":  (5.0, 7.5),
+        "warp":  (10.0, 12.5),
     },
     "event": EVENT,
-    "show_plots": False,               # auto-emits diagnosis plot per run
+    "show_plots": True,               # auto-emits diagnosis plot per run
 }
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
@@ -198,34 +209,81 @@ PSD_PLOT_DEFINITIONS = [
 ]
 
 # ─── BAR PLOTS (modal parameters, per-run with sigma errorbars) ───────────────
-# Heave/pitch and roll/warp live on different scales (frequency and damping),
-# so they're rendered as separate plots. The `error_metrics` tuple parallels
-# `metrics`; entries pair each value with its sigma channel. Bars are
-# auto-grouped by metric; runs are bars within each group.
+# One bar plot per (parameter, mode) — keeps every mode on its own axis so
+# the per-session bars stay legible when RED and BLUE consolidated runs are
+# rendered side-by-side.
 
 BAR_PLOT_DEFINITIONS = [
     BarPlot(
-        name="Modal Frequencies (Heave-Pitch)",
-        metrics=("modal_heave_f0", "modal_pitch_f0"),
-        error_metrics=("modal_heave_f0_sigma", "modal_pitch_f0_sigma"),
+        name="Modal Frequency (Heave)",
+        metrics=("modal_heave_f0",),
+        error_metrics=("modal_heave_f0_sigma",),
         default_aggregation="first",
     ),
     BarPlot(
-        name="Modal Frequencies (Roll-Warp)",
-        metrics=("modal_roll_f0", "modal_warp_f0"),
-        error_metrics=("modal_roll_f0_sigma", "modal_warp_f0_sigma"),
+        name="Modal Frequency (Pitch)",
+        metrics=("modal_pitch_f0",),
+        error_metrics=("modal_pitch_f0_sigma",),
         default_aggregation="first",
     ),
     BarPlot(
-        name="Modal Damping Ratios (Heave-Pitch)",
-        metrics=("modal_heave_zeta", "modal_pitch_zeta"),
-        error_metrics=("modal_heave_zeta_sigma", "modal_pitch_zeta_sigma"),
+        name="Modal Frequency (Roll)",
+        metrics=("modal_roll_f0",),
+        error_metrics=("modal_roll_f0_sigma",),
         default_aggregation="first",
     ),
     BarPlot(
-        name="Modal Damping Ratios (Roll-Warp)",
-        metrics=("modal_roll_zeta", "modal_warp_zeta"),
-        error_metrics=("modal_roll_zeta_sigma", "modal_warp_zeta_sigma"),
+        name="Modal Frequency (Warp)",
+        metrics=("modal_warp_f0",),
+        error_metrics=("modal_warp_f0_sigma",),
+        default_aggregation="first",
+    ),
+    BarPlot(
+        name="Modal Damping Ratio (Heave)",
+        metrics=("modal_heave_zeta",),
+        error_metrics=("modal_heave_zeta_sigma",),
+        default_aggregation="first",
+    ),
+    BarPlot(
+        name="Modal Damping Ratio (Pitch)",
+        metrics=("modal_pitch_zeta",),
+        error_metrics=("modal_pitch_zeta_sigma",),
+        default_aggregation="first",
+    ),
+    BarPlot(
+        name="Modal Damping Ratio (Roll)",
+        metrics=("modal_roll_zeta",),
+        error_metrics=("modal_roll_zeta_sigma",),
+        default_aggregation="first",
+    ),
+    BarPlot(
+        name="Modal Damping Ratio (Warp)",
+        metrics=("modal_warp_zeta",),
+        error_metrics=("modal_warp_zeta_sigma",),
+        default_aggregation="first",
+    ),
+    BarPlot(
+        name="Modal Amplitudes (Heave)",
+        metrics=("modal_heave_amp_front", "modal_heave_amp_rear"),
+        error_metrics=("modal_heave_amp_front_sigma", "modal_heave_amp_rear_sigma"),
+        default_aggregation="first",
+    ),
+    BarPlot(
+        name="Modal Amplitudes (Pitch)",
+        metrics=("modal_pitch_amp_front", "modal_pitch_amp_rear"),
+        error_metrics=("modal_pitch_amp_front_sigma", "modal_pitch_amp_rear_sigma"),
+        default_aggregation="first",
+    ),
+    BarPlot(
+        name="Modal Amplitudes (Roll)",
+        metrics=("modal_roll_amp_front", "modal_roll_amp_rear"),
+        error_metrics=("modal_roll_amp_front_sigma", "modal_roll_amp_rear_sigma"),
+        default_aggregation="first",
+    ),
+    BarPlot(
+        name="Modal Amplitudes (Warp)",
+        metrics=("modal_warp_amp_front", "modal_warp_amp_rear"),
+        error_metrics=("modal_warp_amp_front_sigma", "modal_warp_amp_rear_sigma"),
         default_aggregation="first",
     ),
 ]
@@ -240,15 +298,32 @@ POWERPOINT_EXPORT_MAP = [
 ]
 
 MODAL_POWERPOINT_EXPORT_MAP = [
-    Slide("double_plot", "bar/Modal Frequencies (Heave-Pitch)",
-                         "bar/Modal Frequencies (Roll-Warp)"),
-    Slide("double_plot", "bar/Modal Damping Ratios (Heave-Pitch)",
-                         "bar/Modal Damping Ratios (Roll-Warp)"),
-    # plot_modal_evolution emits these into plots/modal/ — referenceable too.
-    Slide("double_plot", "modal/modal_evolution_line_f0_heave_pitch",
-                         "modal/modal_evolution_line_f0_roll_warp"),
-    Slide("double_plot", "modal/modal_evolution_line_zeta_heave_pitch",
-                         "modal/modal_evolution_line_zeta_roll_warp"),
+    # Per-mode frequency bars (RED vs BLUE per session, modal fit value + sigma).
+    Slide("double_plot", "bar/Modal Frequency (Heave)",
+                         "bar/Modal Frequency (Pitch)"),
+    Slide("double_plot", "bar/Modal Frequency (Roll)",
+                         "bar/Modal Frequency (Warp)"),
+    Slide("double_plot", "bar/Modal Damping Ratio (Heave)",
+                         "bar/Modal Damping Ratio (Pitch)"),
+    Slide("double_plot", "bar/Modal Damping Ratio (Roll)",
+                         "bar/Modal Damping Ratio (Warp)"),
+    Slide("double_plot", "bar/Modal Amplitudes (Heave)",
+                         "bar/Modal Amplitudes (Pitch)"),
+    Slide("double_plot", "bar/Modal Amplitudes (Roll)",
+                         "bar/Modal Amplitudes (Warp)"),
+    # plot_modal_evolution emits per-mode comparison figures into plots/modal/.
+    Slide("double_plot", "modal/modal_evolution_line_f0_heave",
+                         "modal/modal_evolution_line_f0_pitch"),
+    Slide("double_plot", "modal/modal_evolution_line_f0_roll",
+                         "modal/modal_evolution_line_f0_warp"),
+    Slide("double_plot", "modal/modal_evolution_line_zeta_heave",
+                         "modal/modal_evolution_line_zeta_pitch"),
+    Slide("double_plot", "modal/modal_evolution_line_zeta_roll",
+                         "modal/modal_evolution_line_zeta_warp"),
+    Slide("double_plot", "modal/modal_evolution_line_amp_heave",
+                         "modal/modal_evolution_line_amp_pitch"),
+    Slide("double_plot", "modal/modal_evolution_line_amp_roll",
+                         "modal/modal_evolution_line_amp_warp"),
 ]
 
 # Build the list of secondary exports. Legacy single-template fields are still
@@ -284,24 +359,18 @@ if __name__ == "__main__":
         fig_size={"waveform": (20, 10), "default": (10, 8)},
     )
     if plotter is not None and getattr(plotter, "modal_results", None):
-        # Heave & pitch share a scale; roll & warp share a different one.
-        # Split into two figures per parameter for legibility.
-        plot_modal_evolution(
-            plotter,
-            modes=("Heave", "Pitch"),
-            name_suffix="heave_pitch",
-            group_by=GROUP_BY,
-            include_consolidated=True,
-            line_ci=True,
-            bars=True,
-        )
-        plot_modal_evolution(
-            plotter,
-            modes=("Roll", "Warp"),
-            name_suffix="roll_warp",
-            group_by=GROUP_BY,
-            include_consolidated=True,
-            line_ci=True,
-            bars=True,
-        )
+        # One figure per mode. `compare_by="session"` aligns runs from each
+        # group (RED, BLUE) on a shared x-axis keyed by session token (P1,
+        # P2, P3, Q, GP) so the two cars overlay for direct comparison.
+        for mode in ("Heave", "Pitch", "Roll", "Warp"):
+            plot_modal_evolution(
+                plotter,
+                modes=(mode,),
+                name_suffix=mode.lower(),
+                group_by=GROUP_BY,
+                compare_by="session",
+                include_consolidated=True,
+                line_ci=True,
+                bars=True,
+            )
 

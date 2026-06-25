@@ -70,7 +70,7 @@ class BarBoxMixin:
                     values.append(datafunctions.aggregate_channel_for_bar(
                         df[channel],
                         aggregation=aggregation,
-                        sample_rate=self.FILTER_SAMPLE_RATE,
+                        sample_rate=self._run_fs(run_name),
                         time_series=df["tLap"] if "tLap" in df.columns else None,
                     ))
                 errors = None
@@ -84,7 +84,7 @@ class BarBoxMixin:
                         errors.append(datafunctions.aggregate_channel_for_bar(
                             df[err_ch],
                             aggregation=aggregation,
-                            sample_rate=self.FILTER_SAMPLE_RATE,
+                            sample_rate=self._run_fs(run_name),
                             time_series=df["tLap"] if "tLap" in df.columns else None,
                         ))
                 offsets = x + left_edge + (run_index + 0.5) * bar_width

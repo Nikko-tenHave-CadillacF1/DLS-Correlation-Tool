@@ -366,7 +366,7 @@ RIDE_DIL_CALCULATED    = dict(CALCULATED_CHANNELS)
 # filtering is applied. This guarantees filter cutoffs are consistent
 # channel-to-channel and run-to-run regardless of the source logging rate.
 # Set to 0 (or None) to disable resampling and use the native sample rate.
-RESAMPLE_RATE = 100.0
+RESAMPLE_RATE = None
 
 
 # ─── FILTERS ──────────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@ from bootstrap import ensure_dependencies
 ensure_dependencies()
 
 from channel_config import get_workflow_dirs
-from engine.vibrations import run_fit, plot_comparison, expand_runs
+from engine.vibrations_io import run_fit, plot_comparison, expand_runs
 
 WORKFLOW_NAME = "ride_dil"
 EVENT = "26R07BCN"

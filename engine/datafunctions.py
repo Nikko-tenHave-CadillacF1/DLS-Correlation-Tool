@@ -95,7 +95,8 @@ def apply_channel_mappings(df: pd.DataFrame, channel_mappings: dict | None, sour
         log.debug("Renamed %d channels for %s", len(rename_dict), source_type.upper())
     return df
 
-def apply_transformations(df: pd.DataFrame, source_type: str, channel_transforms: dict | None) -> pd.DataFrame:
+def apply_transformations(df: pd.DataFrame, source_type: str, channel_transforms: dict | None,
+                          missing_warned: set | None = None) -> pd.DataFrame:
     transforms = _safe_get_config(channel_transforms, source_type, "channel transformations")
     if not transforms:
         return df
@@ -112,7 +113,11 @@ def apply_transformations(df: pd.DataFrame, source_type: str, channel_transforms
             df[channel] = func(df[channel])
             transformed_channels.append(channel)
         else:
-            log.warning("Cannot transform missing channel '%s' for source '%s'.", channel, source_type.upper())
+            key = (source_type.upper(), channel)
+            if missing_warned is None or key not in missing_warned:
+                log.warning("Cannot transform missing channel '%s' for source '%s'.", channel, source_type.upper())
+                if missing_warned is not None:
+                    missing_warned.add(key)
     log.debug("Applied transformations to %d channels for %s", len(transformed_channels), source_type.upper())
     return df
 

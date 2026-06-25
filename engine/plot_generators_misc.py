@@ -585,7 +585,6 @@ class PsdHistMixin:
                     axis_limits[0][0], axis_limits[0][1], bins,
                 )
             hist_data, hist_weights, hist_colors, hist_labels = [], [], [], []
-            dt = 1.0 / self.FILTER_SAMPLE_RATE
             for run in self.runs:
                 run_name = run["name"].lower()
                 df = self.run_data.get(run_name)
@@ -598,6 +597,7 @@ class PsdHistMixin:
                 data = df[channel].dropna()
                 if data.empty:
                     continue
+                dt = 1.0 / self._run_fs(run_name)
                 hist_data.append(data.to_numpy())
                 hist_weights.append(np.full(len(data), dt))
                 hist_colors.append(run["color"])
