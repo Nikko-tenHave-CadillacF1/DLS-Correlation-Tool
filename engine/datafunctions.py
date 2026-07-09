@@ -289,14 +289,47 @@ def calculate_psd(signal, sample_rate: float, nperseg: int = 512) -> tuple[np.nd
     freq, power = welch(series, fs=sample_rate, nperseg=nperseg)
     return freq, power
 
-def auto_nperseg(n_samples: int, min_averages: int = 50, max_nperseg: int = 4096) -> int:
-    limit = min(int(2 * n_samples / (min_averages + 1)), max_nperseg)
+def auto_nperseg(
+    n_samples: int,
+    sample_rate: float = 100.0,
+    min_averages: int = 50,
+    min_averages_target: int = 200,
+    max_nperseg: int = 4096,
+    target_resolution_hz: float = 0.1,
+) -> int:
+    """Choose a Welch nperseg for a given signal length.
+
+    Three ceilings apply (nperseg cannot exceed any of them):
+    - ``avg_floor_limit``: keeps at least ``min_averages`` segment averages
+      (hard floor on statistical robustness).
+    - ``max_nperseg``: absolute upper bound.
+    - ``res_limit``: keeps Delta_f no finer than ``target_resolution_hz``
+      (prevents wasting data on unnecessary frequency resolution).
+
+    On top of that a soft preference: if ``min_averages_target > min_averages``
+    and the data supports it, shrink ``nperseg`` below ``res_limit`` to reach
+    ``min_averages_target`` averages. This buys tighter CIs on medium-length
+    sessions (~2-8 minutes) that would otherwise sit at K=50-100 with the
+    coarser resolution cap. Long sessions and very short sessions are
+    unaffected (already at or below the target). ``min_averages_target`` is
+    NEVER allowed to drop nperseg below 64 or below the hard floor cap.
+    """
+    if min_averages > 0:
+        avg_floor_limit = int(2 * n_samples / (min_averages + 1))
+    else:
+        avg_floor_limit = max_nperseg
+    if target_resolution_hz > 0 and sample_rate > 0:
+        res_limit = int(sample_rate / target_resolution_hz)
+    else:
+        res_limit = max_nperseg
+    limit = min(avg_floor_limit, max_nperseg, res_limit)
+    if min_averages_target > max(min_averages, 0):
+        avg_target_limit = int(2 * n_samples / (min_averages_target + 1))
+        if avg_target_limit >= 64:
+            limit = min(limit, avg_target_limit)
     if limit < 64:
         return 64
-    nperseg = 1
-    while nperseg * 2 <= limit:
-        nperseg *= 2
-    return nperseg
+    return int(limit)
 
 def calculate_segmented_psd(
     signal,
@@ -1178,11 +1211,29 @@ def resample_to_uniform_rate(df: pd.DataFrame, target_rate: float,
         return df
     if target_rate <= 0:
         return df
-    if time_col not in df.columns:
-        log.debug("resample: skipped (no '%s' column) for %s",
-                  time_col, run_name or "<run>")
+    candidate_cols = []
+    if time_col:
+        candidate_cols.append(time_col)
+    for fallback_col in ("tLap", "TimeIntoExport"):
+        if fallback_col not in candidate_cols:
+            candidate_cols.append(fallback_col)
+    chosen_col = None
+    t = None
+    for col in candidate_cols:
+        if col not in df.columns:
+            continue
+        if col == "TimeIntoExport":
+            t_candidate = _parse_time_into_export(df[col]).to_numpy(dtype=float)
+        else:
+            t_candidate = pd.to_numeric(df[col], errors="coerce").to_numpy(dtype=float)
+        if np.isfinite(t_candidate).sum() >= 5:
+            chosen_col = col
+            t = t_candidate
+            break
+    if chosen_col is None or t is None:
+        log.debug("resample: skipped (no usable time column among %s) for %s",
+                  candidate_cols, run_name or "<run>")
         return df
-    t = pd.to_numeric(df[time_col], errors="coerce").to_numpy(dtype=float)
     n_old = len(df)
     if n_old < 4 or not np.isfinite(t).any():
         return df
@@ -1190,7 +1241,7 @@ def resample_to_uniform_rate(df: pd.DataFrame, target_rate: float,
     valid_dt = (dt > 0) & (dt < 1.0) & np.isfinite(dt)
     if valid_dt.sum() < 5:
         log.debug("resample: skipped (irregular '%s') for %s",
-                  time_col, run_name or "<run>")
+              chosen_col, run_name or "<run>")
         return df
     med_dt = float(np.median(dt[valid_dt]))
     if not np.isfinite(med_dt) or med_dt <= 0:
@@ -1206,11 +1257,13 @@ def resample_to_uniform_rate(df: pd.DataFrame, target_rate: float,
     n_new = int(np.floor(n_old * up / down))
     if n_new < 2:
         return df
-    _LINEAR_INTERP_COLS = {"tlap", "slap"}
+    _LINEAR_INTERP_COLS = {"tlap", "slap", "timeintoexport"}
     _NEAREST_COLS = {"nlap"}
     idx_old = np.arange(n_old)
     t_src_uniform = idx_old / src_rate
     t_new_uniform = np.arange(n_new) / target_rate
+    finite_t = t[np.isfinite(t)]
+    t0 = float(finite_t[0]) if finite_t.size else 0.0
     out: dict[str, np.ndarray] = {}
     for col in df.columns:
         s = df[col]
@@ -1249,6 +1302,9 @@ def resample_to_uniform_rate(df: pd.DataFrame, target_rate: float,
                     )
             out[col] = y_new
         else:
+            if col == chosen_col:
+                out[col] = t_new_uniform + t0
+                continue
             if n_new == 1:
                 idx_new = np.array([0])
             else:

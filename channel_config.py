@@ -66,6 +66,8 @@ CHANNEL_MAPPINGS = {
     "OC": {
         "rSLMActive": "SM",
         "aUndersteer_aSlip": "aUndersteerFromSlip",
+        "aUndersteer_gLat": "aUndersteerFromgLat",
+        "aUndersteer_nYaw": "aUndersteerFromnYaw",
         "dtLap_drGripFactorTotal": "Grip Sens.",
         "sRun": "sLap",
         "aCamberKinematicFL": "aCamberFLKinematic",
@@ -114,7 +116,8 @@ CHANNEL_MAPPINGS = {
         "CLiftTotalF_Cp2CL": "CLiftTotalF",
         "CLiftTotalR_Cp2CL": "CLiftTotalR",
         "CLiftTotal_Cp2CL": "CLiftTotal",
-        "rAerobalTotal": "rAerobal",
+        "rAerobalTotal_Cp2CL": "rAeroBal",
+        "rBrakeBiasControl" : "rBrakeBias",
     },
 }
 
@@ -202,7 +205,7 @@ CHANNEL_TRANSFORMS = {
         "FPushrodRR": lambda x: abs(x),
     },
     "CAR": {
-        #"sLap":  lambda x: x + 10,     # GPS alignment shift
+        #"sLap":  lambda x: x - 10,     # GPS alignment shift
         "PBrakeFL": lambda x: -x,
         "PBrakeFR": lambda x: -x,
         "PBrakeRL": lambda x: -x,
@@ -223,7 +226,7 @@ CHANNEL_TRANSFORMS = {
         "FPushrodRR": lambda x: abs(x),
     },
     "OC": {
-        #"nYaw": lambda x: x,  # Convert from rad/s to deg/s
+        # "rBrakeBias": lambda x: x/100 ,  # Convert from % to 0-1
     },
 }
 
@@ -438,6 +441,7 @@ DEFAULT_FILTERS = {
     "vDamperDeltaR": {"cutoff": 0, "order": 2},
     "vDamperAvgF":   {"cutoff": 0, "order": 2},
     "vDamperAvgR":   {"cutoff": 0, "order": 2},
+    "rLLTD":         {"cutoff": 1, "order": 4},
     "all":           {"cutoff": 5, "order": 2},
 }
 

@@ -9,19 +9,55 @@ from engine import (
     WaveformPlot, ScatterPlot, PsdPlot,
 )
 
-WORKFLOW_NAME = "correlation"
-EVENT = "26R07BCN-GM"
+WORKFLOW_NAME = "ride_dil"
+EVENT = "26R07BCN - RIDE"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 
 
 RUNS = [
-    {"folder": ".", "filetype": ".txt", "type": "CAR"},
-    {"folder": ".", "filetype": ".parquet", "nlap": 1, "type": "DLS"},
+    {
+        "name": "CAR",
+        "file": r"26R07BCN_260612_MAC26-01_HER_P1_R02PARTIAL.txt",
+        "color": "#E45000",
+        # "nrun": 1,
+        "type": "CAR",
+    },
+    {
+        "name": "DLS - BSL",
+        "file": r"26R07BCN_HER_FP1R2_BSL_DLS.parquet",
+        "color": "#0DBF00",
+        #"nlap": 1,
+        "type": "DLS",
+    },
+    {
+        "name": "DLS - 46% MD",
+        "file": r"26R07BCN_HER_FP1R2_RigidChassis_46massDist_DLS.parquet",
+        "color": "#00BC9A",
+        #"nlap": 1,
+        "type": "DLS",
+    },
+    {
+        "name": "DLS - 700 DAMP",
+        "file": r"26R07BCN_HER_FP1R2_700DAMP_DLS.parquet",
+        "color": "#001AFF",
+        #"nlap": 1,
+        "type": "DLS",
+    },
+    {
+        "name": "DLS - 700 DAMP + 46% MD",
+        "file": r"26R07BCN_HER_FP1R2_RigidChassis_46massDist_700DAMP_DLS.parquet",
+        "color": "#C000DE",
+        #"nlap": 1,
+        "type": "DLS",
+    },
+    # {"folder": ".", "filetype": ".txt", "contains": "MAC26", "type": "CAR", "colors": ["#E00000", "#E00000", "#E00000"]},
+    # {"folder": ".", "filetype": ".parquet", "nlap" : 1, "contains": "DLS", "type": "DIL", "colors": ["#0000E0", "#00E0CD", "#00E031"]},
 ]
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
+NPERSEG = 200  # PSD segment length (samples) for Welch method. See PSD_PLOT_DEFINITIONS.
 EXPORT_TO_POWERPOINT  = False
 POWERPOINT_TEMPLATE   = resolve_template_path("template.pptx")
 POWERPOINT_OUTPUT     = _OUTPUT_DIR / "DIL_Ride_Report.pptx"
@@ -98,43 +134,37 @@ PSD_PLOT_DEFINITIONS = [
     # sections) failed the segment-length requirement and were skipped.
     # Ride modes of interest (1-20 Hz) are still well resolved.
     # ── Ride modes from pushrod forces ────────────────────────────────────────
-    PsdPlot("Heave Mode PSD - ungated",  "FPRodHeave", axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(4, 7)),
-    PsdPlot("Pitch Mode PSD - ungated",  "FPRodPitch", axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(7, 11)),
-    PsdPlot("Roll Mode PSD - ungated",   "FPRodRoll",  axis_limits=[(0, 30), (1e4, None)], lorentz_fit=[(4, 7), (9, 12)]),
-    PsdPlot("Warp Mode PSD - ungated",   "FPRodWarp",  axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(20, 30)),
+    PsdPlot("Heave Mode PSD - abs",  "FPRodHeave", axis_limits=[(0, 20), (1e4, None)],                 log_scale=False, nperseg=NPERSEG), # lorentz_fit=(4, 7)
+    PsdPlot("Pitch Mode PSD - abs",  "FPRodPitch", axis_limits=[(0, 20), (1e4, None)],                 log_scale=False, nperseg=NPERSEG), # lorentz_fit=(4, 7)
+    PsdPlot("Roll Mode PSD - abs",   "FPRodRoll",  axis_limits=[(0, 20), (1e4, None)],       log_scale=False, nperseg=NPERSEG), # lorentz_fit=[(4, 7), (9, 12)],
+    PsdPlot("Warp Mode PSD - abs",   "FPRodWarp",  axis_limits=[(0, 20), (1e4, None)],               log_scale=False, nperseg=NPERSEG),
 
-    PsdPlot("Heave Mode PSD - abs",  "FPRodHeave", axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(4, 7),                 log_scale=False),
-    PsdPlot("Pitch Mode PSD - abs",  "FPRodPitch", axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(7, 11),                log_scale=False),
-    PsdPlot("Roll Mode PSD - abs",   "FPRodRoll",  axis_limits=[(0, 30), (1e4, None)], lorentz_fit=[(4, 7), (9, 12)],      log_scale=False),
-    PsdPlot("Warp Mode PSD - abs",   "FPRodWarp",  axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(20, 30),               log_scale=False),
+    # PsdPlot("FPushrod FL PSD - ungated",  "FPushrodFL", axis_limits=[(0, 20), (1e4, None)], annotate_at=(4, 9), log_scale=False, nperseg=NPERSEG),
+    # PsdPlot("FPushrod FR PSD - ungated",  "FPushrodFR", axis_limits=[(0, 20), (1e4, None)], annotate_at=(6),    log_scale=False, nperseg=NPERSEG),
+    # PsdPlot("FPushrod RL PSD - ungated",  "FPushrodRL", axis_limits=[(0, 20), (1e4, None)], annotate_at=(5, 9), log_scale=False, nperseg=NPERSEG),
+    # PsdPlot("FPushrod RR PSD - ungated",  "FPushrodRR", axis_limits=[(0, 20), (1e4, None)], annotate_at=(5, 9), log_scale=False, nperseg=NPERSEG),
 
-    PsdPlot("FPushrod FL PSD - ungated",  "FPushrodFL", axis_limits=[(0, 20), (1e4, None)], annotate_at=(4, 9), log_scale=False),
-    PsdPlot("FPushrod FR PSD - ungated",  "FPushrodFR", axis_limits=[(0, 20), (1e4, None)], annotate_at=(6),    log_scale=False),
-    PsdPlot("FPushrod RL PSD - ungated",  "FPushrodRL", axis_limits=[(0, 20), (1e4, None)], annotate_at=(5, 9), log_scale=False),
-    PsdPlot("FPushrod RR PSD - ungated",  "FPushrodRR", axis_limits=[(0, 20), (1e4, None)], annotate_at=(5, 9), log_scale=False),
+    # ── Vertical chassis accelerations ─────────────────────────────────────────
+    PsdPlot("Front Vertical Acceleration PSD", "gVertF", axis_limits=[(0, 20), (None, None)],                            nperseg=NPERSEG), # lorentz_fit=[(5, 11)],
+    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR", axis_limits=[(0, 20), (None, None)],                            nperseg=NPERSEG), # lorentz_fit=[(5, 11)],
+    PsdPlot("Front Vertical Acceleration PSD - ABS", "gVertF", axis_limits=[(0, 20), (None, None)],  log_scale=False, nperseg=NPERSEG), #lorentz_fit=[(5, 11)],
+    PsdPlot("Rear Vertical Acceleration PSD - ABS",  "gVertR", axis_limits=[(0, 20), (None, None)],    log_scale=False, nperseg=NPERSEG), #lorentz_fit=(5, 11),
 
-    # ── Vertical chassis accelerations (ungated -> use larger nperseg for resolution) ──
-    PsdPlot("Front Vertical Acceleration PSD", "gVertF", axis_limits=[(0, 30), (None, None)], lorentz_fit=[(7, 11)]),
-    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR", axis_limits=[(0, 30), (None, None)], lorentz_fit=[(4, 7), (7, 11)]),
-    PsdPlot("Front Vertical Acceleration PSD - ABS", "gVertF", axis_limits=[(0, 30), (None, None)], lorentz_fit=[(7, 11), (13, 19)], log_scale=False),
-    PsdPlot("Rear Vertical Acceleration PSD - ABS",  "gVertR", axis_limits=[(0, 30), (None, None)], lorentz_fit=[(4, 7), (7, 11)],   log_scale=False),
+    PsdPlot("hRideF PSD", "hRideF (raw)", axis_limits=[(0, 20), (None, None)], nperseg=NPERSEG), # lorentz_fit=(3,8),
+    PsdPlot("hRideR PSD", "hRideR (raw)", axis_limits=[(0, 20), (None, None)], nperseg=NPERSEG), # lorentz_fit=(4,9),
 
+    PsdPlot("hRideF PSD - abs", "hRideF (high)", axis_limits=[(0, 20), (1e-4, None)], log_scale=False, nperseg=NPERSEG),
+    PsdPlot("hRideR PSD - abs", "hRideR (high)", axis_limits=[(0, 20), (1e-4, None)],  log_scale=False, nperseg=NPERSEG),
 
-    PsdPlot("hRideF PSD", "hRideF (raw)", axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5.5, 9, 15)),
-    PsdPlot("hRideR PSD", "hRideR (raw)", axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5.5, 14.5)),
+    # PsdPlot("xDamperFL", "xDamperFL_High",  log_scale=False),
+    # PsdPlot("xDamperFR", "xDamperFR_High",  log_scale=False),
+    # PsdPlot("xDamperRL", "xDamperRL_High",  log_scale=False),
+    # PsdPlot("xDamperRR", "xDamperRR_High",  log_scale=False),
 
-    PsdPlot("hRideF PSD - abs", "hRideF (high)", axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5.5, 9, 15), log_scale=False),
-    PsdPlot("hRideR PSD - abs", "hRideR (high)", axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5.5, 14.5), log_scale=False),
-
-    PsdPlot("xDamperFL", "xDamperFL_High",  log_scale=False),
-    PsdPlot("xDamperFR", "xDamperFR_High",  log_scale=False),
-    PsdPlot("xDamperRL", "xDamperRL_High",  log_scale=False),
-    PsdPlot("xDamperRR", "xDamperRR_High",  log_scale=False),
-
-    PsdPlot("FPushrodFL PSD", "FProdFL_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
-    PsdPlot("FPushrodFR PSD", "FProdFR_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
-    PsdPlot("FPushrodRL PSD", "FProdRL_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
-    PsdPlot("FPushrodRR PSD", "FProdRR_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
+    # PsdPlot("FPushrodFL PSD", "FProdFL_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
+    # PsdPlot("FPushrodFR PSD", "FProdFR_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
+    # PsdPlot("FPushrodRL PSD", "FProdRL_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
+    # PsdPlot("FPushrodRR PSD", "FProdRR_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
 ]
 
 # ─── POWERPOINT EXPORT MAP ────────────────────────────────────────────────────

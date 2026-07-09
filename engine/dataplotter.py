@@ -1761,6 +1761,9 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         nperseg = cfg.get("nperseg", "auto")
         method = cfg.get("method", "lorentzian_combined")
         expected_freqs = cfg.get("expected_freqs")
+        bootstrap_ci = bool(cfg.get("bootstrap_ci", False))
+        bootstrap_n = int(cfg.get("bootstrap_n", 400))
+        bootstrap_seed = int(cfg.get("bootstrap_seed", 0))
         primary_channels = _vib.DISPLACEMENT_CHANNELS if displacement_mode else _vib.FORCE_CHANNELS
         for run in list(self.runs):
             name = run["name"].lower()
@@ -1799,6 +1802,9 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     event=cfg.get("event", ""),
                     show_plots=bool(cfg.get("show_plots", False)),
                     output_dpi=self.output_dpi,
+                    bootstrap_ci=bootstrap_ci,
+                    bootstrap_n=bootstrap_n,
+                    bootstrap_seed=bootstrap_seed,
                 )
             except Exception as exc:
                 log.warning("Modal fit failed for run '%s': %s", name, exc)
@@ -1830,6 +1836,31 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                                if sigma_amp_front_raw is not None else None)
             sigma_amp_rear = (_as_list(sigma_amp_rear_raw)
                               if sigma_amp_rear_raw is not None else None)
+
+            # Bootstrap CIs (Option B). When present, they replace the
+            # symmetric Jacobian sigmas: the per-mode `_sigma` channels are
+            # overwritten with half the CI width so downstream bar plots
+            # still work, and new `_lo` / `_hi` channels are emitted so the
+            # modal-evolution figure can draw asymmetric bands.
+            def _ci_pair(name: str):
+                pair = result.get(name)
+                if pair is None:
+                    return None, None
+                try:
+                    lo_arr, hi_arr = pair
+                except Exception:  # noqa: BLE001
+                    return None, None
+                return _as_list(lo_arr), _as_list(hi_arr)
+
+            fn_lo, fn_hi = _ci_pair("fn_ci")
+            zeta_lo, zeta_hi = _ci_pair("zeta_ci")
+            af_lo, af_hi = _ci_pair("amp_front_ci")
+            ar_lo, ar_hi = _ci_pair("amp_rear_ci")
+
+            def _from(lst, i, default=float("nan")):
+                if lst is None or i >= len(lst):
+                    return default
+                return float(lst[i])
             n_rows = len(df)
             for i, mlabel in enumerate(mode_labels):
                 key = str(mlabel).lower()
@@ -1839,10 +1870,28 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                       and i < len(sigma_fn) else float("nan"))
                 sz = (float(sigma_zeta[i]) if sigma_zeta is not None
                       and i < len(sigma_zeta) else float("nan"))
+
+                # Bootstrap CI values (NaN when disabled).
+                f0_lo = _from(fn_lo, i); f0_hi = _from(fn_hi, i)
+                z_lo = _from(zeta_lo, i); z_hi = _from(zeta_hi, i)
+                af_lo_i = _from(af_lo, i); af_hi_i = _from(af_hi, i)
+                ar_lo_i = _from(ar_lo, i); ar_hi_i = _from(ar_hi, i)
+
+                # When CIs exist, override the symmetric sigmas with
+                # half-width so bar plots reflect the honest uncertainty.
+                if np.isfinite(f0_lo) and np.isfinite(f0_hi):
+                    sf = 0.5 * (f0_hi - f0_lo)
+                if np.isfinite(z_lo) and np.isfinite(z_hi):
+                    sz = 0.5 * (z_hi - z_lo)
+
                 df[f"modal_{key}_f0"] = np.full(n_rows, f0, dtype=float)
                 df[f"modal_{key}_zeta"] = np.full(n_rows, z, dtype=float)
                 df[f"modal_{key}_f0_sigma"] = np.full(n_rows, sf, dtype=float)
                 df[f"modal_{key}_zeta_sigma"] = np.full(n_rows, sz, dtype=float)
+                df[f"modal_{key}_f0_lo"] = np.full(n_rows, f0_lo, dtype=float)
+                df[f"modal_{key}_f0_hi"] = np.full(n_rows, f0_hi, dtype=float)
+                df[f"modal_{key}_zeta_lo"] = np.full(n_rows, z_lo, dtype=float)
+                df[f"modal_{key}_zeta_hi"] = np.full(n_rows, z_hi, dtype=float)
                 af = (float(amp_front[i]) if amp_front is not None
                       and i < len(amp_front) else float("nan"))
                 ar = (float(amp_rear[i]) if amp_rear is not None
@@ -1851,10 +1900,18 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                        and i < len(sigma_amp_front) else float("nan"))
                 sar = (float(sigma_amp_rear[i]) if sigma_amp_rear is not None
                        and i < len(sigma_amp_rear) else float("nan"))
+                if np.isfinite(af_lo_i) and np.isfinite(af_hi_i):
+                    saf = 0.5 * (af_hi_i - af_lo_i)
+                if np.isfinite(ar_lo_i) and np.isfinite(ar_hi_i):
+                    sar = 0.5 * (ar_hi_i - ar_lo_i)
                 df[f"modal_{key}_amp_front"] = np.full(n_rows, af, dtype=float)
                 df[f"modal_{key}_amp_rear"] = np.full(n_rows, ar, dtype=float)
                 df[f"modal_{key}_amp_front_sigma"] = np.full(n_rows, saf, dtype=float)
                 df[f"modal_{key}_amp_rear_sigma"] = np.full(n_rows, sar, dtype=float)
+                df[f"modal_{key}_amp_front_lo"] = np.full(n_rows, af_lo_i, dtype=float)
+                df[f"modal_{key}_amp_front_hi"] = np.full(n_rows, af_hi_i, dtype=float)
+                df[f"modal_{key}_amp_rear_lo"] = np.full(n_rows, ar_lo_i, dtype=float)
+                df[f"modal_{key}_amp_rear_hi"] = np.full(n_rows, ar_hi_i, dtype=float)
             self.run_data[name] = df
             log.info(
                 "Modal fit '%s' (%s): %s",

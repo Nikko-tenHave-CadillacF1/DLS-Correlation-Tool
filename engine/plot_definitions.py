@@ -269,7 +269,7 @@ class PsdPlot:
     channel: Union[str, List[str], Tuple[str, ...]]
     axis_limits: Optional[List[Tuple[Optional[float], Optional[float]]]] = None
     log_scale: bool = True
-    nperseg: Optional[int] = None
+    nperseg: Optional[Union[int, str]] = None
     annotate_at: Any = None
     markers: List[Marker] = field(default_factory=list)
     gate: Any = None
@@ -289,8 +289,15 @@ class PsdPlot:
         else:
             _require_str(self.channel, f"{where}.channel")
         if self.nperseg is not None:
-            self.nperseg = int(self.nperseg)
-            if self.nperseg < 8:
+            if isinstance(self.nperseg, str):
+                if self.nperseg.strip().lower() == "auto":
+                    # Reuse existing runtime auto path (None means auto-select).
+                    self.nperseg = None
+                else:
+                    self.nperseg = int(self.nperseg)
+            else:
+                self.nperseg = int(self.nperseg)
+            if self.nperseg is not None and self.nperseg < 8:
                 raise ValueError(f"{where}.nperseg must be >= 8.")
         self.markers = _coerce_markers(self.markers, f"{where}.markers")
         self.log_scale = bool(self.log_scale)

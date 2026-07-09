@@ -234,9 +234,27 @@ def _to_body_frame(corner: np.ndarray) -> np.ndarray:
 
 
 def compute_body_psds(corner: np.ndarray, fs: float,
-                      nperseg: int = 1024) -> tuple[np.ndarray, np.ndarray]:
-    """Welch PSDs of the body-frame channels."""
-    return signal.welch(_to_body_frame(corner), fs, nperseg=nperseg, axis=1)
+                      nperseg: int = 1024, *,
+                      return_segments: bool = False
+                      ) -> tuple[np.ndarray, np.ndarray]:
+    """Welch PSDs of the body-frame channels.
+
+    When ``return_segments=True`` the per-segment spectrogram is returned
+    instead of the segment-averaged PSD: shape ``(4, n_freqs, n_segments)``.
+    Averaging that array over the last axis reproduces ``signal.welch``
+    with the same ``nperseg`` and default 50 % overlap, so the bootstrap
+    path can resample segments before averaging without changing the
+    point-estimate result.
+    """
+    body = _to_body_frame(corner)
+    if not return_segments:
+        return signal.welch(body, fs, window="hann", nperseg=nperseg, axis=1)
+    f, _, sxx = signal.spectrogram(
+        body, fs=fs, window="hann", nperseg=nperseg,
+        noverlap=nperseg // 2, detrend="constant",
+        scaling="density", mode="psd", axis=1,
+    )
+    return f, sxx
 
 
 def compute_coherences(corner: np.ndarray, fs: float, nperseg: int = 512,
@@ -339,6 +357,7 @@ _MEAS_COLOR = "#2000BF"
 _FIT_COLOR = "#D70000"
 _MODE_COLOR = "#00AA55"
 _RESID_COLOR = "#D70000"
+_BASELINE_COLOR = "#888888"
 _POS_BAR = "#2E86AB"
 _NEG_BAR = "#E05263"
 _SAVE_KW = dict(pad_inches=0.15, facecolor="white", bbox_inches="tight")
@@ -482,16 +501,6 @@ def _peak_normalise(arr: np.ndarray) -> np.ndarray:
     return arr / peak if peak > 0 else arr
 
 
-def _scale_model_to_data(measured: np.ndarray, model: np.ndarray) -> np.ndarray:
-    """Per-row least-squares scale: choose alpha so alpha*model ~= measured."""
-    out = np.empty_like(model)
-    for i in range(model.shape[0]):
-        denom = float(np.dot(model[i], model[i]))
-        alpha = float(np.dot(measured[i], model[i])) / denom if denom > 0 else 1.0
-        out[i] = alpha * model[i]
-    return out
-
-
 # ============================================================================
 # Plotting - figures
 # ============================================================================
@@ -545,12 +554,29 @@ def generate_diagnosis_plot(result: dict, freqs_fit: np.ndarray,
     _configure_style()
     plots_dir = _plots_dir(output_dir)
     H_sq_fit = eval_fit_psds(result, freqs_fit)
-    H_sq_scaled = _scale_model_to_data(psds_fit, H_sq_fit)
+    # Per-row least-squares scale so alpha_d * H_sq_fit[d] ~= psds_fit[d].
+    # The scaled fit and the scaled sloped baseline (drawn below when
+    # available) use the same alpha_d, so the reader can visually decompose
+    # the fit into peaks + broadband floor.
+    scale_vec = np.empty(H_sq_fit.shape[0], dtype=float)
+    for d in range(H_sq_fit.shape[0]):
+        denom = float(np.dot(H_sq_fit[d], H_sq_fit[d]))
+        scale_vec[d] = (float(np.dot(psds_fit[d], H_sq_fit[d])) / denom
+                        if denom > 0 else 1.0)
+    H_sq_scaled = H_sq_fit * scale_vec[:, None]
     fn = result["fn"]
     zeta = result.get("zeta")
     labels = result["mode_labels"]
     method = result["method"]
     is_lorentz = (method == "lorentzian_combined")
+    # V2 sloped baseline: draw the fitted per-trace power-law floor when
+    # the result dict carries the extra keys. Body4dof results silently
+    # skip this branch.
+    baselines = result.get("baselines")
+    slopes = result.get("baseline_slopes")
+    f_ref = result.get("baseline_f_ref")
+    show_baseline = (is_lorentz and slopes is not None
+                     and baselines is not None and f_ref is not None)
 
     fig, axes = plt.subplots(5, 1, figsize=(11, 12), sharex=True,
                              gridspec_kw={"height_ratios": [1, 1, 1, 1, 0.5]})
@@ -564,6 +590,13 @@ def generate_diagnosis_plot(result: dict, freqs_fit: np.ndarray,
         ax.plot(freqs_fit, model, color=_FIT_COLOR, linewidth=1.6, alpha=0.85,
                 label="Fitted" if row == 0 else None)
         ax.fill_between(freqs_fit, meas, model, color=_FIT_COLOR, alpha=0.12)
+        if show_baseline:
+            base_curve = (float(baselines[dof])
+                          * (freqs_fit / float(f_ref)) ** float(slopes[dof])
+                          * scale_vec[dof])
+            ax.plot(freqs_fit, base_curve, color=_BASELINE_COLOR,
+                    linestyle="--", linewidth=1.0, alpha=0.6,
+                    label="Baseline" if row == 0 else None)
         if is_lorentz:
             mode_rows = [0, 1] if dof in (0, 2) else [2, 3]
             mode_names = (["Heave", "Pitch"] if dof in (0, 2)
@@ -748,21 +781,50 @@ def plot_comparison(results: list, fmin: float = 1.0, fmax: float = 19.0,
 def _log_modes(result: dict) -> None:
     sig_fn = result.get("sigma_fn")
     sig_z = result.get("sigma_zeta")
-    log.info("  %-8s %-18s %-20s", "Mode", "Freq [Hz]", "Damp")
+    boot = result.get("bootstrap_meta") or {}
+    n_eff = int(boot.get("n_effective", 0))
+    fn_ci = result.get("fn_ci") if n_eff > 0 else None
+    zeta_ci = result.get("zeta_ci") if n_eff > 0 else None
+    if n_eff > 0:
+        note = f"bootstrap 95% CI, n={n_eff}"
+    else:
+        note = "parametric 1\u03c3"
+    log.info("  %-8s %-24s %-26s  (\u00b1 = %s)",
+             "Mode", "Freq [Hz]", "Damp", note)
     for i in range(len(result["fn"])):
         f = float(result["fn"][i])
         z = float(result["zeta"][i])
-        sf = (float(sig_fn[i]) if sig_fn is not None and i < len(sig_fn)
-              else float("nan"))
-        sz = (float(sig_z[i]) if sig_z is not None and i < len(sig_z)
-              else float("nan"))
-        f_str = (f"{f:6.3f} \u00b1 {sf:5.3f}"
-                 if np.isfinite(f) and np.isfinite(sf)
-                 else (f"{f:6.3f}" if np.isfinite(f) else "N/A"))
-        z_str = (f"{z:6.4f} \u00b1 {sz:6.4f}"
-                 if np.isfinite(z) and np.isfinite(sz)
-                 else (f"{z:6.4f}" if np.isfinite(z) else "N/A"))
-        log.info("  %-8s %-18s %-20s",
+        f_lo = f_hi = z_lo = z_hi = np.nan
+        if fn_ci is not None:
+            try:
+                f_lo = float(fn_ci[0][i])
+                f_hi = float(fn_ci[1][i])
+            except (IndexError, TypeError, ValueError):
+                pass
+        if zeta_ci is not None:
+            try:
+                z_lo = float(zeta_ci[0][i])
+                z_hi = float(zeta_ci[1][i])
+            except (IndexError, TypeError, ValueError):
+                pass
+        if np.isfinite(f) and np.isfinite(f_lo) and np.isfinite(f_hi):
+            f_str = f"{f:6.3f} -{max(f - f_lo, 0.0):5.3f} +{max(f_hi - f, 0.0):5.3f}"
+        else:
+            sf = (float(sig_fn[i]) if sig_fn is not None and i < len(sig_fn)
+                  else float("nan"))
+            f_str = (f"{f:6.3f} \u00b1 {sf:5.3f}"
+                     if np.isfinite(f) and np.isfinite(sf)
+                     else (f"{f:6.3f}" if np.isfinite(f) else "N/A"))
+        if np.isfinite(z) and np.isfinite(z_lo) and np.isfinite(z_hi):
+            z_str = (f"{z:6.4f} -{max(z - z_lo, 0.0):6.4f} "
+                     f"+{max(z_hi - z, 0.0):6.4f}")
+        else:
+            sz = (float(sig_z[i]) if sig_z is not None and i < len(sig_z)
+                  else float("nan"))
+            z_str = (f"{z:6.4f} \u00b1 {sz:6.4f}"
+                     if np.isfinite(z) and np.isfinite(sz)
+                     else (f"{z:6.4f}" if np.isfinite(z) else "N/A"))
+        log.info("  %-8s %-24s %-26s",
                  result["mode_labels"][i], f_str, z_str)
     r2 = result.get("r_squared")
     if (isinstance(r2, (tuple, list)) and len(r2) == 2
@@ -821,6 +883,9 @@ def run_fit_from_arrays(
     event: str = "",
     output_dpi: int = 300,
     disp_corners_raw: np.ndarray | None = None,
+    bootstrap_ci: bool = False,
+    bootstrap_n: int = 400,
+    bootstrap_seed: int = 0,
 ) -> dict:
     """Run the modal fit on an already-loaded (4, N) corner array.
 
@@ -838,21 +903,33 @@ def run_fit_from_arrays(
 
     n_samples = corners.shape[1]
     if nperseg == "auto":
-        nperseg = auto_nperseg(n_samples)
+        nperseg = auto_nperseg(n_samples, sample_rate=fs)
         log.info("  Auto NPERSEG: %d (delta_f=%.3f Hz, ~%d averages)",
                  nperseg, fs / nperseg,
                  int(2 * n_samples / nperseg - 1))
+    # Number of Welch segments (50% overlap is scipy's default for welch).
+    # Used by the Lorentz fit to set absolute parameter sigmas from the
+    # known log-PSD noise variance trigamma(K).
+    n_avg = max(int(2 * n_samples / nperseg - 1), 1)
     log.info("  %s: %d samples (%.1f s), fit %.1f-%.1f Hz, "
              "method=%s, nperseg=%d",
              label or "fit", n_samples, n_samples / fs,
              fmin, fmax, method, nperseg)
 
     # ---- Welch -> body PSDs, crop to fit window, smooth + normalise.
+    # Fit-only smoothing: medfilt (kernel=5) to kill single-bin spikes, then
+    # a 3-bin moving-average pass for an additional light low-pass. Peak
+    # location and Lorentzian width are preserved; only the bin-to-bin
+    # ripple is reduced. `psds_fit` (raw) is still passed to body4dof.
     freqs, psds = compute_body_psds(corners, fs, nperseg=nperseg)
     fit_mask = (freqs >= fmin) & (freqs <= fmax)
     freqs_fit = freqs[fit_mask]
     psds_fit = psds[:, fit_mask]
-    psds_smooth = np.stack([signal.medfilt(p, kernel_size=3) for p in psds_fit])
+    _ma3 = np.ones(3) / 3.0
+    psds_smooth = np.stack([
+        np.convolve(signal.medfilt(p, kernel_size=5), _ma3, mode="same")
+        for p in psds_fit
+    ])
     global_peak = float(np.max(psds_smooth))
     if global_peak <= 0.0:
         global_peak = 1.0
@@ -860,8 +937,8 @@ def run_fit_from_arrays(
 
     # ---- Coherence weights (one 1-D array per subsystem).
     coh_hp, coh_rw = compute_coherences(corners, fs, nperseg=nperseg)
-    coh_hp = np.maximum(coh_hp[fit_mask], 0.2)
-    coh_rw = np.maximum(coh_rw[fit_mask], 0.2)
+    coh_hp = np.maximum(coh_hp[fit_mask], 0.3)
+    coh_rw = np.maximum(coh_rw[fit_mask], 0.3)
 
     fr = _normalise_expected_freqs(expected_freqs)
     log.info("  Expected freq bands: %s",
@@ -879,7 +956,7 @@ def run_fit_from_arrays(
     if method == "lorentzian_combined":
         result = vibrations_lorentz.run_fit(
             freqs_fit, meas_norm, fr,
-            coh_hp=coh_hp, coh_rw=coh_rw,
+            coh_hp=coh_hp, coh_rw=coh_rw, n_avg=n_avg,
         )
     elif method == "body4dof":
         # Pre-fit Lorentz to seed the DE basin with realistic (f0, zeta)
@@ -889,6 +966,7 @@ def run_fit_from_arrays(
         try:
             seed_result = vibrations_lorentz.run_fit(
                 freqs_fit, meas_norm, fr, coh_hp=coh_hp, coh_rw=coh_rw,
+                n_avg=n_avg,
             )
             seed_modes = _seed_modes_from_lorentz(seed_result)
         except Exception as exc:  # noqa: BLE001 - seed is optional
@@ -907,6 +985,84 @@ def run_fit_from_arrays(
             f"Unknown method: {method!r}. "
             "Use 'lorentzian_combined' or 'body4dof'."
         )
+
+    # ---- Optional segment block-bootstrap CIs (Option B).
+    #
+    # Fusion policy (2026-07-07): when the bootstrap rejection rate exceeds
+    # 70 % (frac_ok = n_effective/n_boot < 0.3), the surviving draws are so
+    # few that their percentile CI is dominated by sampling noise rather
+    # than genuine parameter uncertainty. In that regime the parametric
+    # Fisher-information CI (built from trigamma(K) log-PSD noise variance)
+    # is the honest lower bound and reporting it is more informative than
+    # a wide, unstable bootstrap band. See tools/diagnose_zeta_ci.py EXP G.
+    _FUSION_MIN_FRAC_OK = 0.30
+    _BOOTSTRAP_BLOCK_SIZE = 1  # matches bootstrap_modal_fit default
+    if bootstrap_ci and method == "lorentzian_combined":
+        try:
+            from . import vibrations_bootstrap
+            ci = vibrations_bootstrap.bootstrap_modal_fit(
+                corners, fs, nperseg, fmin, fmax, fr,
+                coh_hp, coh_rw, point_result=result,
+                n_boot=int(bootstrap_n), rng=int(bootstrap_seed),
+                block_size=_BOOTSTRAP_BLOCK_SIZE,
+            )
+            n_eff = int(ci["n_boot_effective"])
+            frac_ok = n_eff / max(int(bootstrap_n), 1)
+            result["bootstrap_meta"] = {
+                "n_boot": int(bootstrap_n),
+                "n_effective": n_eff,
+                "block_size": _BOOTSTRAP_BLOCK_SIZE,
+                "seed": int(bootstrap_seed),
+                "frac_ok": frac_ok,
+                "fusion_policy": (
+                    "bootstrap" if frac_ok >= _FUSION_MIN_FRAC_OK
+                    else "parametric_fallback"
+                ),
+            }
+            if frac_ok < _FUSION_MIN_FRAC_OK:
+                # Retain the samples + raw percentile arrays under _boot
+                # keys for diagnostics, but drop the primary CI keys so
+                # _log_modes and downstream sigma consumers fall back to
+                # the parametric 1-sigma path.
+                result["fn_ci_boot"] = (ci["fn_lo"], ci["fn_hi"])
+                result["zeta_ci_boot"] = (ci["zeta_lo"], ci["zeta_hi"])
+                result["amp_front_ci_boot"] = (ci["amp_front_lo"], ci["amp_front_hi"])
+                result["amp_rear_ci_boot"] = (ci["amp_rear_lo"], ci["amp_rear_hi"])
+                log.warning(
+                    "  Bootstrap fusion: %d/%d draws OK (%.0f%%) < %.0f%% "
+                    "threshold; reporting parametric CRLB sigmas instead "
+                    "of unstable bootstrap CI.",
+                    n_eff, int(bootstrap_n), 100.0 * frac_ok,
+                    100.0 * _FUSION_MIN_FRAC_OK,
+                )
+                # Force _log_modes to take the parametric branch.
+                result["bootstrap_meta"]["n_effective"] = 0
+            else:
+                result["fn_ci"] = (ci["fn_lo"], ci["fn_hi"])
+                result["zeta_ci"] = (ci["zeta_lo"], ci["zeta_hi"])
+                result["amp_front_ci"] = (ci["amp_front_lo"], ci["amp_front_hi"])
+                result["amp_rear_ci"] = (ci["amp_rear_lo"], ci["amp_rear_hi"])
+                # Overwrite the parametric sigmas with the bootstrap CI
+                # half-width so every downstream consumer (log table,
+                # diagnosis-plot info box, injected modal_<mode>_*_sigma
+                # channels) shows the honest empirical uncertainty. Legacy
+                # parametric sigmas kept under `sigma_fn_parametric` etc.
+                for key, ci_key in (("sigma_fn",         "fn_ci"),
+                                    ("sigma_zeta",       "zeta_ci"),
+                                    ("sigma_amp_front",  "amp_front_ci"),
+                                    ("sigma_amp_rear",   "amp_rear_ci")):
+                    lo_arr, hi_arr = result[ci_key]
+                    lo = np.asarray(lo_arr, dtype=float)
+                    hi = np.asarray(hi_arr, dtype=float)
+                    hw = 0.5 * (hi - lo)
+                    orig = np.asarray(result.get(key), dtype=float)
+                    result[f"{key}_parametric"] = orig
+                    merged = np.where(np.isfinite(hw), hw, orig)
+                    result[key] = merged
+        except Exception as exc:  # noqa: BLE001 - CI is optional
+            log.warning("  Bootstrap CI failed (%s); falling back to "
+                        "parametric sigmas only.", exc)
+
     _log_modes(result)
 
     result["psds_fit"] = psds_fit

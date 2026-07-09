@@ -41,7 +41,7 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 # Single source of truth for Welch window length. 512 samples @ 100 Hz gives
 # ?f ~0.2 Hz and many averages — better confidence on modal peaks than the
 # default auto-sizing which favours frequency resolution over averaging.
-NPERSEG = 512
+NPERSEG = "auto"
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 # Folder expansion + consolidation. Modes for `consolidate`:
@@ -75,11 +75,11 @@ RUNS = [
     {"folder": "RED", "filetype": ".txt", "type": "CAR",
      "consolidate": "only", "consolidate_by": "session",
      "consolidated_name": EVENT + "_RED", "group": "RED"},
-    # {"name": "DLS RED R", "type": "DLS", "file": r"RED/26R07BCN  11  Race_DLS.parquet", "group": "RED"},
+    {"name": "DLS RED R", "type": "DLS", "file": r"RED/26R07BCN  11  Race_DLS.parquet", "group": "RED"},
     {"folder": "BLUE", "filetype": ".txt", "type": "CAR",
      "consolidate": "only", "consolidate_by": "session",
      "consolidated_name": EVENT + "_BLUE", "group": "BLUE"},
-    # {"name": "DLS BLUE R", "type": "DLS", "file": r"BLUE/26R07BCN  77  Race_DLS.parquet", "group": "BLUE"},
+    {"name": "DLS BLUE R", "type": "DLS", "file": r"BLUE/26R07BCN  77  Race_DLS.parquet", "group": "BLUE"},
     # {"name": "BSL", "type": "DLS", "file": r"VPG Baselines  SPB  26R08SPB v1 LF_DLS.parquet", "color": "#FF0000"},
     # {"name": "500 HS", "type": "DLS", "file": r"VPG Baselines  SPB  26R08SPB v1 LF_HS500_DLS.parquet", "color": "#FF9900"},
     # {"name": "750 HS", "type": "DLS", "file": r"VPG Baselines  SPB  26R08SPB v1 LF_HS750_DLS.parquet", "color": "#8EB200"},
@@ -95,18 +95,25 @@ RUNS = [
 
 VIBRATIONS_FIT = {
     "method": "lorentzian_combined",   # or "body4dof"
-    "fmin": 3.0,
-    "fmax": 13.0,
+    "fmin": 3.5,
+    "fmax": 12.5,
     "nperseg": NPERSEG,                # shared with PSD plots below
     "displacement_mode": False,
     "expected_freqs": {
         "heave": (4.0, 6.5),
         "pitch": (7.0, 10.5),
         "roll":  (5.0, 7.5),
-        "warp":  (10.0, 12.5),
+        "warp":  (8.5, 12.5),
     },
     "event": EVENT,
     "show_plots": True,               # auto-emits diagnosis plot per run
+    # Segment block-bootstrap CIs on (fn, zeta, amp_front, amp_rear).
+    # 400 draws x ~50 ms per fit adds ~20 s per run to the pipeline;
+    # in return the modal_evolution bands reflect the true (asymmetric)
+    # parameter uncertainty and honestly widen for unreliable modes.
+    "bootstrap_ci": True,
+    "bootstrap_n": 400,
+    "bootstrap_seed": 0,
 }
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────

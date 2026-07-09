@@ -469,13 +469,13 @@ class WaveformMixin:
                     ax_delta.axhline(0, linestyle="--", color="#4A4A4A", linewidth=0.9, alpha=0.75, zorder=2)
                     ylim = ax_delta.get_ylim()
                     yabs = max(abs(ylim[0]), abs(ylim[1]))
+                    if yabs > 0:
+                        ax_delta.set_ylim(-yabs, yabs)
                     if ax_delta_right is not None:
                         ylim_r = ax_delta_right.get_ylim()
                         yabs_r = max(abs(ylim_r[0]), abs(ylim_r[1]))
-                        yabs = max(yabs, yabs_r)
-                        ax_delta_right.set_ylim(-yabs, yabs)
-                    if yabs > 0:
-                        ax_delta.set_ylim(-yabs, yabs)
+                        if yabs_r > 0:
+                            ax_delta_right.set_ylim(-yabs_r, yabs_r)
                     ax_delta.yaxis.set_major_locator(
                         ticker.MaxNLocator(nbins=5, symmetric=True)
                     )

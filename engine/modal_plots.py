@@ -27,6 +27,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from .logger import log
+from .plot_runtime import _session_sort_key
 
 
 _FIG_FONT = {"family": "DejaVu Sans", "size": 11}
@@ -137,6 +138,27 @@ def _modal_records(modal_results: dict, runs: list) -> list[dict]:
         sig_amp_r_raw = res.get("sigma_amp_rear")
         sig_amp_f = _as_list(sig_amp_f_raw) if sig_amp_f_raw is not None else None
         sig_amp_r = _as_list(sig_amp_r_raw) if sig_amp_r_raw is not None else None
+
+        def _ci_pair(name: str):
+            pair = res.get(name)
+            if pair is None:
+                return None, None
+            try:
+                lo_arr, hi_arr = pair
+            except Exception:  # noqa: BLE001
+                return None, None
+            return _as_list(lo_arr), _as_list(hi_arr)
+
+        fn_lo, fn_hi = _ci_pair("fn_ci")
+        z_lo, z_hi = _ci_pair("zeta_ci")
+        af_lo, af_hi = _ci_pair("amp_front_ci")
+        ar_lo, ar_hi = _ci_pair("amp_rear_ci")
+
+        def _from(lst, i):
+            if lst is None or i >= len(lst):
+                return float("nan")
+            return float(lst[i])
+
         for i, m in enumerate(labels):
             rows.append({
                 "run": name,
@@ -158,6 +180,15 @@ def _modal_records(modal_results: dict, runs: list) -> list[dict]:
                                     and i < len(sig_amp_f) else float("nan")),
                 "amp_rear_sigma": (float(sig_amp_r[i]) if sig_amp_r is not None
                                    and i < len(sig_amp_r) else float("nan")),
+                # Bootstrap CIs; NaN when disabled or unavailable.
+                "f0_lo": _from(fn_lo, i),
+                "f0_hi": _from(fn_hi, i),
+                "zeta_lo": _from(z_lo, i),
+                "zeta_hi": _from(z_hi, i),
+                "amp_front_lo": _from(af_lo, i),
+                "amp_front_hi": _from(af_hi, i),
+                "amp_rear_lo": _from(ar_lo, i),
+                "amp_rear_hi": _from(ar_hi, i),
             })
     return rows
 
@@ -291,6 +322,8 @@ def _build_compare_layout(runs, compare_by):
         run_session[n] = tok
         if tok not in session_order:
             session_order.append(tok)
+    if compare_by == "session":
+        session_order.sort(key=_session_sort_key)
     return session_order, run_session
 
 
@@ -346,6 +379,8 @@ def _line_ci_figure(rows, modes, param, groups, out_dir, dpi, name_suffix="",
             xs = []
             ys = []
             errs = []
+            los = []
+            his = []
             for rn in run_names:
                 rec = next(
                     (r for r in rows if r["run"] == rn and r["mode"].lower() == mode.lower()),
@@ -359,18 +394,38 @@ def _line_ci_figure(rows, modes, param, groups, out_dir, dpi, name_suffix="",
                 ys.append(rec[param])
                 err = rec.get(sigma_key)
                 errs.append(err if (err is not None and np.isfinite(err)) else 0.0)
+                lo = rec.get(f"{param}_lo")
+                hi = rec.get(f"{param}_hi")
+                los.append(lo if (lo is not None and np.isfinite(lo)) else np.nan)
+                his.append(hi if (hi is not None and np.isfinite(hi)) else np.nan)
             if not xs:
                 continue
             xs = np.asarray(xs)
             ys = np.asarray(ys)
             errs = np.asarray(errs)
+            los = np.asarray(los)
+            his = np.asarray(his)
+            # Prefer bootstrap CI band over the symmetric sigma when
+            # available at every x on this line. Fall back to sigma
+            # otherwise so legacy fits (no bootstrap) still render.
+            has_ci = np.all(np.isfinite(los)) and np.all(np.isfinite(his))
             if compare_layout is not None and group_colors is not None:
                 glabel = group_by_label(gkey) or f"{mode}"
             else:
                 glabel = f"{mode}" + (f" [{gkey}]" if group_by_label(gkey) else "")
             ax.plot(xs, ys, color=color, linestyle=ls, marker="o",
                     linewidth=2.0, markersize=5.5, label=glabel)
-            if np.any(errs > 0):
+            if has_ci:
+                ax.fill_between(xs, los, his, color=color, alpha=0.15)
+                # Asymmetric errorbars: yerr = [ys-lo, hi-ys].
+                lower = np.maximum(ys - los, 0.0)
+                upper = np.maximum(his - ys, 0.0)
+                ax.errorbar(xs, ys, yerr=np.vstack([lower, upper]), fmt="none",
+                            ecolor=color, elinewidth=1.0,
+                            capsize=3, capthick=1.0, alpha=0.55)
+                # Use half-width for the label-stacking geometry below.
+                errs = 0.5 * (his - los)
+            elif np.any(errs > 0):
                 ax.fill_between(xs, ys - errs, ys + errs, color=color, alpha=0.15)
                 ax.errorbar(xs, ys, yerr=errs, fmt="none",
                             ecolor=color, elinewidth=1.0,

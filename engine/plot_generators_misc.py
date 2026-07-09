@@ -95,15 +95,23 @@ class PsdHistMixin:
                 nperseg = plot_def.nperseg
             else:
                 sample_counts = []
+                sample_rates = []
                 for run in self.runs:
                     df = self.run_data.get(run["name"].lower())
                     if df is None:
                         continue
+                    run_rate = self.run_sample_rates.get(
+                        run["name"].lower(),
+                        (self.FILTER_SAMPLE_RATE, "default"),
+                    )[0]
+                    if run_rate and np.isfinite(run_rate):
+                        sample_rates.append(float(run_rate))
                     for ch in channels_list:
                         if ch in df.columns:
                             sample_counts.append(int(np.isfinite(df[ch].to_numpy(dtype=float)).sum()))
                 n_min = min(sample_counts) if sample_counts else 0
-                nperseg = datafunctions.auto_nperseg(n_min) if n_min >= 16 else 512
+                fs_ref = min(sample_rates) if sample_rates else float(self.FILTER_SAMPLE_RATE)
+                nperseg = datafunctions.auto_nperseg(n_min, sample_rate=fs_ref) if n_min >= 16 else 512
             line_styles = ["-", "--", ":", "-."]
             if self.verbose:
                 log.debug("Creating PSD plot: %s (%s)", plot_name, ', '.join(channels_list))

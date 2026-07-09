@@ -9,56 +9,27 @@ from engine import (
     WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot, BarPlot,
 )
 
-WORKFLOW_NAME = "tests"
-EVENT = "SF Line Test SPB"
+WORKFLOW_NAME = "correlation"
+EVENT = "26R10SPA"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 
 RUNS = [
-    # {
-    #     "name": "OC",
-    #     "file": r"20260624-OC-XPG - 26R09SIL - Baseline V0 - v2-SIL.parquet",
-    #     "color": "#00950A",
-    #     "nrun": 1,
-    #     "type": "OC",
-    # },
-    # {
-    #     "name": "DLS -  VPG BSL SPB",
-    #     "file": r"VPG Baselines  SIL  26R09SIL v0 LF_LTS_Iteration_3.parquet",
-    #     "color": "#0022CA",
-    #     "nlap": 1,
-    #     "type": "DLS",
-    # },
     {
-        "name": "DLS -  VPG BSL SPB",
-        "file": r"VPG Baselines  SPB  26R08SPB v0 LF_-Normal_DLS.parquet",
-        "color": "#0022CA",
+        "name": "OC",
+        "file": r"20260707-OC-XPG - 26R10SPA - v1 Corr - v1-SPA.parquet",
+        "color": "#10F100",
+        "nrun": 1,
+        "type": "OC",
+    },
+    {
+        "name": "DLS",
+        "file": r"Tharish Ranjit  26R10SPA  VPG v1_DLS.parquet",
+        "color": "#0400FF",
         "nlap": 1,
         "type": "DLS",
     },
-    {
-        "name": "DIL - sLapCan", 
-        "file": r"Spielberg_260618_GMDiL-08_FIT_R12PARTIAL_1.txt",
-        "color": "#CA0000",
-        #"nlap": 1,
-        "type": "DIL",
-    },
-    {
-        "name": "DIL - sLap",
-        "file": r"Spielberg_260618_GMDiL-08_FIT_R12PARTIAL.txt",
-        "color": "#91CA00",
-        #"nlap": 1,
-        "type": "DIL",
-    },
-
-    # {
-    #     "name": "DLS -  VPG SPB v25",
-    #     "file": r"VPG Baselines  SPB  26R08SPB v0 LF_-v25_DLS.parquet",
-    #     "color": "#0022CA",
-    #     "nlap": 1,
-    #     "type": "DLS",
-    # },
 ]
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
@@ -78,7 +49,8 @@ WAVEFORM_PLOT_DEFINITIONS = [
         channels=('PMGUK', ('vCar', 'NGear'), 'aSteerWheel', 'pBrakeF', ('rThrottle', 'SM')),
         axis_limits=(None, ((None, 400), (-1, 9)) ,None, None, ((0, 105), (0, 1.3))),
         reference_lines=((-350, 0, 350), None, (0,),None, None),
-        subplot_heights=(0.4, 0.7, 0.4, 0.4, 0.4),
+        subplot_heights=(0.4, 0.7, 0.3, 0.3, 0.3),
+        show_delta=(False, True, False, False, False),
         # highlight_zones=('SM', '>', 0.5)
     ),
     WaveformPlot(
@@ -117,18 +89,18 @@ WAVEFORM_PLOT_DEFINITIONS = [
     #     reference_lines=(None, (-100,100), (-100, 100), None, None),
     #     subplot_heights=(0.8, 0.5, 0.5, 0.5, 0.5),
     # ),
-    WaveformPlot(
-        name="Brake Powers",
-        channels=(('vCar', 'NGear'), 'PBrakeFL', 'PBrakeFR', 'PBrakeRL', 'PBrakeRR', ('rThrottle', 'SM')),
-        axis_limits=(((None, 400), (-1, 9)), None, None, None, None, ((0, 105), (0, 1.3))),
-        subplot_heights=(0.8, 0.5, 0.5, 0.5, 0.5, 0.5),
-    ),
-    WaveformPlot(
-        name="Brake Energies",
-        channels=(('vCar', 'NGear'), 'EBrakeFL', 'EBrakeFR', 'EBrakeRL', 'EBrakeRR', ('rThrottle', 'SM')),
-        axis_limits=(((None, 400), (-1, 9)), None, None, None, None, ((0, 105), (0, 1.3))),
-        subplot_heights=(0.8, 0.5, 0.5, 0.5, 0.5, 0.5),
-    ),
+    # WaveformPlot(
+    #     name="Brake Powers",
+    #     channels=(('vCar', 'NGear'), 'PMGUK', "rBrakeBiasF", 'PBrakeFL', 'PBrakeRL', ('rThrottle', 'SM')),
+    #     axis_limits=(((None, 400), (-1, 9)), None, (0,101), None, None, ((0, 105), (0, 1.3))),
+    #     subplot_heights=(0.8, 0.5, 0.5, 0.5, 0.5, 0.5),
+    # ),
+    # WaveformPlot(
+    #     name="Brake Energies",
+    #     channels=(('vCar', 'NGear'), 'PMGUK', "rBrakeBiasF", 'EBrakeFL', 'EBrakeRL', ('rThrottle', 'SM')),
+    #     axis_limits=(((None, 400), (-1, 9)), None, (0,101), None, None, ((0, 105), (0, 1.3))),
+    #     subplot_heights=(0.8, 0.5, 0.5, 0.5, 0.5, 0.5),
+    # ),
     # WaveformPlot(
     #     name="tyre slip ratios",
     #     channels=(('vCar', 'NGear'), 'rSlipTyreFL', 'rSlipTyreFR', 'rSlipTyreRL', 'rSlipTyreRR', ('rThrottle', 'SM')),
@@ -145,14 +117,14 @@ WAVEFORM_PLOT_DEFINITIONS = [
     #     subplot_heights=(0.8, 0.5, 0.5),
     # ),
 
-    # WaveformPlot(
-    #     name="TPG",
-    #     channels=(('vCar', 'NGear'), ('aCamberFLKinematic', 'aCamberFRKinematic'),  ('aCamberRLKinematic', 'aCamberRRKinematic')),
-    #     axis_limits=(((60, 400), (-1, 9)), None, None),
-    #     reference_lines=(None, (0,0), (0,0)),
-    #     subplot_heights=(0.8, 0.8, 0.8),
-    #     show_delta = (False, True, True),
-    # ),
+    WaveformPlot(
+        name="TPG",
+        channels=(('vCar', 'NGear'), ('aCamberFLKinematic', 'aCamberFRKinematic'),  ('aCamberRLKinematic', 'aCamberRRKinematic')),
+        axis_limits=(((60, 400), (-1, 9)), None, None),
+        reference_lines=(None, (0,0), (0,0)),
+        subplot_heights=(0.8, 0.8, 0.8),
+        show_delta = (False, True, True),
+    ),
     # WaveformPlot(
     #     name="APG Waveform",
     #     channels=('vCar', "vAir", "vWindHead", "CLiftTotalF", "CLiftTotalR", "CLiftTotal", "SC_CLT", "rAerobal"),
@@ -160,6 +132,14 @@ WAVEFORM_PLOT_DEFINITIONS = [
     #     reference_lines=(None, None, None, None, None, None, None, None),
     #     subplot_heights=(0.4, 0.8, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4),
     # ),
+    WaveformPlot(
+        name="Corner Radius",
+        channels=('PMGUK', ('vCar', 'NGear'), 'cCorner', 'pBrakeF', ('rThrottle', 'SM')),
+        axis_limits=(None, ((None, 400), (-1, 9)) ,None, None, ((0, 105), (0, 1.3))),
+        reference_lines=((-350, 0, 350), None, (0,),None, None),
+        subplot_heights=(0.5, 0.7, 0.5, 0.5, 0.5),
+        # highlight_zones=('SM', '>', 0.5)
+    ),
 ]
 
 # ─── SCATTER PLOTS ────────────────────────────────────────────────────────────
@@ -199,8 +179,8 @@ SCATTER_PLOT_DEFINITIONS = [
     # ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)], error_as_factor=True),
 
     # ## CAR SUSPENSION CORRELATION - FOR REPORT
-    # ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF",
-    #             best_fit=[('y', None, None)]), #, ('y', 9000, None)]
+    # ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF", axis_limits=[(None, None), (0, None)],
+    #             best_fit=[('y', None, 8500), ('y', 12500, None)]),
     # ScatterPlot("Front Roll",              "xDamperDeltaF", "FPRodDeltaF",          best_fit=[('x', None, None)]),
     # ScatterPlot("Rear Heave",              "xDamperAvgR",   "FPRodAvgR",
     #             best_fit=[('y', None, 13000), ('y', 16500, None)]),
@@ -227,24 +207,30 @@ SCATTER_PLOT_DEFINITIONS = [
                 annotate_fit_at=(100,200,300)),
     ScatterPlot("Ride Height Compare",         "hRideF",    "hRideR"),
     ScatterPlot("Plank power acceleration",    "gLong (raw)", "PPlank_F"),
-    ScatterPlot("Front vDamperDelta vs FPRodDelta", "vDamperDeltaF", "FPRodDeltaF", best_fit=[('x', None, None)]),
-    ScatterPlot("Rear vDamperDelta vs FPRodDelta", "vDamperDeltaR", "FPRodDeltaR", best_fit=[('x', None, None)]),
+    # ScatterPlot("Front vDamperDelta vs FPRodDelta", "vDamperDeltaF", "FPRodDeltaF", best_fit=[('x', None, None)]),
+    # ScatterPlot("Rear vDamperDelta vs FPRodDelta", "vDamperDeltaR", "FPRodDeltaR", best_fit=[('x', None, None)]),
     ScatterPlot("Brake Power Balance", "PBrakeF_Avg", "PBrakeR_Avg", best_fit=[('x', 200, None)]),
-    # ScatterPlot("rLLTD vs vCar", "vCar", "rLLTD", best_fit=[('x', None, 120), ('x', 120, None)], gate=[("gLat_Abs", '>', 0.5), ("SM", '<', 0.5)]),
+    ScatterPlot("rLLTD vs vCar", "vCar", "rLLTD", axis_limits=[(None, None), (40, 70)], gate=[("gLat_Abs", '>', 0.5), ("SM", '<', 0.5)]),
+    ScatterPlot("rAerobal vs vCar", "vCar", "rAeroBal", axis_limits=None, gate=[("vCar", '>', 100), ("SM", '<', 0.5)]),
 ]
 
 # ─── PSD PLOTS ────────────────────────────────────────────────────────────────
 PSD_PLOT_DEFINITIONS = [
-    PsdPlot("Front Vertical Acceleration PSD", "gVertF",       axis_limits=[(0, 20), (1e-4, None)]), #lorentz_fit=(6, 12)
-    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR",       axis_limits=[(0, 20), (1e-4, None)]), #lorentz_fit=(4, 8)
-    PsdPlot("Front Ride PSD",                  "hRideF (raw)", axis_limits=[(0, 20), (1e-4, None)]), #lorentz_fit=(3, 7)
-    PsdPlot("Rear Ride PSD",                   "hRideR (raw)", axis_limits=[(0, 20), (1e-4, None)]), #lorentz_fit=(3, 7)
+    PsdPlot("Front Vertical Acceleration PSD", "gVertF",       axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(6, 12)),
+    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR",       axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 8)),
+    PsdPlot("Front Ride PSD",                  "hRideF (raw)", axis_limits=[(0, 20), (1e-4, None)]),
+    PsdPlot("Rear Ride PSD",                   "hRideR (raw)", axis_limits=[(0, 20), (1e-4, None)]),
     # PsdPlot("Front Heave PSD",                 ["FPRodAvgF", "FPRodAvgR"],    axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 7)),
     # PsdPlot("Front Roll PSD",                  ["FPRodDeltaF", "FPRodDeltaR"],  axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 7)),
     # PsdPlot("FL gHub PSD",                  "gHubVertFL",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
     # PsdPlot("FR gHub PSD",                  "gHubVertFR",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
     # PsdPlot("RL gHub PSD",                  "gHubVertRL",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
     # PsdPlot("RR gHub PSD",                  "gHubVertRR",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
+    PsdPlot("Heave Mode PSD",  "FPRodHeave", axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(3, 7)),
+    PsdPlot("Pitch Mode PSD",  "FPRodPitch", axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(5, 10)),
+    PsdPlot("Roll Mode PSD",   "FPRodRoll",  axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(3, 7)),
+    PsdPlot("Warp Mode PSD",   "FPRodWarp",  axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(10, 15)),
+
 ]
 
 # ─── HISTOGRAM PLOTS ──────────────────────────────────────────────────────────
@@ -263,6 +249,7 @@ BAR_PLOT_DEFINITIONS = [
     BarPlot("Lap Time",           (("tLap_Calc",         "max"),)),
     BarPlot("Time in SM Zones",   (("time_in_SM_100",       "last"), ("time_in_SM_90",        "last"), ("time_in_SM_80",        "last"))),
     BarPlot("Ratio Time in SM Zones",   (("ratio_time_in_SM_100",       "last"), ("ratio_time_in_SM_90",        "last"), ("ratio_time_in_SM_80",        "last"))),
+    # BarPlot("BrakeBal",  (("rBrakeBiasF",    "last"), ("rBrakeBias",     "last"))),
 ]
 
 # ─── BOX PLOTS ────────────────────────────────────────────────────────────────
@@ -284,6 +271,7 @@ POWERPOINT_EXPORT_MAP = [
     Slide("double_plot", "scatter/Long Acceleration",        "scatter/Lat Acceleration"),
     Slide("double_plot", "scatter/GG Plot",                  "scatter/Understeer Plot"),
     Slide("double_plot", "scatter/Yaw Rate Response",        "scatter/Lateral Acceleration Response"),
+    Slide("double_plot", "scatter/rAerobal vs vCar",        "scatter/rLLTD vs vCar"),
     Slide("double_plot", "scatter/Braking Efficiency",       "scatter/Steering Moment"),
     Slide("double_plot", "scatter/Damper gLat front",        "scatter/Damper gLat rear"),
     Slide("double_plot", "scatter/Pushrod gLat front",       "scatter/Pushrod gLat rear"),

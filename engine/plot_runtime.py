@@ -167,12 +167,34 @@ def _interpolate_two_colors(start: str, end: str, n: int) -> list[str]:
 
 _VALID_CONSOLIDATE_MODES = {True, "only"}
 
+# Chronological session priority for F1 regular and sprint weekends. Lower is
+# earlier. Unknown tokens sort after known ones (alphabetical tiebreak). Used
+# by folder consolidation grouping and by the modal-evolution compare layout
+# so RED vs BLUE line up in event order (not alphabetical).
+SESSION_PRIORITY = {
+    "P1": 0, "FP1": 0,
+    "P2": 1, "FP2": 1,
+    "P3": 2, "FP3": 2,
+    "SQ": 3,
+    "SR": 4,
+    "Q":  5,
+    "GP": 6,
+}
+
+def _session_sort_key(token: str) -> tuple:
+    """Sort key for session tokens: known → (priority, token), unknown →
+    (len(SESSION_PRIORITY), token). Preserves chronological order for known
+    tokens and gives a stable alphabetical fallback for anything else.
+    """
+    tok = str(token).upper()
+    return (SESSION_PRIORITY.get(tok, len(SESSION_PRIORITY)), tok)
+
 # Preset extractors for `consolidate_by`. Each takes a Path and returns the
 # group key string (or None to exclude the file from any consolidated group).
 def _session_token_from_stem(path: Path) -> Optional[str]:
     """Standard race-data filename convention places the session token at
     position -2 (e.g. ``<event>_<date>_<car>_<driver>_<session>_<run>``).
-    Returns e.g. ``"P1"`` / ``"P2"`` / ``"Q"`` / ``"GP"``.
+    Returns e.g. ``"P1"`` / ``"SQ"`` / ``"SR"`` / ``"Q"`` / ``"GP"``.
     """
     parts = path.stem.split("_")
     return parts[-2] if len(parts) >= 2 else None
@@ -414,7 +436,8 @@ def _expand_folder_runs(runs: list, root_folder: Path) -> list:
                     )
                 if consolidate == "only":
                     expanded.extend(produced)
-                for gkey, gentries in groups.items():
+                for gkey in sorted(groups.keys(), key=_session_sort_key):
+                    gentries = groups[gkey]
                     cons = _make_consolidated_entry(
                         gentries, run, ext, group_key=gkey,
                     )
@@ -423,7 +446,8 @@ def _expand_folder_runs(runs: list, root_folder: Path) -> list:
                     expanded.append(cons)
                 log.info(
                     "consolidate_by partitioned %d source file(s) into %d group(s): %s",
-                    len(produced), len(groups), ", ".join(sorted(groups)),
+                    len(produced), len(groups),
+                    ", ".join(sorted(groups, key=_session_sort_key)),
                 )
     return expanded
 
