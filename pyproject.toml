@@ -40,6 +40,14 @@ line-length = 120
 target-version = "py310"
 extend-exclude = [".venv", "Data", "build", "dist"]
 
+# Formatter — deliberately EXCLUDES Run_*.py because those are user-editable
+# configuration files whose visually-aligned columns and inline plot-definition
+# layouts would be destroyed by autoformatting. Ruff `check` still lints them.
+[tool.ruff.format]
+quote-style = "double"
+line-ending = "lf"
+exclude = ["Run_*.py"]
+
 [tool.ruff.lint]
 # Baseline rule set — E/W (pycodestyle), F (pyflakes), I (import sort),
 # B (bugbear), UP (pyupgrade), SIM (simplifications).

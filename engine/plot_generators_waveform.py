@@ -1,4 +1,3 @@
-
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import ticker
@@ -10,7 +9,6 @@ from .logger import log
 
 
 class WaveformMixin:
-
     def _normalize_waveform_row_spec(self, row_spec):
         if isinstance(row_spec, str):
             return row_spec, None
@@ -19,9 +17,8 @@ class WaveformMixin:
                 return row_spec[0], None
             if len(row_spec) == 2 and all(isinstance(v, str) for v in row_spec):
                 return row_spec[0], row_spec[1]
-        raise ValueError(
-            "Waveform channel row must be 'channel' or ('primary_channel', 'secondary_channel')."
-        )
+        raise ValueError("Waveform channel row must be 'channel' or ('primary_channel', 'secondary_channel').")
+
     def _normalize_waveform_axis_limits(self, raw_limits, has_secondary, row_name):
         if raw_limits is None:
             return None, None
@@ -40,6 +37,7 @@ class WaveformMixin:
                 row_name,
             )
         return raw_limits, None
+
     def _normalize_waveform_reference_lines(self, raw_refs, has_secondary):
         if raw_refs is None:
             return None, None
@@ -48,6 +46,7 @@ class WaveformMixin:
         if isinstance(raw_refs, (list, tuple)) and len(raw_refs) == 2:
             return raw_refs[0], raw_refs[1]
         return raw_refs, None
+
     def _prepare_waveform_channels(self, channels, axis_limits, reference_lines, subplot_heights):
         prepared_rows = []
         row_heights = []
@@ -60,27 +59,27 @@ class WaveformMixin:
                 else 0
             )
             if p_count == 0 and (secondary is None or s_count == 0):
-                missing_name = (
-                    f"'{primary}' and '{secondary}'" if secondary is not None else f"'{primary}'"
-                )
+                missing_name = f"'{primary}' and '{secondary}'" if secondary is not None else f"'{primary}'"
                 hints = []
                 for r in self.runs:
                     rn = r["name"].lower()
                     if rn in self.run_data:
-                        for ch in ([primary] + ([secondary] if secondary else [])):
+                        for ch in [primary] + ([secondary] if secondary else []):
                             h = self._format_missing_channel_hint(rn, ch)
                             if h:
                                 hints.append(h)
                         break
                 log.warning(
                     "Waveform row %s missing from all runs. Skipping row.%s",
-                    missing_name, f"\n{''.join(hints)}" if hints else "",
+                    missing_name,
+                    f"\n{''.join(hints)}" if hints else "",
                 )
                 continue
             if p_count == 0 and secondary is not None and s_count > 0:
                 log.warning(
                     "Waveform row primary channel '%s' missing in all runs; using '%s' as single-channel row.",
-                    primary, secondary,
+                    primary,
+                    secondary,
                 )
                 primary, secondary = secondary, None
                 p_count = s_count
@@ -88,7 +87,9 @@ class WaveformMixin:
             if p_count < len(self.runs):
                 log.warning(
                     "Waveform channel '%s' present in %d/%d runs. Plotting available runs only.",
-                    primary, p_count, len(self.runs),
+                    primary,
+                    p_count,
+                    len(self.runs),
                 )
             if secondary is not None:
                 if s_count == 0:
@@ -100,30 +101,34 @@ class WaveformMixin:
                 elif s_count < len(self.runs):
                     log.warning(
                         "Waveform secondary channel '%s' present in %d/%d runs. Plotting available runs only.",
-                        secondary, s_count, len(self.runs),
+                        secondary,
+                        s_count,
+                        len(self.runs),
                     )
             raw_lim = axis_limits[i] if axis_limits and i < len(axis_limits) else None
             raw_ref = reference_lines[i] if reference_lines and i < len(reference_lines) else None
             y1_lim, y2_lim = self._normalize_waveform_axis_limits(raw_lim, secondary is not None, primary)
             y1_refs, y2_refs = self._normalize_waveform_reference_lines(raw_ref, secondary is not None)
-            prepared_rows.append({
-                "primary": primary,
-                "secondary": secondary,
-                "y1_lim": y1_lim,
-                "y2_lim": y2_lim,
-                "y1_refs": y1_refs,
-                "y2_refs": y2_refs,
-            })
-            row_heights.append(
-                subplot_heights[i] if subplot_heights and i < len(subplot_heights) else 1.0
+            prepared_rows.append(
+                {
+                    "primary": primary,
+                    "secondary": secondary,
+                    "y1_lim": y1_lim,
+                    "y2_lim": y2_lim,
+                    "y1_refs": y1_refs,
+                    "y2_refs": y2_refs,
+                }
             )
+            row_heights.append(subplot_heights[i] if subplot_heights and i < len(subplot_heights) else 1.0)
         return prepared_rows, row_heights
+
     def _format_waveform_channel_label(self, channel, *, secondary=False, show_style_hint=False):
         base = datafunctions.add_units_to_label(channel, units_map=self.units_map)
         if not show_style_hint:
             return base
         style_hint = "- - - - -" if secondary else "_______"
         return f"{base}\n{style_hint}"
+
     def generate_waveform_plots(self):
         self._ensure_preprocessed()
         plots = self._get_plot_group(0)
@@ -131,19 +136,19 @@ class WaveformMixin:
             return
         plot_iter = plots if self.verbose else _tqdm(plots, desc="Waveform", unit="plot", leave=True)
         for plot_def in plot_iter:
-            plot_name       = plot_def.name
-            channels        = plot_def.channels
-            axis_limits     = plot_def.axis_limits
-            ref_lines       = plot_def.reference_lines
+            plot_name = plot_def.name
+            channels = plot_def.channels
+            axis_limits = plot_def.axis_limits
+            ref_lines = plot_def.reference_lines
             subplot_heights = plot_def.subplot_heights
-            x_limits        = plot_def.x_limits
-            x_channel       = plot_def.x_channel or "sLap"
+            x_limits = plot_def.x_limits
+            x_channel = plot_def.x_channel or "sLap"
             highlight_zones = plot_def.highlight_zones
-            normalise       = plot_def.normalise
+            normalise = plot_def.normalise
             legend_position = plot_def.legend_position
-            show_delta      = plot_def.show_delta
-            markers         = plot_def.markers
-            annotate_at     = plot_def.annotate_at
+            show_delta = plot_def.show_delta
+            markers = plot_def.markers
+            annotate_at = plot_def.annotate_at
             if self.verbose:
                 log.debug("Creating waveform plot: %s", plot_name)
             prepared_rows, avail_heights = self._prepare_waveform_channels(
@@ -179,22 +184,22 @@ class WaveformMixin:
             )
             axes = axes.flatten()
             plotted_runs = set()
-            x_channel_available = x_channel and all(
-                x_channel in self.run_data[rn].columns for rn in loaded_run_names
-            )
+            x_channel_available = x_channel and all(x_channel in self.run_data[rn].columns for rn in loaded_run_names)
             if not x_channel_available:
                 fallback = "sLap" if x_channel != "sLap" else None
                 if fallback and all(fallback in self.run_data[rn].columns for rn in loaded_run_names):
                     log.warning(
                         "Waveform '%s': x_channel '%s' not available in all runs. Falling back to 'sLap'.",
-                        plot_name, x_channel,
+                        plot_name,
+                        x_channel,
                     )
                     x_channel = "sLap"
                     x_channel_available = True
                 else:
                     log.warning(
                         "Waveform '%s': x_channel '%s' not available. Using row index.",
-                        plot_name, x_channel,
+                        plot_name,
+                        x_channel,
                     )
                     x_channel = None
             if x_channel:
@@ -243,9 +248,12 @@ class WaveformMixin:
                         lo, rng = channel_ranges[ch_primary]
                         y_plot = (np.array(y_plot, dtype=float) - lo) / rng
                     ax.plot(
-                        x_plot, y_plot,
-                        linewidth=1.6, color=run["color"],
-                        label=run["name"].upper(), alpha=0.85,
+                        x_plot,
+                        y_plot,
+                        linewidth=1.6,
+                        color=run["color"],
+                        label=run["name"].upper(),
+                        alpha=0.85,
                     )
                     plotted_runs.add(rn)
                     if annotate_row_data is not None:
@@ -253,9 +261,7 @@ class WaveformMixin:
                             annotate_row_data[idx] = {}
                         y_sec = None
                         if ch_secondary and ch_secondary in df.columns:
-                            _, y_sec_raw = datafunctions.mask_waveform_discontinuities(
-                                x_vals, df[ch_secondary]
-                            )
+                            _, y_sec_raw = datafunctions.mask_waveform_discontinuities(x_vals, df[ch_secondary])
                             if normalise and ch_secondary in channel_ranges:
                                 lo2n, rng2n = channel_ranges[ch_secondary]
                                 y_sec_raw = (np.array(y_sec_raw, dtype=float) - lo2n) / rng2n
@@ -280,26 +286,30 @@ class WaveformMixin:
                             np.asarray(y2_d, dtype=float),
                         )
                     if ax_right is not None and ch_secondary in df.columns:
-                        x2_plot, y2_plot = datafunctions.mask_waveform_discontinuities(
-                            x_vals, df[ch_secondary]
-                        )
+                        x2_plot, y2_plot = datafunctions.mask_waveform_discontinuities(x_vals, df[ch_secondary])
                         ax_right.plot(
-                            x2_plot, y2_plot,
-                            linewidth=1.45, linestyle="--",
-                            color=run["color"], label="_nolegend_", alpha=0.85,
+                            x2_plot,
+                            y2_plot,
+                            linewidth=1.45,
+                            linestyle="--",
+                            color=run["color"],
+                            label="_nolegend_",
+                            alpha=0.85,
                         )
                         plotted_runs.add(rn)
                     elif normalise and ch_secondary and ch_secondary in df.columns:
-                        x2_plot, y2_plot = datafunctions.mask_waveform_discontinuities(
-                            x_vals, df[ch_secondary]
-                        )
+                        x2_plot, y2_plot = datafunctions.mask_waveform_discontinuities(x_vals, df[ch_secondary])
                         if ch_secondary in channel_ranges:
                             lo2, rng2 = channel_ranges[ch_secondary]
                             y2_plot = (np.array(y2_plot, dtype=float) - lo2) / rng2
                         ax.plot(
-                            x2_plot, y2_plot,
-                            linewidth=1.45, linestyle="--",
-                            color=run["color"], label="_nolegend_", alpha=0.85,
+                            x2_plot,
+                            y2_plot,
+                            linewidth=1.45,
+                            linestyle="--",
+                            color=run["color"],
+                            label="_nolegend_",
+                            alpha=0.85,
                         )
                         plotted_runs.add(rn)
                 if normalise:
@@ -308,7 +318,11 @@ class WaveformMixin:
                         ch_label = f"{ch_primary} / {ch_secondary}"
                     ax.set_ylabel(
                         f"{ch_label}\n(norm.)",
-                        fontsize=9.5, fontweight="bold", rotation=0, ha="right", va="center",
+                        fontsize=9.5,
+                        fontweight="bold",
+                        rotation=0,
+                        ha="right",
+                        va="center",
                     )
                     ax.set_ylim(-0.05, 1.05)
                 else:
@@ -316,7 +330,11 @@ class WaveformMixin:
                         self._format_waveform_channel_label(
                             ch_primary, secondary=False, show_style_hint=(ch_secondary is not None)
                         ),
-                        fontsize=9.5, fontweight="bold", rotation=0, ha="right", va="center",
+                        fontsize=9.5,
+                        fontweight="bold",
+                        rotation=0,
+                        ha="right",
+                        va="center",
                     )
                 ax.yaxis.set_label_coords(-0.035, 0.5)
                 self._apply_grid(ax, which="both", axis="y")
@@ -332,10 +350,12 @@ class WaveformMixin:
                         ax.axhline(vv, linestyle="--", linewidth=0.8, color="#4A4A4A", alpha=0.65, zorder=1)
                 if ax_right is not None:
                     ax_right.set_ylabel(
-                        self._format_waveform_channel_label(
-                            ch_secondary, secondary=True, show_style_hint=True
-                        ),
-                        fontsize=9.5, fontweight="bold", rotation=0, ha="left", va="center",
+                        self._format_waveform_channel_label(ch_secondary, secondary=True, show_style_hint=True),
+                        fontsize=9.5,
+                        fontweight="bold",
+                        rotation=0,
+                        ha="left",
+                        va="center",
                     )
                     ax_right.yaxis.set_label_coords(1.03, 0.5)
                     ax_right.spines["top"].set_visible(False)
@@ -386,12 +406,16 @@ class WaveformMixin:
                         shade_color = z_override_color if z_override_color else run["color"]
                         padded = np.concatenate([[False], m_arr, [False]])
                         starts = np.where(~padded[:-1] & padded[1:])[0]
-                        ends   = np.where( padded[:-1] & ~padded[1:])[0]
+                        ends = np.where(padded[:-1] & ~padded[1:])[0]
                         for s, e in zip(starts, ends):
                             xe = min(e, len(x_arr) - 1)
                             ax.axvspan(
-                                x_arr[s], x_arr[xe],
-                                alpha=0.15, color=shade_color, zorder=0, linewidth=0,
+                                x_arr[s],
+                                x_arr[xe],
+                                alpha=0.15,
+                                color=shade_color,
+                                zorder=0,
+                                linewidth=0,
                             )
                 if idx < len(prepared_rows) - 1 or ax_delta is not None:
                     ax.tick_params(labelbottom=False)
@@ -413,21 +437,23 @@ class WaveformMixin:
                             xb_f, yb_f = xb[finite_b], yb[finite_b]
                             order_b = np.argsort(xb_f)
                             yb_on_a = np.interp(
-                                xa_s, xb_f[order_b], yb_f[order_b],
-                                left=np.nan, right=np.nan,
+                                xa_s,
+                                xb_f[order_b],
+                                yb_f[order_b],
+                                left=np.nan,
+                                right=np.nan,
                             )
                             delta = yb_on_a - ya_s
                             ax_delta.plot(
-                                xa_s, delta,
-                                linewidth=1.2, color=run["color"], alpha=0.95,
+                                xa_s,
+                                delta,
+                                linewidth=1.2,
+                                color=run["color"],
+                                alpha=0.95,
                                 label="_nolegend_",
                             )
                     ax_delta_right = None
-                    if (
-                        ch_secondary
-                        and ref_run_name in delta_traces_secondary
-                        and len(delta_traces_secondary) >= 2
-                    ):
+                    if ch_secondary and ref_run_name in delta_traces_secondary and len(delta_traces_secondary) >= 2:
                         ax_delta_right = ax_delta.twinx()
                         xa2, ya2 = delta_traces_secondary[ref_run_name]
                         finite_a2 = np.isfinite(xa2) & np.isfinite(ya2)
@@ -446,21 +472,31 @@ class WaveformMixin:
                                 xb2_f, yb2_f = xb2[finite_b2], yb2[finite_b2]
                                 order_b2 = np.argsort(xb2_f)
                                 yb2_on_a = np.interp(
-                                    xa2_s, xb2_f[order_b2], yb2_f[order_b2],
-                                    left=np.nan, right=np.nan,
+                                    xa2_s,
+                                    xb2_f[order_b2],
+                                    yb2_f[order_b2],
+                                    left=np.nan,
+                                    right=np.nan,
                                 )
                                 delta2 = yb2_on_a - ya2_s
                                 ax_delta_right.plot(
-                                    xa2_s, delta2,
-                                    linewidth=1.1, linestyle="--",
-                                    color=run["color"], alpha=0.85,
+                                    xa2_s,
+                                    delta2,
+                                    linewidth=1.1,
+                                    linestyle="--",
+                                    color=run["color"],
+                                    alpha=0.85,
                                     label="_nolegend_",
                                 )
                         ax_delta_right.set_ylabel(
                             self._format_waveform_channel_label(
                                 f"Δ {ch_secondary}", secondary=True, show_style_hint=True
                             ),
-                            fontsize=8.5, fontweight="bold", rotation=0, ha="left", va="center",
+                            fontsize=8.5,
+                            fontweight="bold",
+                            rotation=0,
+                            ha="left",
+                            va="center",
                         )
                         ax_delta_right.yaxis.set_label_coords(1.03, 0.5)
                         ax_delta_right.spines["top"].set_visible(False)
@@ -476,15 +512,18 @@ class WaveformMixin:
                         yabs_r = max(abs(ylim_r[0]), abs(ylim_r[1]))
                         if yabs_r > 0:
                             ax_delta_right.set_ylim(-yabs_r, yabs_r)
-                    ax_delta.yaxis.set_major_locator(
-                        ticker.MaxNLocator(nbins=5, symmetric=True)
-                    )
+                    ax_delta.yaxis.set_major_locator(ticker.MaxNLocator(nbins=5, symmetric=True))
                     ax_delta.set_ylabel(
                         self._format_waveform_channel_label(
-                            f"Δ {ch_primary}", secondary=False,
+                            f"Δ {ch_primary}",
+                            secondary=False,
                             show_style_hint=(ch_secondary is not None and ax_delta_right is not None),
                         ),
-                        fontsize=8.5, fontweight="bold", rotation=0, ha="right", va="center",
+                        fontsize=8.5,
+                        fontweight="bold",
+                        rotation=0,
+                        ha="right",
+                        va="center",
                     )
                     ax_delta.yaxis.set_label_coords(-0.035, 0.5)
                     ax_delta.tick_params(axis="y", labelsize=8)
@@ -506,19 +545,19 @@ class WaveformMixin:
                         for ax in axes:
                             ax.set_xlim(0, xv)
                 for ax in axes:
-                    ax.xaxis.set_major_locator(
-                        ticker.MaxNLocator(nbins=8, min_n_ticks=5, steps=[1, 2, 2.5, 5, 10])
-                    )
+                    ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=8, min_n_ticks=5, steps=[1, 2, 2.5, 5, 10]))
                     ax.xaxis.set_minor_locator(ticker.AutoMinorLocator(5))
                     self._apply_grid(ax, which="both", axis="x")
             if annotate_at and annotate_row_data:
                 xl_ann, xr_ann = axes[0].get_xlim()
+
                 def _fmt_val(v):
                     if abs(v) >= 1000:
                         return f"{v:.0f}"
                     if abs(v) >= 100:
                         return f"{v:.1f}"
                     return f"{v:.2f}"
+
                 def _render_annotations(ax_ann, x_at, ann_items, x_frac):
                     if not ann_items:
                         return
@@ -538,8 +577,13 @@ class WaveformMixin:
                     for i, (y_val, color, mstyle) in enumerate(ann_items):
                         msize = 4 if mstyle == "o" else 3.5
                         ax_ann.plot(
-                            x_at, y_val, marker=mstyle, markersize=msize,
-                            color=color, zorder=10, alpha=0.9,
+                            x_at,
+                            y_val,
+                            marker=mstyle,
+                            markersize=msize,
+                            color=color,
+                            zorder=10,
+                            alpha=0.9,
                         )
                         dy_pts = adjusted[i] - display_ys[i]
                         ax_ann.annotate(
@@ -547,27 +591,37 @@ class WaveformMixin:
                             xy=(x_at, y_val),
                             xytext=(x_offset, dy_pts),
                             textcoords="offset points",
-                            ha=ha, va="center",
-                            fontsize=7.5, color=color, fontweight="bold",
+                            ha=ha,
+                            va="center",
+                            fontsize=7.5,
+                            color=color,
+                            fontweight="bold",
                             bbox=dict(
-                                boxstyle="round,pad=0.15", facecolor="white",
-                                edgecolor=color, linewidth=0.5, alpha=0.85,
+                                boxstyle="round,pad=0.15",
+                                facecolor="white",
+                                edgecolor=color,
+                                linewidth=0.5,
+                                alpha=0.85,
                             ),
                             zorder=11,
                         )
+
                 for x_at in annotate_at:
                     if not (xl_ann <= x_at <= xr_ann):
                         continue
                     for ax in axes:
                         ax.axvline(
-                            x_at, color="#5E5E5E", linestyle=":",
-                            linewidth=0.9, alpha=0.6, zorder=2,
+                            x_at,
+                            color="#5E5E5E",
+                            linestyle=":",
+                            linewidth=0.9,
+                            alpha=0.6,
+                            zorder=2,
                         )
                     x_frac = (x_at - xl_ann) / (xr_ann - xl_ann) if (xr_ann - xl_ann) > 0 else 0.5
                     for row_idx, run_traces in annotate_row_data.items():
                         ax_idx_a = (
-                            row_idx + sum(1 for i in range(row_idx) if show_delta[i])
-                            if delta_active else row_idx
+                            row_idx + sum(1 for i in range(row_idx) if show_delta[i]) if delta_active else row_idx
                         )
                         ax_row = axes[ax_idx_a]
                         ann_items = []
@@ -581,8 +635,7 @@ class WaveformMixin:
                                 continue
                             xf, yf = x_arr[finite], y_arr[finite]
                             order = np.argsort(xf)
-                            y_interp = np.interp(x_at, xf[order], yf[order],
-                                                 left=np.nan, right=np.nan)
+                            y_interp = np.interp(x_at, xf[order], yf[order], left=np.nan, right=np.nan)
                             if np.isfinite(y_interp):
                                 ann_items.append((y_interp, run["color"], "o"))
                             if y_sec_arr is not None:
@@ -590,8 +643,7 @@ class WaveformMixin:
                                 if finite2.sum() >= 2:
                                     xf2, yf2 = x_arr[finite2], y_sec_arr[finite2]
                                     order2 = np.argsort(xf2)
-                                    y_interp2 = np.interp(x_at, xf2[order2], yf2[order2],
-                                                          left=np.nan, right=np.nan)
+                                    y_interp2 = np.interp(x_at, xf2[order2], yf2[order2], left=np.nan, right=np.nan)
                                     if np.isfinite(y_interp2):
                                         ann_items.append((y_interp2, run["color"], "s"))
                         _render_annotations(ax_row, x_at, ann_items, x_frac)
@@ -605,8 +657,7 @@ class WaveformMixin:
                                 if finite_ref.sum() >= 2:
                                     xr_f, yr_f = x_ref[finite_ref], y_ref[finite_ref]
                                     order_r = np.argsort(xr_f)
-                                    y_ref_at = np.interp(x_at, xr_f[order_r], yr_f[order_r],
-                                                         left=np.nan, right=np.nan)
+                                    y_ref_at = np.interp(x_at, xr_f[order_r], yr_f[order_r], left=np.nan, right=np.nan)
                                 else:
                                     y_ref_at = np.nan
                                 y_sec_ref_at = np.nan
@@ -615,8 +666,9 @@ class WaveformMixin:
                                     if finite_ref2.sum() >= 2:
                                         xr2_f, yr2_f = x_ref[finite_ref2], y_sec_ref[finite_ref2]
                                         order_r2 = np.argsort(xr2_f)
-                                        y_sec_ref_at = np.interp(x_at, xr2_f[order_r2], yr2_f[order_r2],
-                                                                  left=np.nan, right=np.nan)
+                                        y_sec_ref_at = np.interp(
+                                            x_at, xr2_f[order_r2], yr2_f[order_r2], left=np.nan, right=np.nan
+                                        )
                                 for run in self.runs:
                                     rn = run["name"].lower()
                                     if rn == ref_run_name or rn not in run_traces:
@@ -626,8 +678,9 @@ class WaveformMixin:
                                     if finite_d.sum() >= 2 and np.isfinite(y_ref_at):
                                         xd_f, yd_f = x_arr[finite_d], y_arr[finite_d]
                                         order_d = np.argsort(xd_f)
-                                        y_d_at = np.interp(x_at, xd_f[order_d], yd_f[order_d],
-                                                           left=np.nan, right=np.nan)
+                                        y_d_at = np.interp(
+                                            x_at, xd_f[order_d], yd_f[order_d], left=np.nan, right=np.nan
+                                        )
                                         if np.isfinite(y_d_at):
                                             delta_ann_items.append((y_d_at - y_ref_at, run["color"], "o"))
                                     if y_sec_arr is not None and np.isfinite(y_sec_ref_at):
@@ -635,27 +688,36 @@ class WaveformMixin:
                                         if finite_d2.sum() >= 2:
                                             xd2_f, yd2_f = x_arr[finite_d2], y_sec_arr[finite_d2]
                                             order_d2 = np.argsort(xd2_f)
-                                            y_d2_at = np.interp(x_at, xd2_f[order_d2], yd2_f[order_d2],
-                                                                 left=np.nan, right=np.nan)
+                                            y_d2_at = np.interp(
+                                                x_at, xd2_f[order_d2], yd2_f[order_d2], left=np.nan, right=np.nan
+                                            )
                                             if np.isfinite(y_d2_at):
                                                 delta_ann_items.append((y_d2_at - y_sec_ref_at, run["color"], "s"))
                             _render_annotations(ax_delta_a, x_at, delta_ann_items, x_frac)
             if markers:
                 static_markers = [m for m in markers if m.x is not None]
-                cond_markers   = [m for m in markers if m.condition is not None]
+                cond_markers = [m for m in markers if m.condition is not None]
+
                 def _draw_line(ax_m, x_val, color, linestyle):
-                    ax_m.axvline(x_val, color=color, linestyle=linestyle,
-                                 linewidth=1.2, alpha=0.7, zorder=2)
+                    ax_m.axvline(x_val, color=color, linestyle=linestyle, linewidth=1.2, alpha=0.7, zorder=2)
+
                 def _draw_static_label(ax_m, x_val, color, label):
                     ax_m.text(
-                        x_val, 1.01, label,
+                        x_val,
+                        1.01,
+                        label,
                         transform=ax_m.get_xaxis_transform(),
-                        ha="center", va="bottom",
-                        fontsize=9, fontweight="bold", color=color,
-                        bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
-                                  edgecolor=color, linewidth=0.8, alpha=0.9),
+                        ha="center",
+                        va="bottom",
+                        fontsize=9,
+                        fontweight="bold",
+                        color=color,
+                        bbox=dict(
+                            boxstyle="round,pad=0.2", facecolor="white", edgecolor=color, linewidth=0.8, alpha=0.9
+                        ),
                         zorder=12,
                     )
+
                 def _draw_inline_label(ax_m, x_val, color, label, y_frac):
                     ax_m.annotate(
                         label,
@@ -663,32 +725,31 @@ class WaveformMixin:
                         xycoords=ax_m.get_xaxis_transform(),
                         xytext=(6, 0),
                         textcoords="offset points",
-                        ha="left", va="center",
-                        fontsize=8, fontweight="bold", color=color,
-                        bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
-                                  edgecolor=color, linewidth=0.6, alpha=0.9),
+                        ha="left",
+                        va="center",
+                        fontsize=8,
+                        fontweight="bold",
+                        color=color,
+                        bbox=dict(
+                            boxstyle="round,pad=0.2", facecolor="white", edgecolor=color, linewidth=0.6, alpha=0.9
+                        ),
                         zorder=12,
                     )
+
                 for m in static_markers:
                     color = m.color or "#5E5E5E"
-                    rows_to_draw = (
-                        [m.row]
-                        if m.row is not None and 0 <= m.row < len(axes)
-                        else list(range(len(axes)))
-                    )
+                    rows_to_draw = [m.row] if m.row is not None and 0 <= m.row < len(axes) else list(range(len(axes)))
                     for ridx in rows_to_draw:
                         _draw_line(axes[ridx], m.x, color, m.linestyle)
                     if m.label and m.show_label:
                         _draw_static_label(axes[rows_to_draw[0]], m.x, color, m.label)
                 if cond_markers:
-                    n_slots   = max(len(cond_markers), 1)
+                    n_slots = max(len(cond_markers), 1)
                     slot_step = 0.12 if n_slots > 1 else 0.0
-                    slot_y    = [0.96 - i * slot_step for i in range(n_slots)]
-                    plotted_run_names = [
-                        r["name"] for r in self.runs if r["name"].lower() in plotted_runs
-                    ]
+                    slot_y = [0.96 - i * slot_step for i in range(n_slots)]
+                    plotted_run_names = [r["name"] for r in self.runs if r["name"].lower() in plotted_runs]
                     earliest_hit = [None] * len(cond_markers)
-                    marker_rows  = [None] * len(cond_markers)
+                    marker_rows = [None] * len(cond_markers)
                     for run_name in plotted_run_names:
                         run_df = self.run_data.get(run_name.lower())
                         if run_df is None or x_channel not in run_df.columns:
@@ -699,49 +760,47 @@ class WaveformMixin:
                         )
                         for m_idx, m in enumerate(cond_markers):
                             x_hits = datafunctions.resolve_condition_marker(
-                                m, run_df, x_channel,
+                                m,
+                                run_df,
+                                x_channel,
                             )
                             if not x_hits:
                                 continue
                             color = m.color or run_color
                             rows_to_draw = (
-                                [m.row]
-                                if m.row is not None and 0 <= m.row < len(axes)
-                                else list(range(len(axes)))
+                                [m.row] if m.row is not None and 0 <= m.row < len(axes) else list(range(len(axes)))
                             )
                             marker_rows[m_idx] = rows_to_draw
                             for x_val in x_hits:
                                 for ridx in rows_to_draw:
                                     _draw_line(axes[ridx], x_val, color, m.linestyle)
-                            if (earliest_hit[m_idx] is None
-                                    or x_hits[0] < earliest_hit[m_idx]):
+                            if earliest_hit[m_idx] is None or x_hits[0] < earliest_hit[m_idx]:
                                 earliest_hit[m_idx] = x_hits[0]
                     for m_idx, m in enumerate(cond_markers):
-                        if (not m.label
-                                or not m.show_label
-                                or earliest_hit[m_idx] is None
-                                or marker_rows[m_idx] is None):
+                        if not m.label or not m.show_label or earliest_hit[m_idx] is None or marker_rows[m_idx] is None:
                             continue
                         label_color = m.color or "#3A3A3A"
                         _draw_inline_label(
                             axes[marker_rows[m_idx][0]],
-                            earliest_hit[m_idx], label_color, m.label,
+                            earliest_hit[m_idx],
+                            label_color,
+                            m.label,
                             slot_y[m_idx],
                         )
             run_handles = [
                 Line2D([0], [0], color=run["color"], linewidth=2.0)
-                for run in self.runs if run["name"].lower() in plotted_runs
+                for run in self.runs
+                if run["name"].lower() in plotted_runs
             ]
-            run_labels = [
-                run["name"].upper()
-                for run in self.runs if run["name"].lower() in plotted_runs
-            ]
+            run_labels = [run["name"].upper() for run in self.runs if run["name"].lower() in plotted_runs]
             self._add_waveform_figure_legend(fig, run_handles, run_labels, position=legend_position)
             if legend_position == "right":
                 plt.tight_layout(pad=0.3, h_pad=0.0, rect=(0, 0, 0.88, 1.0))
             else:
                 plt.tight_layout(pad=0.3, h_pad=0.0, rect=(0, 0, 1, 0.95))
-            fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")
+            fig.savefig(
+                self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight"
+            )
             plt.close(fig)
             if self.verbose:
                 log.debug("Saved: %s", filename)

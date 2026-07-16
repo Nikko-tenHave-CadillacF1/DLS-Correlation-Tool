@@ -32,10 +32,12 @@ from pathlib import Path
 _REQUIRED_MODULES = ("pandas", "numpy", "matplotlib", "scipy")
 
 # Modules that are nice-to-have. Reported only when missing.
-_OPTIONAL_MODULES = {"pyarrow": "fast parquet I/O",
-                     "fastparquet": "alternative parquet engine",
-                     "tqdm": "progress bars",
-                     "pptx": "cross-platform PowerPoint export"}
+_OPTIONAL_MODULES = {
+    "pyarrow": "fast parquet I/O",
+    "fastparquet": "alternative parquet engine",
+    "tqdm": "progress bars",
+    "pptx": "cross-platform PowerPoint export",
+}
 
 _PROJECT_ROOT = Path(__file__).resolve().parent
 _VENV_DIR = _PROJECT_ROOT / ".venv"
@@ -69,10 +71,7 @@ def _pip_install_requirements() -> None:
     if not req.exists():
         return
     print("[bootstrap] Installing dependencies from requirements.txt ...")
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "--disable-pip-version-check",
-         "-r", str(req)]
-    )
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "-r", str(req)])
 
 
 def ensure_dependencies(*, prefer_venv: bool = True) -> None:
@@ -90,8 +89,7 @@ def ensure_dependencies(*, prefer_venv: bool = True) -> None:
         try:
             _create_venv()
         except (subprocess.CalledProcessError, OSError) as exc:
-            print(f"[bootstrap] WARN: could not create venv ({exc}); "
-                  f"continuing with current interpreter.")
+            print(f"[bootstrap] WARN: could not create venv ({exc}); continuing with current interpreter.")
         else:
             if _VENV_PYTHON.exists():
                 # Only re-exec the *top-level* script, never an imported module.
@@ -113,8 +111,7 @@ def ensure_dependencies(*, prefer_venv: bool = True) -> None:
         # Re-check; if still missing, give up clearly.
         still_missing = _missing_required()
         if still_missing:
-            print(f"[bootstrap] ERROR: still missing after install: "
-                  f"{', '.join(still_missing)}")
+            print(f"[bootstrap] ERROR: still missing after install: {', '.join(still_missing)}")
             raise SystemExit(1)
 
 

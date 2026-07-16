@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import argparse
@@ -10,9 +9,11 @@ EVENT_PATTERN = re.compile(r"(26[RT]\d{2}[A-Z]{3})")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+
 def detect_event(filename: str) -> str | None:
     m = EVENT_PATTERN.search(filename)
     return m.group(1) if m else None
+
 
 def organise(workflow: str, dry_run: bool = False) -> dict[str, list[Path]]:
     input_dir = PROJECT_ROOT / "Data" / "inputs" / workflow
@@ -35,6 +36,7 @@ def organise(workflow: str, dry_run: bool = False) -> dict[str, list[Path]]:
             shutil.move(str(file), str(target))
     return moved
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workflow", default="correlation", help="Workflow subfolder name.")
@@ -49,6 +51,7 @@ def main() -> None:
         print(f"{prefix}{event}: {len(files)} file(s)")
         for f in files:
             print(f"  {f.name}")
+
 
 if __name__ == "__main__":
     main()

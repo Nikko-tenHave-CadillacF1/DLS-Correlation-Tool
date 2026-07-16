@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import logging
@@ -23,6 +22,7 @@ _handler.setFormatter(logging.Formatter("%(levelname)-7s | %(message)s"))
 log.addHandler(_handler)
 log.setLevel(logging.INFO)
 log.propagate = False
+
 
 def configure(*, verbose: bool = False, log_file: str | None = None) -> None:
     log.setLevel(logging.DEBUG if verbose else logging.INFO)

@@ -1,4 +1,3 @@
-
 from engine.datafunctions import calc_channel  # noqa: F401
 from engine.modal_plots import plot_modal_evolution  # noqa: F401
 from engine.plot_runtime import (  # noqa: F401
@@ -22,12 +21,23 @@ from engine.plot_runtime import (  # noqa: F401
 
 __all__ = [
     # Workflow entrypoints
-    "run_workflow", "run_from_config", "parse_plot_cli",
-    "build_plot_groups", "workflow_config", "PlotJobConfig",
+    "run_workflow",
+    "run_from_config",
+    "parse_plot_cli",
+    "build_plot_groups",
+    "workflow_config",
+    "PlotJobConfig",
     # Plot dataclasses (re-exported from plot_definitions via plot_runtime)
-    "Slide", "Marker",
-    "WaveformPlot", "ScatterPlot", "PsdPlot", "HistogramPlot",
-    "BarPlot", "BoxPlot", "BoxPlotGrid", "HeatmapPlot",
+    "Slide",
+    "Marker",
+    "WaveformPlot",
+    "ScatterPlot",
+    "PsdPlot",
+    "HistogramPlot",
+    "BarPlot",
+    "BoxPlot",
+    "BoxPlotGrid",
+    "HeatmapPlot",
     # Helpers
     "calc_channel",
     "plot_modal_evolution",

@@ -1,4 +1,3 @@
-
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
@@ -11,7 +10,6 @@ from .logger import log
 
 
 class BarBoxMixin:
-
     def generate_bar_plots(self):
         self._ensure_preprocessed()
         plots = self._get_plot_group(4)
@@ -26,9 +24,7 @@ class BarBoxMixin:
             reference_lines = plot_def.reference_lines
             gate_spec = plot_def.gate
             error_metrics = getattr(plot_def, "error_metrics", None)
-            metric_specs = datafunctions.normalize_bar_metric_specs(
-                metric_specs_raw, default_aggregation=default_agg
-            )
+            metric_specs = datafunctions.normalize_bar_metric_specs(metric_specs_raw, default_aggregation=default_agg)
             if not metric_specs:
                 log.warning("Bar plot '%s' has no valid metric specs. Skipping.", plot_name)
                 continue
@@ -54,9 +50,14 @@ class BarBoxMixin:
                 if gate_spec is not None:
                     df = datafunctions.apply_gate_to_dataframe(df, gate_spec)
                     if df is None or df.empty:
-                        run_bar_data.append({"run": run, "offsets": x + left_edge + (run_index + 0.5) * bar_width,
-                                             "values": np.full(len(metric_specs), np.nan),
-                                             "errors": None})
+                        run_bar_data.append(
+                            {
+                                "run": run,
+                                "offsets": x + left_edge + (run_index + 0.5) * bar_width,
+                                "values": np.full(len(metric_specs), np.nan),
+                                "errors": None,
+                            }
+                        )
                         continue
                 values = []
                 for channel, aggregation in metric_specs:
@@ -64,17 +65,21 @@ class BarBoxMixin:
                         hint = self._format_missing_channel_hint(run_name, channel)
                         log.warning(
                             "Bar plot '%s': missing channel '%s' in run '%s'.%s",
-                            plot_name, channel, run_name.upper(),
+                            plot_name,
+                            channel,
+                            run_name.upper(),
                             f"\n{hint}" if hint else "",
                         )
                         values.append(np.nan)
                         continue
-                    values.append(datafunctions.aggregate_channel_for_bar(
-                        df[channel],
-                        aggregation=aggregation,
-                        sample_rate=self._run_fs(run_name),
-                        time_series=df["tLap"] if "tLap" in df.columns else None,
-                    ))
+                    values.append(
+                        datafunctions.aggregate_channel_for_bar(
+                            df[channel],
+                            aggregation=aggregation,
+                            sample_rate=self._run_fs(run_name),
+                            time_series=df["tLap"] if "tLap" in df.columns else None,
+                        )
+                    )
                 errors = None
                 if error_metrics:
                     errors = []
@@ -83,18 +88,23 @@ class BarBoxMixin:
                         if not err_ch or err_ch not in df.columns:
                             errors.append(np.nan)
                             continue
-                        errors.append(datafunctions.aggregate_channel_for_bar(
-                            df[err_ch],
-                            aggregation=aggregation,
-                            sample_rate=self._run_fs(run_name),
-                            time_series=df["tLap"] if "tLap" in df.columns else None,
-                        ))
+                        errors.append(
+                            datafunctions.aggregate_channel_for_bar(
+                                df[err_ch],
+                                aggregation=aggregation,
+                                sample_rate=self._run_fs(run_name),
+                                time_series=df["tLap"] if "tLap" in df.columns else None,
+                            )
+                        )
                 offsets = x + left_edge + (run_index + 0.5) * bar_width
-                run_bar_data.append({
-                    "run": run, "offsets": offsets,
-                    "values": np.array(values, dtype=float),
-                    "errors": (np.array(errors, dtype=float) if errors is not None else None),
-                })
+                run_bar_data.append(
+                    {
+                        "run": run,
+                        "offsets": offsets,
+                        "values": np.array(values, dtype=float),
+                        "errors": (np.array(errors, dtype=float) if errors is not None else None),
+                    }
+                )
                 all_values.extend([abs(v) for v in values if not np.isnan(v)])
             ax2 = None
             secondary_threshold = None
@@ -113,7 +123,9 @@ class BarBoxMixin:
                         secondary_threshold = candidate_threshold
                         log.info(
                             "Bar plot '%s': secondary Y-axis activated (ratio=%.1fx ≥ threshold=%.0fx).",
-                            plot_name, ratio, self.BAR_SECONDARY_AXIS_RATIO,
+                            plot_name,
+                            ratio,
+                            self.BAR_SECONDARY_AXIS_RATIO,
                         )
             plotted_labels = set()
             bar_info = []
@@ -123,43 +135,77 @@ class BarBoxMixin:
                 values = item["values"]
                 run_label = run["name"].upper()
                 if ax2 is not None:
-                    primary_values = [
-                        0.0 if np.isnan(v) or abs(v) >= secondary_threshold else v for v in values
-                    ]
-                    secondary_values = [
-                        0.0 if np.isnan(v) or abs(v) < secondary_threshold else v for v in values
-                    ]
-                    p_label = run_label if run_label not in plotted_labels and any(v != 0.0 for v in primary_values) else "_nolegend_"
+                    primary_values = [0.0 if np.isnan(v) or abs(v) >= secondary_threshold else v for v in values]
+                    secondary_values = [0.0 if np.isnan(v) or abs(v) < secondary_threshold else v for v in values]
+                    p_label = (
+                        run_label
+                        if run_label not in plotted_labels and any(v != 0.0 for v in primary_values)
+                        else "_nolegend_"
+                    )
                     if p_label != "_nolegend_":
                         plotted_labels.add(p_label)
-                    ax.bar(offsets, primary_values, width=bar_width, color=run["color"],
-                           alpha=0.9, label=p_label, edgecolor="white", linewidth=0.6)
-                    s_label = run_label if run_label not in plotted_labels and any(v != 0.0 for v in secondary_values) else "_nolegend_"
+                    ax.bar(
+                        offsets,
+                        primary_values,
+                        width=bar_width,
+                        color=run["color"],
+                        alpha=0.9,
+                        label=p_label,
+                        edgecolor="white",
+                        linewidth=0.6,
+                    )
+                    s_label = (
+                        run_label
+                        if run_label not in plotted_labels and any(v != 0.0 for v in secondary_values)
+                        else "_nolegend_"
+                    )
                     if s_label != "_nolegend_":
                         plotted_labels.add(s_label)
-                    ax2.bar(offsets, secondary_values, width=bar_width, color=run["color"],
-                            alpha=0.9, label=s_label, edgecolor="white", linewidth=0.6)
+                    ax2.bar(
+                        offsets,
+                        secondary_values,
+                        width=bar_width,
+                        color=run["color"],
+                        alpha=0.9,
+                        label=s_label,
+                        edgecolor="white",
+                        linewidth=0.6,
+                    )
                     for offset, value in zip(offsets, values):
                         axis = ax2 if not np.isnan(value) and abs(value) >= secondary_threshold else ax
                         bar_info.append((offset, value, axis))
                 else:
                     lbl = run_label if run_label not in plotted_labels else "_nolegend_"
                     plotted_labels.add(run_label)
-                    ax.bar(offsets, values, width=bar_width, color=run["color"],
-                           alpha=0.9, label=lbl, edgecolor="white", linewidth=0.6)
+                    ax.bar(
+                        offsets,
+                        values,
+                        width=bar_width,
+                        color=run["color"],
+                        alpha=0.9,
+                        label=lbl,
+                        edgecolor="white",
+                        linewidth=0.6,
+                    )
                     for offset, value in zip(offsets, values):
                         bar_info.append((offset, value, ax))
                 errs = item.get("errors")
                 if errs is not None and ax2 is None:
-                    err_finite = np.array([
-                        e if (np.isfinite(e) and not np.isnan(v)) else np.nan
-                        for v, e in zip(values, errs)
-                    ])
+                    err_finite = np.array(
+                        [e if (np.isfinite(e) and not np.isnan(v)) else np.nan for v, e in zip(values, errs)]
+                    )
                     if np.isfinite(err_finite).any():
                         ax.errorbar(
-                            offsets, values, yerr=err_finite,
-                            fmt="none", ecolor="#1A1A1A", elinewidth=1.4,
-                            capsize=4, capthick=1.4, alpha=0.85, zorder=4,
+                            offsets,
+                            values,
+                            yerr=err_finite,
+                            fmt="none",
+                            ecolor="#1A1A1A",
+                            elinewidth=1.4,
+                            capsize=4,
+                            capthick=1.4,
+                            alpha=0.85,
+                            zorder=4,
                         )
             ax.set_xticks(x)
             metric_labels = [f"{m}\n({a})" for m, a in metric_specs]
@@ -170,7 +216,8 @@ class BarBoxMixin:
                 channel_name = metric_specs[0][0]
                 ax.set_ylabel(
                     datafunctions.add_units_to_label(channel_name, self.units_map),
-                    fontweight="bold", fontsize=12,
+                    fontweight="bold",
+                    fontsize=12,
                 )
             if isinstance(axis_limits, (list, tuple)) and len(axis_limits) == 2:
                 ymin, ymax = axis_limits
@@ -191,7 +238,7 @@ class BarBoxMixin:
                 # Vertical labels need headroom equal to roughly the
                 # longest formatted value rendered upright; ~12% of the
                 # axis range covers a typical "0.0053599"-length label.
-                for axis in ([ax2, ax] if ax2 is not None else [ax]):
+                for axis in [ax2, ax] if ax2 is not None else [ax]:
                     y0, y1 = axis.get_ylim()
                     extra = 0.12 * (y1 - y0)
                     if y1 > 0:
@@ -207,11 +254,18 @@ class BarBoxMixin:
                     padding = label_pad_ratio * y_range
                     y_pos = value + (padding if value >= 0 else -padding)
                     va = "bottom" if value >= 0 else "top"
-                    axis.text(offset, y_pos, datafunctions._fmt_g(value, sig=5),
-                              ha="center", va=va, fontsize=label_fontsize,
-                              fontweight="bold", color="#1A1A1A",
-                              rotation=label_rotation)
-            for axis in ([ax2, ax] if ax2 is not None else [ax]):
+                    axis.text(
+                        offset,
+                        y_pos,
+                        datafunctions._fmt_g(value, sig=5),
+                        ha="center",
+                        va=va,
+                        fontsize=label_fontsize,
+                        fontweight="bold",
+                        color="#1A1A1A",
+                        rotation=label_rotation,
+                    )
+            for axis in [ax2, ax] if ax2 is not None else [ax]:
                 y0, y1 = axis.get_ylim()
                 if y0 <= 0 <= y1:
                     axis.axhline(0, color="#4F4F4F", linestyle="-", linewidth=1.0, alpha=0.9, zorder=1)
@@ -222,7 +276,7 @@ class BarBoxMixin:
                 ax2.grid(True, axis="y", alpha=self.GRID_STYLE["minor"]["alpha"])
                 ax2.set_axisbelow(True)
             handles, labels = [], []
-            for axis in ([ax, ax2] if ax2 is not None else [ax]):
+            for axis in [ax, ax2] if ax2 is not None else [ax]:
                 for h, l in zip(*axis.get_legend_handles_labels()):
                     if l and l != "_nolegend_" and l not in labels:
                         handles.append(h)
@@ -235,10 +289,13 @@ class BarBoxMixin:
                     legend_obj = ax.get_legend()
                     self._display_gate_info(ax, gate_text, legend=legend_obj)
             plt.tight_layout(pad=0.25)
-            fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")
+            fig.savefig(
+                self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight"
+            )
             plt.close(fig)
             if self.verbose:
                 log.debug("Saved: %s", filename)
+
     def _parse_boxplot_definition(self, plot_def):
         plot_name = plot_def.name
         channels = list(plot_def.channels) if plot_def.channels else []
@@ -249,6 +306,7 @@ class BarBoxMixin:
         if plot_def.reference_lines is not None and "_reference_lines" not in options:
             options["_reference_lines"] = plot_def.reference_lines
         return plot_name, channels, aggregation_mode, axis_limits, gate_spec, options
+
     def _collect_boxplot_point_series_from_data(self, channel, filtered_run_data):
         series = []
         for run in self.runs:
@@ -260,6 +318,7 @@ class BarBoxMixin:
             if len(values):
                 series.append((run["name"].upper(), run["color"], values))
         return series
+
     def _apply_boxplot_artist_style(self, bp, box_settings, colors=None, facecolor=None, alpha=0.82):
         box_lw = box_settings.get("box_linewidth", 1.5)
         median_color = box_settings.get("medianline_color", "#000000")
@@ -288,6 +347,7 @@ class BarBoxMixin:
                 idx = rng.choice(len(xdata), size=_MAX_FLIERS, replace=False)
                 flier.set_xdata(xdata[idx])
                 flier.set_ydata(ydata[idx])
+
     def generate_box_plots(self):
         self._ensure_preprocessed()
         plots = self._get_plot_group(5)
@@ -300,8 +360,8 @@ class BarBoxMixin:
                 self._generate_boxplot_grid(plot_def, box_settings)
                 continue
             try:
-                plot_name, channels, aggregation_mode, axis_limits, gate_spec, options = (
-                    self._parse_boxplot_definition(plot_def)
+                plot_name, channels, aggregation_mode, axis_limits, gate_spec, options = self._parse_boxplot_definition(
+                    plot_def
                 )
             except ValueError as exc:
                 log.warning("%s Skipping box plot: %r", exc, plot_def)
@@ -318,13 +378,9 @@ class BarBoxMixin:
                 else box_settings.get("figsize_multi_channel", self.boxplot_FIGSIZE)
             )
             if aggregation_mode == "per_run":
-                self._generate_boxplot_per_run(
-                    plot_name, channels, axis_limits, gate_spec, plot_options, figsize
-                )
+                self._generate_boxplot_per_run(plot_name, channels, axis_limits, gate_spec, plot_options, figsize)
             elif aggregation_mode == "aggregated":
-                self._generate_boxplot_aggregated(
-                    plot_name, channels, axis_limits, gate_spec, plot_options, figsize
-                )
+                self._generate_boxplot_aggregated(plot_name, channels, axis_limits, gate_spec, plot_options, figsize)
             elif aggregation_mode == "per_run_aggregated":
                 self._generate_boxplot_per_run_aggregated(
                     plot_name, channels, axis_limits, gate_spec, plot_options, figsize
@@ -332,16 +388,18 @@ class BarBoxMixin:
             else:
                 log.warning(
                     "Box plot '%s': unknown aggregation_mode '%s'. Skipping.",
-                    plot_name, aggregation_mode,
+                    plot_name,
+                    aggregation_mode,
                 )
+
     def _generate_boxplot_per_run(self, plot_name, channels, axis_limits, gate_spec, options, figsize):
         box_settings = options
-        filtered_run_data = {
-            rn: self._get_filtered_run_dataframe(rn, gate_spec) for rn in self.run_data
-        }
+        filtered_run_data = {rn: self._get_filtered_run_dataframe(rn, gate_spec) for rn in self.run_data}
         agg_data = datafunctions.aggregate_channel_for_boxplot(
-            self.run_data, channels,
-            aggregation_mode="per_run", gate_spec=gate_spec,
+            self.run_data,
+            channels,
+            aggregation_mode="per_run",
+            gate_spec=gate_spec,
             filtered_run_data=filtered_run_data,
         )
         if not agg_data:
@@ -364,7 +422,8 @@ class BarBoxMixin:
             axes = [axes]
         else:
             fig, axes = plt.subplots(
-                num_channels, 1,
+                num_channels,
+                1,
                 figsize=(figsize[0], max(figsize[1], 4.5) * num_channels * 0.62),
                 sharex=False,
             )
@@ -387,16 +446,18 @@ class BarBoxMixin:
                 log.warning("Box plot '%s' channel '%s': no data.", plot_name, channel)
                 continue
             bp = ax.boxplot(
-                data_list, labels=labels_list, patch_artist=True,
-                widths=box_width, showfliers=show_fliers, whis=[5, 95]
+                data_list, labels=labels_list, patch_artist=True, widths=box_width, showfliers=show_fliers, whis=[5, 95]
             )
             self._apply_boxplot_artist_style(
-                bp, box_settings, colors=colors_list,
+                bp,
+                box_settings,
+                colors=colors_list,
                 alpha=box_settings.get("per_run_box_alpha", 0.7),
             )
             ax.set_ylabel(
                 datafunctions.add_units_to_label(channel, self.units_map),
-                fontweight="bold", fontsize=12,
+                fontweight="bold",
+                fontsize=12,
             )
             if isinstance(axis_limits, (list, tuple)) and len(axis_limits) == 2:
                 ymin, ymax = axis_limits
@@ -413,8 +474,7 @@ class BarBoxMixin:
                 for box_index, (_, color, values) in enumerate(overlay_series, start=1):
                     x_pts = np.full(len(values), box_index, dtype=float)
                     x_pts += rng.uniform(-jitter, jitter, size=len(values))
-                    ax.scatter(x_pts, values, s=point_size, alpha=point_alpha,
-                               color=color, edgecolors="none", zorder=3)
+                    ax.scatter(x_pts, values, s=point_size, alpha=point_alpha, color=color, edgecolors="none", zorder=3)
         if gate_text:
             self._display_gate_info(axes[0], gate_text)
         ref_lines_spec = options.get("_reference_lines") if isinstance(options, dict) else None
@@ -426,18 +486,21 @@ class BarBoxMixin:
             fig.suptitle(plot_title, fontsize=14, fontweight="bold", y=1.02)
         plt.tight_layout(pad=0.25)
         filename = self._sanitize_plot_filename("box", plot_name)
-        fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")
+        fig.savefig(
+            self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight"
+        )
         plt.close(fig)
         if self.verbose:
             log.debug("Saved: %s", filename)
+
     def _generate_boxplot_aggregated(self, plot_name, channels, axis_limits, gate_spec, options, figsize):
         box_settings = options
-        filtered_run_data = {
-            rn: self._get_filtered_run_dataframe(rn, gate_spec) for rn in self.run_data
-        }
+        filtered_run_data = {rn: self._get_filtered_run_dataframe(rn, gate_spec) for rn in self.run_data}
         agg_data = datafunctions.aggregate_channel_for_boxplot(
-            self.run_data, channels,
-            aggregation_mode="aggregated", gate_spec=gate_spec,
+            self.run_data,
+            channels,
+            aggregation_mode="aggregated",
+            gate_spec=gate_spec,
             filtered_run_data=filtered_run_data,
         )
         if not agg_data:
@@ -458,7 +521,8 @@ class BarBoxMixin:
             axes = [axes]
         else:
             fig, axes = plt.subplots(
-                num_channels, 1,
+                num_channels,
+                1,
                 figsize=(figsize[0], max(figsize[1], 4.5) * num_channels * 0.62),
                 sharex=False,
             )
@@ -470,12 +534,14 @@ class BarBoxMixin:
             if not len(data):
                 log.warning("Box plot '%s' channel '%s': no data.", plot_name, channel)
                 continue
-            bp = ax.boxplot([data], labels=[channel], patch_artist=True,
-                            widths=box_width, showfliers=show_fliers, whis=[5, 95])
+            bp = ax.boxplot(
+                [data], labels=[channel], patch_artist=True, widths=box_width, showfliers=show_fliers, whis=[5, 95]
+            )
             self._apply_boxplot_artist_style(bp, box_settings, facecolor=agg_color, alpha=agg_alpha)
             ax.set_ylabel(
                 datafunctions.add_units_to_label(channel, self.units_map),
-                fontweight="bold", fontsize=12,
+                fontweight="bold",
+                fontsize=12,
             )
             if isinstance(axis_limits, (list, tuple)) and len(axis_limits) == 2:
                 ymin, ymax = axis_limits
@@ -489,22 +555,16 @@ class BarBoxMixin:
             if yl <= 0 <= yr:
                 ax.axhline(0, color="#5E5E5E", linewidth=1, alpha=0.8)
             if show_points:
-                overlay_series = self._collect_boxplot_point_series_from_data(
-                    channel, filtered_run_data
-                )
+                overlay_series = self._collect_boxplot_point_series_from_data(channel, filtered_run_data)
                 for run_label, color, values in overlay_series:
                     x_pts = np.full(len(values), 1.0, dtype=float)
                     x_pts += rng.uniform(-jitter, jitter, size=len(values))
-                    ax.scatter(x_pts, values, s=point_size, alpha=point_alpha,
-                               color=color, edgecolors="none", zorder=3)
+                    ax.scatter(x_pts, values, s=point_size, alpha=point_alpha, color=color, edgecolors="none", zorder=3)
                     if run_label not in legend_labels:
-                        legend_handles.append(
-                            Line2D([0], [0], marker="o", linestyle="None", color=color)
-                        )
+                        legend_handles.append(Line2D([0], [0], marker="o", linestyle="None", color=color))
                         legend_labels.append(run_label)
         if show_points and legend_handles:
-            self._add_standard_legend(axes[0], handles=legend_handles, labels=legend_labels,
-                                      loc="upper right")
+            self._add_standard_legend(axes[0], handles=legend_handles, labels=legend_labels, loc="upper right")
         if gate_text:
             legend_obj = axes[0].get_legend() if show_points and legend_handles else None
             self._display_gate_info(axes[0], gate_text, legend=legend_obj)
@@ -517,23 +577,28 @@ class BarBoxMixin:
             fig.suptitle(plot_title, fontsize=14, fontweight="bold", y=1.02)
         plt.tight_layout(pad=0.25)
         filename = self._sanitize_plot_filename("box", plot_name)
-        fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")
+        fig.savefig(
+            self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight"
+        )
         plt.close(fig)
         if self.verbose:
             log.debug("Saved: %s", filename)
+
     def _generate_boxplot_per_run_aggregated(self, plot_name, channels, axis_limits, gate_spec, options, figsize):
         box_settings = options
-        filtered_run_data = {
-            rn: self._get_filtered_run_dataframe(rn, gate_spec) for rn in self.run_data
-        }
+        filtered_run_data = {rn: self._get_filtered_run_dataframe(rn, gate_spec) for rn in self.run_data}
         per_run_data = datafunctions.aggregate_channel_for_boxplot(
-            self.run_data, channels,
-            aggregation_mode="per_run", gate_spec=gate_spec,
+            self.run_data,
+            channels,
+            aggregation_mode="per_run",
+            gate_spec=gate_spec,
             filtered_run_data=filtered_run_data,
         )
         agg_data = datafunctions.aggregate_channel_for_boxplot(
-            self.run_data, channels,
-            aggregation_mode="aggregated", gate_spec=gate_spec,
+            self.run_data,
+            channels,
+            aggregation_mode="aggregated",
+            gate_spec=gate_spec,
             filtered_run_data=filtered_run_data,
         )
         if not per_run_data and not agg_data:
@@ -557,7 +622,8 @@ class BarBoxMixin:
             axes = [axes]
         else:
             fig, axes = plt.subplots(
-                num_channels, 1,
+                num_channels,
+                1,
                 figsize=(wider_figsize[0], max(wider_figsize[1], 4.5) * num_channels * 0.62),
                 sharex=False,
             )
@@ -585,8 +651,7 @@ class BarBoxMixin:
                 log.warning("Box plot '%s' channel '%s': no data.", plot_name, channel)
                 continue
             bp = ax.boxplot(
-                data_list, labels=labels_list, patch_artist=True,
-                widths=box_width, showfliers=show_fliers, whis=[5, 95]
+                data_list, labels=labels_list, patch_artist=True, widths=box_width, showfliers=show_fliers, whis=[5, 95]
             )
             per_run_alpha = box_settings.get("per_run_box_alpha", 0.7)
             for i, patch in enumerate(bp["boxes"]):
@@ -610,7 +675,8 @@ class BarBoxMixin:
                 ax.axvline(sep_x, color="#AAAAAA", linewidth=1.2, linestyle="--", alpha=0.7)
             ax.set_ylabel(
                 datafunctions.add_units_to_label(channel, self.units_map),
-                fontweight="bold", fontsize=12,
+                fontweight="bold",
+                fontsize=12,
             )
             if isinstance(axis_limits, (list, tuple)) and len(axis_limits) == 2:
                 ymin, ymax = axis_limits
@@ -627,8 +693,7 @@ class BarBoxMixin:
                 for box_index, (_, color, values) in enumerate(overlay_series, start=1):
                     x_pts = np.full(len(values), box_index, dtype=float)
                     x_pts += rng.uniform(-jitter, jitter, size=len(values))
-                    ax.scatter(x_pts, values, s=point_size, alpha=point_alpha,
-                               color=color, edgecolors="none", zorder=3)
+                    ax.scatter(x_pts, values, s=point_size, alpha=point_alpha, color=color, edgecolors="none", zorder=3)
         if gate_text:
             self._display_gate_info(axes[0], gate_text)
         ref_lines_spec = options.get("_reference_lines") if isinstance(options, dict) else None
@@ -640,12 +705,16 @@ class BarBoxMixin:
             fig.suptitle(plot_title, fontsize=14, fontweight="bold", y=1.02)
         plt.tight_layout(pad=0.25)
         filename = self._sanitize_plot_filename("box", plot_name)
-        fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")
+        fig.savefig(
+            self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight"
+        )
         plt.close(fig)
         if self.verbose:
             log.debug("Saved: %s", filename)
+
     def _generate_boxplot_grid(self, grid_def, box_settings):
         from .plot_definitions import _normalise_gate_list
+
         plot_name = grid_def.name
         channels = list(grid_def.channels)
         aggregation_mode = grid_def.aggregation_mode
@@ -670,7 +739,8 @@ class BarBoxMixin:
             fig_w = max(cell_w * n_cols + 1.5, 10)
             fig_h = max(cell_h * n_rows + 1.2, 4)
             fig, axes = plt.subplots(
-                n_rows, n_cols,
+                n_rows,
+                n_cols,
                 figsize=(fig_w, fig_h),
                 squeeze=False,
                 sharey="row",
@@ -683,22 +753,50 @@ class BarBoxMixin:
                     ax = axes[r_idx, c_idx]
                     if aggregation_mode == "aggregated":
                         self._render_grid_cell_aggregated(
-                            ax, channel, combined_gate, options,
-                            show_fliers, show_points, point_alpha, point_size,
-                            jitter, box_width, agg_color, agg_alpha, rng,
+                            ax,
+                            channel,
+                            combined_gate,
+                            options,
+                            show_fliers,
+                            show_points,
+                            point_alpha,
+                            point_size,
+                            jitter,
+                            box_width,
+                            agg_color,
+                            agg_alpha,
+                            rng,
                         )
                     elif aggregation_mode == "per_run":
                         self._render_grid_cell_per_run(
-                            ax, channel, combined_gate, options,
-                            show_fliers, show_points, point_alpha, point_size,
-                            jitter, box_width, rng,
+                            ax,
+                            channel,
+                            combined_gate,
+                            options,
+                            show_fliers,
+                            show_points,
+                            point_alpha,
+                            point_size,
+                            jitter,
+                            box_width,
+                            rng,
                         )
                     elif aggregation_mode == "per_run_aggregated":
                         self._render_grid_cell_per_run(
-                            ax, channel, combined_gate, options,
-                            show_fliers, show_points, point_alpha, point_size,
-                            jitter, box_width, rng, append_aggregated=True,
-                            agg_color=agg_color, agg_alpha=agg_alpha,
+                            ax,
+                            channel,
+                            combined_gate,
+                            options,
+                            show_fliers,
+                            show_points,
+                            point_alpha,
+                            point_size,
+                            jitter,
+                            box_width,
+                            rng,
+                            append_aggregated=True,
+                            agg_color=agg_color,
+                            agg_alpha=agg_alpha,
                         )
                     if c_idx == 0:
                         ax.set_ylabel(row_label, fontweight="bold", fontsize=11)
@@ -725,30 +823,47 @@ class BarBoxMixin:
             grid_filename = self._sanitize_plot_filename("box_grid", f"{plot_name}_{channel}")
             fig.savefig(
                 self.plots_dir / grid_filename,
-                dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight",
+                dpi=self.output_dpi,
+                pad_inches=0.15,
+                facecolor="white",
+                bbox_inches="tight",
             )
             plt.close(fig)
             if self.verbose:
                 log.debug("Saved grid: %s", grid_filename)
-    def _render_grid_cell_aggregated(self, ax, channel, gate_spec, options,
-                                     show_fliers, show_points, point_alpha, point_size,
-                                     jitter, box_width, agg_color, agg_alpha, rng):
-        filtered_run_data = {
-            rn: self._get_filtered_run_dataframe(rn, gate_spec) for rn in self.run_data
-        }
+
+    def _render_grid_cell_aggregated(
+        self,
+        ax,
+        channel,
+        gate_spec,
+        options,
+        show_fliers,
+        show_points,
+        point_alpha,
+        point_size,
+        jitter,
+        box_width,
+        agg_color,
+        agg_alpha,
+        rng,
+    ):
+        filtered_run_data = {rn: self._get_filtered_run_dataframe(rn, gate_spec) for rn in self.run_data}
         agg_data = datafunctions.aggregate_channel_for_boxplot(
-            self.run_data, [channel],
-            aggregation_mode="aggregated", gate_spec=gate_spec,
+            self.run_data,
+            [channel],
+            aggregation_mode="aggregated",
+            gate_spec=gate_spec,
             filtered_run_data=filtered_run_data,
         )
         data = agg_data.get(channel, np.array([]))
         if len(data) == 0:
-            ax.text(0.5, 0.5, "No data", ha="center", va="center",
-                    transform=ax.transAxes, fontsize=9, color="#999999")
+            ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes, fontsize=9, color="#999999")
             ax.set_xticks([])
             return
-        bp = ax.boxplot([data], labels=[channel], patch_artist=True,
-                        widths=box_width, showfliers=show_fliers, whis=[5, 95])
+        bp = ax.boxplot(
+            [data], labels=[channel], patch_artist=True, widths=box_width, showfliers=show_fliers, whis=[5, 95]
+        )
         self._apply_boxplot_artist_style(bp, options, facecolor=agg_color, alpha=agg_alpha)
         ax.set_xticklabels([])
         if show_points:
@@ -756,18 +871,31 @@ class BarBoxMixin:
             for _, color, values in overlay_series:
                 x_pts = np.full(len(values), 1.0, dtype=float)
                 x_pts += rng.uniform(-jitter, jitter, size=len(values))
-                ax.scatter(x_pts, values, s=point_size, alpha=point_alpha,
-                           color=color, edgecolors="none", zorder=3)
-    def _render_grid_cell_per_run(self, ax, channel, gate_spec, options,
-                                  show_fliers, show_points, point_alpha, point_size,
-                                  jitter, box_width, rng,
-                                  append_aggregated=False, agg_color="#3498DB", agg_alpha=0.7):
-        filtered_run_data = {
-            rn: self._get_filtered_run_dataframe(rn, gate_spec) for rn in self.run_data
-        }
+                ax.scatter(x_pts, values, s=point_size, alpha=point_alpha, color=color, edgecolors="none", zorder=3)
+
+    def _render_grid_cell_per_run(
+        self,
+        ax,
+        channel,
+        gate_spec,
+        options,
+        show_fliers,
+        show_points,
+        point_alpha,
+        point_size,
+        jitter,
+        box_width,
+        rng,
+        append_aggregated=False,
+        agg_color="#3498DB",
+        agg_alpha=0.7,
+    ):
+        filtered_run_data = {rn: self._get_filtered_run_dataframe(rn, gate_spec) for rn in self.run_data}
         per_run_data = datafunctions.aggregate_channel_for_boxplot(
-            self.run_data, [channel],
-            aggregation_mode="per_run", gate_spec=gate_spec,
+            self.run_data,
+            [channel],
+            aggregation_mode="per_run",
+            gate_spec=gate_spec,
             filtered_run_data=filtered_run_data,
         )
         run_names = [r["name"].lower() for r in self.runs if r["name"].lower() in per_run_data]
@@ -784,8 +912,10 @@ class BarBoxMixin:
             colors_list.append(run_colors.get(run_name, "#3498DB"))
         if append_aggregated:
             agg_data = datafunctions.aggregate_channel_for_boxplot(
-                self.run_data, [channel],
-                aggregation_mode="aggregated", gate_spec=gate_spec,
+                self.run_data,
+                [channel],
+                aggregation_mode="aggregated",
+                gate_spec=gate_spec,
                 filtered_run_data=filtered_run_data,
             )
             agg_values = agg_data.get(channel, np.array([]))
@@ -794,13 +924,16 @@ class BarBoxMixin:
                 labels_list.append("ALL")
                 colors_list.append(agg_color)
         if not data_list:
-            ax.text(0.5, 0.5, "No data", ha="center", va="center",
-                    transform=ax.transAxes, fontsize=9, color="#999999")
+            ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes, fontsize=9, color="#999999")
             ax.set_xticks([])
             return
         bp = ax.boxplot(
-            data_list, labels=labels_list, patch_artist=True,
-            widths=box_width, showfliers=show_fliers, whis=[5, 95],
+            data_list,
+            labels=labels_list,
+            patch_artist=True,
+            widths=box_width,
+            showfliers=show_fliers,
+            whis=[5, 95],
         )
         self._apply_boxplot_artist_style(bp, options, colors=colors_list, alpha=0.7)
         ax.tick_params(axis="x", labelsize=7, rotation=45)
@@ -814,5 +947,4 @@ class BarBoxMixin:
                 color = run_colors.get(run_name, "#3498DB")
                 x_pts = np.full(len(values), box_index, dtype=float)
                 x_pts += rng.uniform(-jitter, jitter, size=len(values))
-                ax.scatter(x_pts, values, s=point_size, alpha=point_alpha,
-                           color=color, edgecolors="none", zorder=3)
+                ax.scatter(x_pts, values, s=point_size, alpha=point_alpha, color=color, edgecolors="none", zorder=3)

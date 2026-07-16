@@ -1,4 +1,5 @@
 """Tests for `engine.plot_definitions` dataclass validation."""
+
 from __future__ import annotations
 
 import pytest
@@ -164,8 +165,10 @@ class TestBoxPlotGrid:
     def test_invalid_render_mode(self):
         with pytest.raises(ValueError, match="render_mode"):
             BoxPlotGrid(
-                name="G", channels="vCar",
-                rows={"a": None}, cols={"b": None},
+                name="G",
+                channels="vCar",
+                rows={"a": None},
+                cols={"b": None},
                 render_mode="waterfall",
             )
 

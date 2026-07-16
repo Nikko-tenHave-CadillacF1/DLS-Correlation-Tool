@@ -1,4 +1,5 @@
 """Tests for pure helpers in `engine.datafunctions`."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -19,9 +20,9 @@ from engine.datafunctions import (
 def df():
     return pd.DataFrame(
         {
-            "SM":       [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
-            "pBrakeF":  [0.0, 0.0, 20.0, 60.0, 80.0, 100.0],
-            "vCar":     [10.0, 40.0, 90.0, 150.0, 220.0, 280.0],
+            "SM": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+            "pBrakeF": [0.0, 0.0, 20.0, 60.0, 80.0, 100.0],
+            "vCar": [10.0, 40.0, 90.0, 150.0, 220.0, 280.0],
         }
     )
 
@@ -34,9 +35,9 @@ class TestComputeGateMask:
     @pytest.mark.parametrize(
         "op,val,expected",
         [
-            (">",  0.5, [False, False, False, True, True, True]),
+            (">", 0.5, [False, False, False, True, True, True]),
             (">=", 0.4, [False, False, True, True, True, True]),
-            ("<",  0.4, [True, True, False, False, False, False]),
+            ("<", 0.4, [True, True, False, False, False, False]),
             ("<=", 0.4, [True, True, True, False, False, False]),
             ("==", 0.4, [False, False, True, False, False, False]),
             ("!=", 0.4, [True, True, False, True, True, True]),
@@ -114,9 +115,7 @@ class TestNormalizeBarMetricSpecs:
         ]
 
     def test_invalid_agg_falls_back_to_default(self):
-        assert normalize_bar_metric_specs(
-            [("PMGUK", "spline")], default_aggregation="max"
-        ) == [("PMGUK", "max")]
+        assert normalize_bar_metric_specs([("PMGUK", "spline")], default_aggregation="max") == [("PMGUK", "max")]
 
     def test_non_string_channel_dropped(self):
         assert normalize_bar_metric_specs([(123, "sum")]) == []
@@ -140,9 +139,7 @@ class TestConvertYesNoToBinary:
 
 class TestSanitizeNumericSeries:
     def test_strips_inf_and_int64_sentinels(self):
-        s = pd.Series(
-            [1.0, np.inf, -np.inf, float(np.iinfo(np.int64).min), 2.5]
-        )
+        s = pd.Series([1.0, np.inf, -np.inf, float(np.iinfo(np.int64).min), 2.5])
         out = sanitize_numeric_series(s)
         assert out.iloc[0] == 1.0
         assert np.isnan(out.iloc[1])

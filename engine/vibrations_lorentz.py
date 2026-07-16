@@ -41,6 +41,7 @@ All cost evaluations are LOG-SPACE residuals so a broad noise floor
 does not swamp a sharp resonance peak. A per-bin weight equal to the
 PSD magnitude (and optional coherence) re-emphasises the peaks.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -99,11 +100,11 @@ BAND_PRIOR_LAMBDA = 0.01
 # `run_fit`. The fitted *value* is preserved -- only the uncertainty is
 # masked, so downstream plots render the point but contribute nothing to
 # axes autoscale (no exploding errorbar / CI band from degenerate fits).
-SIGMA_DEGENERATE_F0_BAND_FRAC = 0.50   # sigma_f0 > 0.5 * configured band width
-SIGMA_DEGENERATE_F0_REL       = 0.20   # sigma_f0 / f0 > 20 %
-SIGMA_DEGENERATE_ZETA_ABS     = 0.25   # sigma_zeta > 0.25 (half of [ZETA_MIN, ZETA_MAX])
-SIGMA_DEGENERATE_ZETA_REL     = 1.00   # sigma_zeta > zeta (uncertainty exceeds value)
-SIGMA_DEGENERATE_LOG_AMP      = 2.00   # sigma_log_amp > 2 (amp factor of e^2 ~ 7.4)
+SIGMA_DEGENERATE_F0_BAND_FRAC = 0.50  # sigma_f0 > 0.5 * configured band width
+SIGMA_DEGENERATE_F0_REL = 0.20  # sigma_f0 / f0 > 20 %
+SIGMA_DEGENERATE_ZETA_ABS = 0.25  # sigma_zeta > 0.25 (half of [ZETA_MIN, ZETA_MAX])
+SIGMA_DEGENERATE_ZETA_REL = 1.00  # sigma_zeta > zeta (uncertainty exceeds value)
+SIGMA_DEGENERATE_LOG_AMP = 2.00  # sigma_log_amp > 2 (amp factor of e^2 ~ 7.4)
 
 _LOG_EPS = 1e-30  # guards log(0)
 
@@ -111,6 +112,7 @@ _LOG_EPS = 1e-30  # guards log(0)
 # ----------------------------------------------------------------------------
 # Model evaluation
 # ----------------------------------------------------------------------------
+
 
 def _lorentz_shape(freqs_hz: np.ndarray, f0_zeta: np.ndarray) -> np.ndarray:
     """SDOF receptance squared (unscaled), broadcast over bands.
@@ -127,13 +129,13 @@ def _lorentz_shape(freqs_hz: np.ndarray, f0_zeta: np.ndarray) -> np.ndarray:
     omega = 2.0 * np.pi * freqs_hz
     omega0 = 2.0 * np.pi * f0_zeta[:, 0:1]
     zeta = f0_zeta[:, 1:2]
-    denom = (omega0**2 - omega**2)**2 + (2.0 * zeta * omega0 * omega)**2
+    denom = (omega0**2 - omega**2) ** 2 + (2.0 * zeta * omega0 * omega) ** 2
     return 1.0 / np.maximum(denom, _LOG_EPS)
 
 
-def _model_psds(packed: np.ndarray, freqs_hz: np.ndarray,
-                n_bands: int, n_traces: int,
-                f_ref: float | None = None) -> np.ndarray:
+def _model_psds(
+    packed: np.ndarray, freqs_hz: np.ndarray, n_bands: int, n_traces: int, f_ref: float | None = None
+) -> np.ndarray:
     """Reconstruct per-trace model PSDs from the packed parameter vector.
 
     Two packing layouts are supported, distinguished by ``f_ref``:
@@ -153,28 +155,32 @@ def _model_psds(packed: np.ndarray, freqs_hz: np.ndarray,
     otherwise inflates fitted zeta.
     """
     cols = 2 + n_traces
-    band_params = packed[:n_bands * cols].reshape(n_bands, cols)
-    tail = packed[n_bands * cols:]
+    band_params = packed[: n_bands * cols].reshape(n_bands, cols)
+    tail = packed[n_bands * cols :]
     log_baselines = tail[:n_traces]
-    amps = np.exp(band_params[:, 2:])                    # (n_bands, n_traces)
+    amps = np.exp(band_params[:, 2:])  # (n_bands, n_traces)
     shapes = _lorentz_shape(freqs_hz, band_params[:, :2])  # (n_bands, nf)
     if f_ref is not None and tail.size >= 2 * n_traces:
-        slopes = tail[n_traces:2 * n_traces]
+        slopes = tail[n_traces : 2 * n_traces]
         log_f_ratio = np.log(np.maximum(freqs_hz, _LOG_EPS) / f_ref)
-        base_bins = np.exp(log_baselines[:, None]
-                           + slopes[:, None] * log_f_ratio[None, :])  # (n_traces, nf)
+        base_bins = np.exp(log_baselines[:, None] + slopes[:, None] * log_f_ratio[None, :])  # (n_traces, nf)
         return amps.T @ shapes + base_bins
-    baselines = np.exp(log_baselines)                    # (n_traces,)
+    baselines = np.exp(log_baselines)  # (n_traces,)
     return amps.T @ shapes + baselines[:, None]
 
 
-def _residuals_log(packed: np.ndarray, freqs_fit: np.ndarray,
-                   meas_norm: np.ndarray, n_bands: int, n_traces: int,
-                   weights: np.ndarray | None,
-                   band_centres: np.ndarray | None = None,
-                   band_halfwidths: np.ndarray | None = None,
-                   prior_lambda: float = 0.0,
-                   f_ref: float | None = None) -> np.ndarray:
+def _residuals_log(
+    packed: np.ndarray,
+    freqs_fit: np.ndarray,
+    meas_norm: np.ndarray,
+    n_bands: int,
+    n_traces: int,
+    weights: np.ndarray | None,
+    band_centres: np.ndarray | None = None,
+    band_halfwidths: np.ndarray | None = None,
+    prior_lambda: float = 0.0,
+    f_ref: float | None = None,
+) -> np.ndarray:
     """Per-bin log-space residual vector (used by least_squares + scalar cost).
 
     When ``prior_lambda > 0`` and ``band_centres`` / ``band_halfwidths`` are
@@ -184,30 +190,43 @@ def _residuals_log(packed: np.ndarray, freqs_fit: np.ndarray,
     interpreted with a sloped baseline (see :func:`_model_psds`).
     """
     models = _model_psds(packed, freqs_fit, n_bands, n_traces, f_ref=f_ref)
-    res = (np.log(np.maximum(models, _LOG_EPS))
-           - np.log(np.maximum(meas_norm, _LOG_EPS)))
+    res = np.log(np.maximum(models, _LOG_EPS)) - np.log(np.maximum(meas_norm, _LOG_EPS))
     if weights is not None:
         res = res * np.sqrt(weights)
     out = res.ravel()
     if prior_lambda > 0.0 and band_centres is not None:
         cols = 2 + n_traces
-        f0s = packed[:n_bands * cols].reshape(n_bands, cols)[:, 0]
+        f0s = packed[: n_bands * cols].reshape(n_bands, cols)[:, 0]
         excess = np.maximum(np.abs(f0s - band_centres) - band_halfwidths, 0.0)
         prior_res = np.sqrt(prior_lambda) * (excess / band_halfwidths)
         out = np.concatenate([out, prior_res])
     return out
 
 
-def _scalar_cost(packed: np.ndarray, freqs_fit: np.ndarray,
-                 meas_norm: np.ndarray, n_bands: int, n_traces: int,
-                 weights: np.ndarray,
-                 band_centres: np.ndarray | None = None,
-                 band_halfwidths: np.ndarray | None = None,
-                 prior_lambda: float = 0.0,
-                 f_ref: float | None = None) -> float:
-    r = _residuals_log(packed, freqs_fit, meas_norm, n_bands, n_traces,
-                       weights, band_centres, band_halfwidths, prior_lambda,
-                       f_ref=f_ref)
+def _scalar_cost(
+    packed: np.ndarray,
+    freqs_fit: np.ndarray,
+    meas_norm: np.ndarray,
+    n_bands: int,
+    n_traces: int,
+    weights: np.ndarray,
+    band_centres: np.ndarray | None = None,
+    band_halfwidths: np.ndarray | None = None,
+    prior_lambda: float = 0.0,
+    f_ref: float | None = None,
+) -> float:
+    r = _residuals_log(
+        packed,
+        freqs_fit,
+        meas_norm,
+        n_bands,
+        n_traces,
+        weights,
+        band_centres,
+        band_halfwidths,
+        prior_lambda,
+        f_ref=f_ref,
+    )
     return float(np.dot(r, r))
 
 
@@ -215,8 +234,10 @@ def _scalar_cost(packed: np.ndarray, freqs_fit: np.ndarray,
 # Initial-guess construction
 # ----------------------------------------------------------------------------
 
-def _half_power_zeta(freqs: np.ndarray, psd: np.ndarray, peak_idx: int,
-                     z_min: float = 0.05, z_max: float = 0.30) -> float:
+
+def _half_power_zeta(
+    freqs: np.ndarray, psd: np.ndarray, peak_idx: int, z_min: float = 0.05, z_max: float = 0.30
+) -> float:
     """Classical half-power (-3dB) damping estimate around `peak_idx`."""
     peak = float(psd[peak_idx])
     if peak <= 0.0:
@@ -235,9 +256,9 @@ def _half_power_zeta(freqs: np.ndarray, psd: np.ndarray, peak_idx: int,
     return float(np.clip(bw / (2.0 * f0), z_min, z_max))
 
 
-def _pick_seed_peaks(freqs_fit: np.ndarray, smooth_psd: np.ndarray,
-                     bands: list[tuple[float, float]]
-                     ) -> list[tuple[float, int] | None]:
+def _pick_seed_peaks(
+    freqs_fit: np.ndarray, smooth_psd: np.ndarray, bands: list[tuple[float, float]]
+) -> list[tuple[float, int] | None]:
     """Assign one PSD peak to each expected band by minimum-distance cost.
 
     The simple ``np.argmax`` seed used previously flips between competing
@@ -300,9 +321,9 @@ def _pick_seed_peaks(freqs_fit: np.ndarray, smooth_psd: np.ndarray,
     return assignments
 
 
-def _initial_guess(freqs_fit: np.ndarray, meas_norm: np.ndarray,
-                   bands: list[tuple[float, float]],
-                   n_traces: int) -> np.ndarray:
+def _initial_guess(
+    freqs_fit: np.ndarray, meas_norm: np.ndarray, bands: list[tuple[float, float]], n_traces: int
+) -> np.ndarray:
     """Peak-pick + half-power damping seed for each expected band."""
     cols = 2 + n_traces
     x0 = np.zeros(len(bands) * cols + n_traces)
@@ -334,12 +355,12 @@ def _initial_guess(freqs_fit: np.ndarray, meas_norm: np.ndarray,
                 meas_peak = 1.0
         # Solve for amplitude that places the Lorentzian peak at the measured peak.
         omega0 = 2.0 * np.pi * f_peak
-        shape_peak = 1.0 / (2.0 * zeta0 * omega0**2)**2
+        shape_peak = 1.0 / (2.0 * zeta0 * omega0**2) ** 2
         log_amp = float(np.log(meas_peak / shape_peak))
         base = i * cols
         x0[base] = f_peak
         x0[base + 1] = zeta0
-        x0[base + 2:base + cols] = log_amp
+        x0[base + 2 : base + cols] = log_amp
     # Per-trace baseline seed: 5th-percentile of the measured trace.
     for t in range(n_traces):
         floor_seed = float(max(np.percentile(meas_norm[t], 5.0), 1e-9))
@@ -351,9 +372,10 @@ def _initial_guess(freqs_fit: np.ndarray, meas_norm: np.ndarray,
 # Single-subsystem fit (heave+pitch OR roll+warp)
 # ----------------------------------------------------------------------------
 
-def _expanded_bounds(freqs_fit: np.ndarray, bands: list[tuple[float, float]],
-                     expansion: float = 0.3,
-                     min_margin: float = 0.5) -> list[tuple[float, float]]:
+
+def _expanded_bounds(
+    freqs_fit: np.ndarray, bands: list[tuple[float, float]], expansion: float = 0.3, min_margin: float = 0.5
+) -> list[tuple[float, float]]:
     """Return the full fit window as f0 bounds for every band.
 
     The ``expected_freqs`` entries supplied by the workflow are treated as
@@ -375,21 +397,22 @@ def _expanded_bounds(freqs_fit: np.ndarray, bands: list[tuple[float, float]],
     return [(fit_lo, fit_hi) for _ in bands]
 
 
-def _zeta_pinned_to_bound(x: np.ndarray, n_bands: int, n_traces: int,
-                          margin: float = 0.02) -> bool:
+def _zeta_pinned_to_bound(x: np.ndarray, n_bands: int, n_traces: int, margin: float = 0.02) -> bool:
     """True if any fitted damping ratio sits at the edge of `[ZETA_MIN, ZETA_MAX]`."""
     cols = 2 + n_traces
-    zetas = x[:n_bands * cols].reshape(n_bands, cols)[:, 1]
+    zetas = x[: n_bands * cols].reshape(n_bands, cols)[:, 1]
     span = ZETA_MAX - ZETA_MIN
-    return bool(np.any(zetas <= ZETA_MIN + margin * span)
-                or np.any(zetas >= ZETA_MAX - margin * span))
+    return bool(np.any(zetas <= ZETA_MIN + margin * span) or np.any(zetas >= ZETA_MAX - margin * span))
 
 
-def _fit_subsystem(freqs_fit: np.ndarray, meas_norm: np.ndarray,
-                   bands: list[tuple[float, float]],
-                   coherence: np.ndarray | None,
-                   n_avg: int | None = None,
-                   x0_seed: np.ndarray | None = None):
+def _fit_subsystem(
+    freqs_fit: np.ndarray,
+    meas_norm: np.ndarray,
+    bands: list[tuple[float, float]],
+    coherence: np.ndarray | None,
+    n_avg: int | None = None,
+    x0_seed: np.ndarray | None = None,
+):
     """Fit (f0, zeta, amplitudes) for one subsystem (2 bands, 2 traces).
 
     Returns (params, baselines, sigma_params, r_squared).
@@ -470,8 +493,7 @@ def _fit_subsystem(freqs_fit: np.ndarray, meas_norm: np.ndarray,
         weights = np.broadcast_to(coh[None, :], meas_norm.shape).copy()
 
     band_masks = [(freqs_fit >= lo) & (freqs_fit <= hi) for lo, hi in bands]
-    in_any_band = np.any(np.stack(band_masks), axis=0) if band_masks else \
-        np.zeros_like(freqs_fit, dtype=bool)
+    in_any_band = np.any(np.stack(band_masks), axis=0) if band_masks else np.zeros_like(freqs_fit, dtype=bool)
     background_mask = ~in_any_band
     for mask in band_masks:
         if not mask.any():
@@ -487,11 +509,8 @@ def _fit_subsystem(freqs_fit: np.ndarray, meas_norm: np.ndarray,
     # Soft f0 prior: centre + halfwidth per configured band. Applied as a
     # quadratic penalty in _residuals_log with strength BAND_PRIOR_LAMBDA.
     band_centres = np.array([0.5 * (lo + hi) for lo, hi in bands], dtype=float)
-    band_halfwidths = np.maximum(
-        np.array([0.5 * (hi - lo) for lo, hi in bands], dtype=float), 1e-6
-    )
-    args = (freqs_fit, meas_norm, n_bands, n_traces, weights,
-            band_centres, band_halfwidths, BAND_PRIOR_LAMBDA, f_ref)
+    band_halfwidths = np.maximum(np.array([0.5 * (hi - lo) for lo, hi in bands], dtype=float), 1e-6)
+    args = (freqs_fit, meas_norm, n_bands, n_traces, weights, band_centres, band_halfwidths, BAND_PRIOR_LAMBDA, f_ref)
     n_data_rows = int(weights.size)
 
     # Slope seeds start at zero. Data-driven OLS on the "background" bins
@@ -511,17 +530,13 @@ def _fit_subsystem(freqs_fit: np.ndarray, meas_norm: np.ndarray,
         # start at 0 (LS polish will restore the point-estimate slope).
         seed = np.asarray(x0_seed, dtype=float)
         if seed.shape != (n_bands, cols):
-            raise ValueError(
-                f"x0_seed shape {seed.shape} != expected ({n_bands}, {cols})"
-            )
+            raise ValueError(f"x0_seed shape {seed.shape} != expected ({n_bands}, {cols})")
         x0 = np.zeros(n_bands * cols + 2 * n_traces)
         for i in range(n_bands):
             base = i * cols
             x0[base] = seed[i, 0]
             x0[base + 1] = seed[i, 1]
-            x0[base + 2:base + cols] = np.log(
-                np.maximum(seed[i, 2:], 1e-12)
-            )
+            x0[base + 2 : base + cols] = np.log(np.maximum(seed[i, 2:], 1e-12))
         for t in range(n_traces):
             floor_seed = float(max(np.percentile(meas_norm[t], 5.0), 1e-9))
             x0[n_bands * cols + t] = float(np.log(floor_seed))
@@ -529,7 +544,7 @@ def _fit_subsystem(freqs_fit: np.ndarray, meas_norm: np.ndarray,
         # so each draw starts near the point-estimate slope basin instead of
         # at zero (which caused L-BFGS-B to over-shoot toward the slope bound
         # on some sessions).
-        x0[n_bands * cols + n_traces:n_bands * cols + 2 * n_traces] = slope_seeds
+        x0[n_bands * cols + n_traces : n_bands * cols + 2 * n_traces] = slope_seeds
 
     # Step 2 -- enforce a minimum frequency gap between adjacent bands by
     # partitioning the f0 search range at the midpoint between the seeded
@@ -568,11 +583,21 @@ def _fit_subsystem(freqs_fit: np.ndarray, meas_norm: np.ndarray,
     # slopes and Lorentzian tails are near-degenerate. Verified fix for
     # RED_P1 where the joint 12-D LBFGS pinned slope=-4 and zeta=0.50.
     n_flat = n_bands * cols + n_traces
-    lo_flat = lo_arr[:n_flat]; hi_flat = hi_arr[:n_flat]
+    lo_flat = lo_arr[:n_flat]
+    hi_flat = hi_arr[:n_flat]
     bounds_flat = [(float(lo_flat[i]), float(hi_flat[i])) for i in range(n_flat)]
     x0_flat = x0[:n_flat]
-    args_flat = (freqs_fit, meas_norm, n_bands, n_traces, weights,
-                 band_centres, band_halfwidths, BAND_PRIOR_LAMBDA, None)
+    args_flat = (
+        freqs_fit,
+        meas_norm,
+        n_bands,
+        n_traces,
+        weights,
+        band_centres,
+        band_halfwidths,
+        BAND_PRIOR_LAMBDA,
+        None,
+    )
 
     # ---- Effort budgets. From a supplied point-estimate seed (bootstrap
     # path) the fit is a small perturbation, so cap L-BFGS-B and LS
@@ -585,8 +610,7 @@ def _fit_subsystem(freqs_fit: np.ndarray, meas_norm: np.ndarray,
         ls_max_nfev = 400
 
     # ---- Step 1: cheap L-BFGS-B on the flat model.
-    local = minimize(_scalar_cost, x0_flat, args=args_flat, method="L-BFGS-B",
-                     bounds=bounds_flat, options=lbfgs_opts)
+    local = minimize(_scalar_cost, x0_flat, args=args_flat, method="L-BFGS-B", bounds=bounds_flat, options=lbfgs_opts)
     if x0_seed is not None:
         # Bootstrap path: stay near the supplied seed. Skip DE regardless
         # of local success; the trust-region polish below refines and the
@@ -597,17 +621,36 @@ def _fit_subsystem(freqs_fit: np.ndarray, meas_norm: np.ndarray,
     else:
         # ---- Step 2: differential evolution fallback (global, flat model).
         de = differential_evolution(
-            _scalar_cost, bounds=bounds_flat, args=args_flat, x0=x0_flat, seed=42,
-            polish=True, disp=False, updating="immediate", workers=1,
-            popsize=8, init="sobol", tol=1e-2, mutation=(0.5, 1.5),
+            _scalar_cost,
+            bounds=bounds_flat,
+            args=args_flat,
+            x0=x0_flat,
+            seed=42,
+            polish=True,
+            disp=False,
+            updating="immediate",
+            workers=1,
+            popsize=8,
+            init="sobol",
+            tol=1e-2,
+            mutation=(0.5, 1.5),
             maxiter=120,
         )
         best_x_flat = de.x
         if _zeta_pinned_to_bound(best_x_flat, n_bands, n_traces):
             retry = differential_evolution(
-                _scalar_cost, bounds=bounds_flat, args=args_flat, seed=7,
-                polish=True, disp=False, updating="immediate", workers=1,
-                popsize=8, init="sobol", tol=1e-2, mutation=(0.5, 1.5),
+                _scalar_cost,
+                bounds=bounds_flat,
+                args=args_flat,
+                seed=7,
+                polish=True,
+                disp=False,
+                updating="immediate",
+                workers=1,
+                popsize=8,
+                init="sobol",
+                tol=1e-2,
+                mutation=(0.5, 1.5),
                 maxiter=120,
             )
             if retry.fun < de.fun:
@@ -632,22 +675,24 @@ def _fit_subsystem(freqs_fit: np.ndarray, meas_norm: np.ndarray,
     # LS cannot escape by moving slope alone. Direct LS from the raw seed
     # explores the joint (zeta, slope) subspace freely and often finds a
     # basin with much lower cost. Keep the lower-cost candidate.
-    x_raw_seed = np.concatenate([
-        _initial_guess(freqs_fit, meas_norm, bands, n_traces),
-        slope_seeds,
-    ])
+    x_raw_seed = np.concatenate(
+        [
+            _initial_guess(freqs_fit, meas_norm, bands, n_traces),
+            slope_seeds,
+        ]
+    )
     x_raw_seed = np.clip(x_raw_seed, lo_arr + margin, hi_arr - margin)
     try:
-        ls_raw = least_squares(_residuals_log, x_raw_seed,
-                               bounds=(lo_arr, hi_arr),
-                               args=args, method="trf",
-                               max_nfev=ls_max_nfev)
+        ls_raw = least_squares(
+            _residuals_log, x_raw_seed, bounds=(lo_arr, hi_arr), args=args, method="trf", max_nfev=ls_max_nfev
+        )
     except Exception:  # noqa: BLE001
         ls_raw = None
 
     try:
-        ls = least_squares(_residuals_log, x_polish, bounds=(lo_arr, hi_arr),
-                           args=args, method="trf", max_nfev=ls_max_nfev)
+        ls = least_squares(
+            _residuals_log, x_polish, bounds=(lo_arr, hi_arr), args=args, method="trf", max_nfev=ls_max_nfev
+        )
         # Compare cost against the raw-seed alternative; keep the winner.
         if ls_raw is not None:
             cost_polish = float(np.dot(ls.fun, ls.fun))
@@ -684,9 +729,7 @@ def _fit_subsystem(freqs_fit: np.ndarray, meas_norm: np.ndarray,
         except np.linalg.LinAlgError:
             pass
         # R^2 in log space (unweighted, prior excluded)
-        res_uw = _residuals_log(ls.x, freqs_fit, meas_norm,
-                                n_bands, n_traces, None,
-                                None, None, 0.0, f_ref)
+        res_uw = _residuals_log(ls.x, freqs_fit, meas_norm, n_bands, n_traces, None, None, None, 0.0, f_ref)
         log_meas = np.log(np.maximum(meas_norm, _LOG_EPS)).ravel()
         ss_res = float(np.dot(res_uw, res_uw))
         ss_tot = float(np.sum((log_meas - log_meas.mean()) ** 2))
@@ -696,13 +739,12 @@ def _fit_subsystem(freqs_fit: np.ndarray, meas_norm: np.ndarray,
         log.debug("Lorentz polish failed: %s", exc)
 
     # ---- Unpack into linear-amplitude params + sort bands by f0.
-    params = best_x[:n_bands * cols].reshape(n_bands, cols).copy()
+    params = best_x[: n_bands * cols].reshape(n_bands, cols).copy()
     params[:, 2:] = np.exp(params[:, 2:])
-    tail = best_x[n_bands * cols:]
+    tail = best_x[n_bands * cols :]
     baselines = np.exp(tail[:n_traces])
-    slopes = tail[n_traces:2 * n_traces].copy() if tail.size >= 2 * n_traces \
-        else np.zeros(n_traces)
-    sigmas = sigmas_x[:n_bands * cols].reshape(n_bands, cols).copy()
+    slopes = tail[n_traces : 2 * n_traces].copy() if tail.size >= 2 * n_traces else np.zeros(n_traces)
+    sigmas = sigmas_x[: n_bands * cols].reshape(n_bands, cols).copy()
     order = np.argsort(params[:, 0])
     return params[order], baselines, slopes, sigmas[order], r_squared
 
@@ -711,10 +753,14 @@ def _fit_subsystem(freqs_fit: np.ndarray, meas_norm: np.ndarray,
 # Public API
 # ----------------------------------------------------------------------------
 
-def _sanitise_sigmas(params: np.ndarray, sigmas: np.ndarray,
-                     bands: list[tuple[float, float]],
-                     mode_labels: list[str],
-                     quiet: bool = False) -> np.ndarray:
+
+def _sanitise_sigmas(
+    params: np.ndarray,
+    sigmas: np.ndarray,
+    bands: list[tuple[float, float]],
+    mode_labels: list[str],
+    quiet: bool = False,
+) -> np.ndarray:
     """Replace untrustworthy Jacobian-derived sigmas with NaN.
 
     Compares each parameter sigma against the `SIGMA_DEGENERATE_*` module
@@ -738,39 +784,35 @@ def _sanitise_sigmas(params: np.ndarray, sigmas: np.ndarray,
         if np.isfinite(s_f0):
             why = []
             if s_f0 > SIGMA_DEGENERATE_F0_BAND_FRAC * band_width:
-                why.append(f"sigma_f0={s_f0:.3f} > "
-                           f"{SIGMA_DEGENERATE_F0_BAND_FRAC:.2f}*band_width"
-                           f"({band_width:.2f})")
+                why.append(f"sigma_f0={s_f0:.3f} > {SIGMA_DEGENERATE_F0_BAND_FRAC:.2f}*band_width({band_width:.2f})")
             if f0 > 0.0 and s_f0 / f0 > SIGMA_DEGENERATE_F0_REL:
-                why.append(f"sigma_f0/f0={s_f0/f0:.2f} > "
-                           f"{SIGMA_DEGENERATE_F0_REL:.2f}")
+                why.append(f"sigma_f0/f0={s_f0 / f0:.2f} > {SIGMA_DEGENERATE_F0_REL:.2f}")
             if why:
                 sanitised[i, 0] = np.nan
                 if not quiet:
-                    log.warning("    %s degenerate f0 sigma (%s)",
-                                label, "; ".join(why))
+                    log.warning("    %s degenerate f0 sigma (%s)", label, "; ".join(why))
         if np.isfinite(s_zeta):
             why = []
             if s_zeta > SIGMA_DEGENERATE_ZETA_ABS:
-                why.append(f"sigma_zeta={s_zeta:.3f} > "
-                           f"{SIGMA_DEGENERATE_ZETA_ABS:.2f}")
+                why.append(f"sigma_zeta={s_zeta:.3f} > {SIGMA_DEGENERATE_ZETA_ABS:.2f}")
             if zeta > 0.0 and s_zeta / zeta > SIGMA_DEGENERATE_ZETA_REL:
-                why.append(f"sigma_zeta/zeta={s_zeta/zeta:.2f} > "
-                           f"{SIGMA_DEGENERATE_ZETA_REL:.2f}")
+                why.append(f"sigma_zeta/zeta={s_zeta / zeta:.2f} > {SIGMA_DEGENERATE_ZETA_REL:.2f}")
             if why:
                 sanitised[i, 1] = np.nan
                 if not quiet:
-                    log.warning("    %s degenerate zeta sigma (%s)",
-                                label, "; ".join(why))
+                    log.warning("    %s degenerate zeta sigma (%s)", label, "; ".join(why))
         for t in range(n_traces):
             s_log_amp = float(sigmas[i, 2 + t])
             if np.isfinite(s_log_amp) and s_log_amp > SIGMA_DEGENERATE_LOG_AMP:
                 sanitised[i, 2 + t] = np.nan
                 if not quiet:
-                    log.warning("    %s degenerate amp sigma (%s, "
-                                "sigma_log_amp=%.2f > %.1f)",
-                                label, trace_names[t], s_log_amp,
-                                SIGMA_DEGENERATE_LOG_AMP)
+                    log.warning(
+                        "    %s degenerate amp sigma (%s, sigma_log_amp=%.2f > %.1f)",
+                        label,
+                        trace_names[t],
+                        s_log_amp,
+                        SIGMA_DEGENERATE_LOG_AMP,
+                    )
     return sanitised
 
 
@@ -790,13 +832,13 @@ def _shape_modes_from_amps(params: np.ndarray) -> np.ndarray:
         amp_rear = float(row[3])
         front = np.sqrt(max(amp_front, 0.0))
         rear = np.sqrt(max(amp_rear, 0.0))
-        if i == 0:    # Heave
+        if i == 0:  # Heave
             shapes[:, i] = [front, 0.0, rear, 0.0]
         elif i == 1:  # Pitch
             shapes[:, i] = [front, 0.0, -rear, 0.0]
         elif i == 2:  # Roll
             shapes[:, i] = [0.0, front, 0.0, rear]
-        else:          # Warp
+        else:  # Warp
             shapes[:, i] = [0.0, front, 0.0, -rear]
         peak = np.max(np.abs(shapes[:, i]))
         if peak > 0:
@@ -804,12 +846,15 @@ def _shape_modes_from_amps(params: np.ndarray) -> np.ndarray:
     return shapes
 
 
-def run_fit(freqs_fit: np.ndarray, body_psds_norm: np.ndarray,
-            expected_bands: dict,
-            coh_hp: np.ndarray | None = None,
-            coh_rw: np.ndarray | None = None,
-            n_avg: int | None = None,
-            x0_seed: np.ndarray | None = None) -> dict:
+def run_fit(
+    freqs_fit: np.ndarray,
+    body_psds_norm: np.ndarray,
+    expected_bands: dict,
+    coh_hp: np.ndarray | None = None,
+    coh_rw: np.ndarray | None = None,
+    n_avg: int | None = None,
+    x0_seed: np.ndarray | None = None,
+) -> dict:
     """Combined-Lorentzian fit across the 4 body DOFs.
 
     Parameters
@@ -844,7 +889,7 @@ def run_fit(freqs_fit: np.ndarray, body_psds_norm: np.ndarray,
         r_squared (R^2_hp, R^2_rw), mode_labels, mode_shapes (4x4).
     """
     bands_hp = [expected_bands["heave"][:2], expected_bands["pitch"][:2]]
-    bands_rw = [expected_bands["roll"][:2],  expected_bands["warp"][:2]]
+    bands_rw = [expected_bands["roll"][:2], expected_bands["warp"][:2]]
     quiet = x0_seed is not None
     if not quiet:
         log.info("  Fitting combined Lorentzians...")
@@ -863,36 +908,30 @@ def run_fit(freqs_fit: np.ndarray, body_psds_norm: np.ndarray,
 
     # Subsystem 1: heave/pitch share z_F / z_R amplitudes.
     params_hp, base_hp, slopes_hp, sig_hp, r2_hp = _fit_subsystem(
-        freqs_fit, body_psds_norm[[0, 2]], bands_hp, coh_hp,
-        n_avg=n_avg, x0_seed=seed_hp)
-    sig_hp = _sanitise_sigmas(params_hp, sig_hp, bands_hp,
-                              ["Heave", "Pitch"], quiet=quiet)
+        freqs_fit, body_psds_norm[[0, 2]], bands_hp, coh_hp, n_avg=n_avg, x0_seed=seed_hp
+    )
+    sig_hp = _sanitise_sigmas(params_hp, sig_hp, bands_hp, ["Heave", "Pitch"], quiet=quiet)
     # Subsystem 2: roll/warp share theta_F / theta_R amplitudes.
     params_rw, base_rw, slopes_rw, sig_rw, r2_rw = _fit_subsystem(
-        freqs_fit, body_psds_norm[[1, 3]], bands_rw, coh_rw,
-        n_avg=n_avg, x0_seed=seed_rw)
-    sig_rw = _sanitise_sigmas(params_rw, sig_rw, bands_rw,
-                              ["Roll", "Warp"], quiet=quiet)
+        freqs_fit, body_psds_norm[[1, 3]], bands_rw, coh_rw, n_avg=n_avg, x0_seed=seed_rw
+    )
+    sig_rw = _sanitise_sigmas(params_rw, sig_rw, bands_rw, ["Roll", "Warp"], quiet=quiet)
 
     params = np.vstack((params_hp, params_rw))
     sigmas = np.vstack((sig_hp, sig_rw))
     baselines = np.array([base_hp[0], base_rw[0], base_hp[1], base_rw[1]])
     # baseline_slopes ordered like baselines: [z_F, theta_F, z_R, theta_R]
-    baseline_slopes = np.array([slopes_hp[0], slopes_rw[0],
-                                slopes_hp[1], slopes_rw[1]])
+    baseline_slopes = np.array([slopes_hp[0], slopes_rw[0], slopes_hp[1], slopes_rw[1]])
     # Reference frequency used by the sloped-baseline model. Downstream
     # evaluators (eval_psds, diagnosis plot) need this to reconstruct
     # the per-bin baseline.
-    baseline_f_ref = float(np.sqrt(freqs_fit[0] * freqs_fit[-1])) \
-        if freqs_fit.size else 1.0
+    baseline_f_ref = float(np.sqrt(freqs_fit[0] * freqs_fit[-1])) if freqs_fit.size else 1.0
 
     # Delta-method: sigma_amp ~= amp * sigma_log_amp.
     amp_front = params[:, 2]
     amp_rear = params[:, 3]
-    sigma_amp_front = np.where(np.isfinite(sigmas[:, 2]),
-                               amp_front * sigmas[:, 2], np.nan)
-    sigma_amp_rear = np.where(np.isfinite(sigmas[:, 3]),
-                              amp_rear * sigmas[:, 3], np.nan)
+    sigma_amp_front = np.where(np.isfinite(sigmas[:, 2]), amp_front * sigmas[:, 2], np.nan)
+    sigma_amp_rear = np.where(np.isfinite(sigmas[:, 3]), amp_rear * sigmas[:, 3], np.nan)
 
     return {
         "method": "lorentzian_combined",
@@ -914,8 +953,7 @@ def run_fit(freqs_fit: np.ndarray, body_psds_norm: np.ndarray,
     }
 
 
-def eval_psds(result: dict, freqs_hz: np.ndarray,
-              include_baseline: bool = True) -> np.ndarray:
+def eval_psds(result: dict, freqs_hz: np.ndarray, include_baseline: bool = True) -> np.ndarray:
     """Evaluate the fitted Lorentzian PSDs at `freqs_hz` for all 4 body DOFs.
 
     Returned shape: (4, len(freqs_hz)), rows = [z_F, theta_F, z_R, theta_R].
@@ -926,7 +964,7 @@ def eval_psds(result: dict, freqs_hz: np.ndarray,
     ``baseline_slopes`` and ``baseline_f_ref`` (V2 sloped-baseline model)
     the baseline term becomes ``B_j * (f/f_ref)^slope_j`` per bin.
     """
-    params = result["params"]                       # (4, 4): bands x [f0,zeta,af,ar]
+    params = result["params"]  # (4, 4): bands x [f0,zeta,af,ar]
     baselines = result.get("baselines")
     slopes = result.get("baseline_slopes")
     f_ref = result.get("baseline_f_ref")
@@ -940,20 +978,18 @@ def eval_psds(result: dict, freqs_hz: np.ndarray,
     freqs_hz = np.asarray(freqs_hz, dtype=float)
     # (band_rows, amp_col, baseline_idx) for each output DOF row.
     specs = [
-        ([0, 1], 2, 0),   # z_F     <- heave/pitch front amplitudes
-        ([2, 3], 2, 1),   # theta_F <- roll/warp  front amplitudes
-        ([0, 1], 3, 2),   # z_R     <- heave/pitch rear amplitudes
-        ([2, 3], 3, 3),   # theta_R <- roll/warp  rear amplitudes
+        ([0, 1], 2, 0),  # z_F     <- heave/pitch front amplitudes
+        ([2, 3], 2, 1),  # theta_F <- roll/warp  front amplitudes
+        ([0, 1], 3, 2),  # z_R     <- heave/pitch rear amplitudes
+        ([2, 3], 3, 3),  # theta_R <- roll/warp  rear amplitudes
     ]
     out = []
     for band_rows, amp_col, base_idx in specs:
-        sub = params[band_rows][:, [0, 1, amp_col]]   # (n_bands, 3)
-        shapes = _lorentz_shape(freqs_hz, sub[:, :2]) # (n_bands, nf)
+        sub = params[band_rows][:, [0, 1, amp_col]]  # (n_bands, 3)
+        shapes = _lorentz_shape(freqs_hz, sub[:, :2])  # (n_bands, nf)
         if f_ref is not None:
             log_f_ratio = np.log(np.maximum(freqs_hz, _LOG_EPS) / float(f_ref))
-            base_bins = float(baselines[base_idx]) * np.exp(
-                float(slopes[base_idx]) * log_f_ratio
-            )
+            base_bins = float(baselines[base_idx]) * np.exp(float(slopes[base_idx]) * log_f_ratio)
         else:
             base_bins = float(baselines[base_idx])
         out.append(sub[:, 2] @ shapes + base_bins)

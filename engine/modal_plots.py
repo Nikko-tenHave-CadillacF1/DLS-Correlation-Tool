@@ -15,6 +15,7 @@ public API runs a full pipeline and does not return the plotter, so the
 recommended pattern is to call this directly from the script after the
 workflow has run via a slim helper that re-creates the plotter).
 """
+
 from __future__ import annotations
 
 from collections import OrderedDict
@@ -33,17 +34,17 @@ from .plot_runtime import _session_sort_key
 _FIG_FONT = {"family": "DejaVu Sans", "size": 11}
 _INK = "#1A1A1A"
 _PARAM_LABELS = {
-    "f0":         r"$f_0$ [Hz]",
-    "zeta":       r"$\zeta$ [-]",
-    "amp_front":  "Front amplitude [norm.]",
-    "amp_rear":   "Rear amplitude [norm.]",
+    "f0": r"$f_0$ [Hz]",
+    "zeta": r"$\zeta$ [-]",
+    "amp_front": "Front amplitude [norm.]",
+    "amp_rear": "Rear amplitude [norm.]",
 }
 # Mode-agnostic params iterated by the generic line/bar generators.
 _PARAMS_ALL = ("f0", "zeta")
 # Axle series rendered together on per-mode amplitude plots.
 _AMP_AXLES = (
     ("amp_front", "Front", "#1f77b4"),
-    ("amp_rear",  "Rear",  "#d62728"),
+    ("amp_rear", "Rear", "#d62728"),
 )
 _AMP_AXIS_LABEL = "Amplitude [norm.]"
 # Hatch patterns used to distinguish groups (cars) in compare-mode bar plots
@@ -56,18 +57,24 @@ _AXLE_LINESTYLES = {"amp_front": "-", "amp_rear": "--"}
 # Named-group → colour presets, applied case-insensitively. Anything else
 # falls back to the palette below indexed by group order.
 _GROUP_COLOR_PRESETS = {
-    "RED":    "#d62728",
-    "BLUE":   "#1f77b4",
-    "GREEN":  "#2ca02c",
+    "RED": "#d62728",
+    "BLUE": "#1f77b4",
+    "GREEN": "#2ca02c",
     "ORANGE": "#ff7f0e",
     "PURPLE": "#9467bd",
     "YELLOW": "#bcbd22",
-    "CYAN":   "#17becf",
-    "PINK":   "#e377c2",
+    "CYAN": "#17becf",
+    "PINK": "#e377c2",
 }
 _GROUP_FALLBACK_PALETTE = (
-    "#d62728", "#1f77b4", "#2ca02c", "#ff7f0e",
-    "#9467bd", "#8c564b", "#e377c2", "#7f7f7f",
+    "#d62728",
+    "#1f77b4",
+    "#2ca02c",
+    "#ff7f0e",
+    "#9467bd",
+    "#8c564b",
+    "#e377c2",
+    "#7f7f7f",
 )
 
 
@@ -160,43 +167,47 @@ def _modal_records(modal_results: dict, runs: list) -> list[dict]:
             return float(lst[i])
 
         for i, m in enumerate(labels):
-            rows.append({
-                "run": name,
-                "color": run.get("color", "#1f77b4"),
-                "group": run.get("group"),
-                "session_label": run.get("session_label") or name,
-                "mode": str(m),
-                "f0": float(fn[i]) if i < len(fn) else float("nan"),
-                "zeta": float(zeta[i]) if i < len(zeta) else float("nan"),
-                "f0_sigma": (float(sigma_fn[i]) if sigma_fn is not None
-                             and i < len(sigma_fn) else float("nan")),
-                "zeta_sigma": (float(sigma_zeta[i]) if sigma_zeta is not None
-                               and i < len(sigma_zeta) else float("nan")),
-                "amp_front": (float(amp_f[i]) if amp_f is not None
-                              and i < len(amp_f) else float("nan")),
-                "amp_rear": (float(amp_r[i]) if amp_r is not None
-                             and i < len(amp_r) else float("nan")),
-                "amp_front_sigma": (float(sig_amp_f[i]) if sig_amp_f is not None
-                                    and i < len(sig_amp_f) else float("nan")),
-                "amp_rear_sigma": (float(sig_amp_r[i]) if sig_amp_r is not None
-                                   and i < len(sig_amp_r) else float("nan")),
-                # Bootstrap CIs; NaN when disabled or unavailable.
-                "f0_lo": _from(fn_lo, i),
-                "f0_hi": _from(fn_hi, i),
-                "zeta_lo": _from(z_lo, i),
-                "zeta_hi": _from(z_hi, i),
-                "amp_front_lo": _from(af_lo, i),
-                "amp_front_hi": _from(af_hi, i),
-                "amp_rear_lo": _from(ar_lo, i),
-                "amp_rear_hi": _from(ar_hi, i),
-            })
+            rows.append(
+                {
+                    "run": name,
+                    "color": run.get("color", "#1f77b4"),
+                    "group": run.get("group"),
+                    "session_label": run.get("session_label") or name,
+                    "mode": str(m),
+                    "f0": float(fn[i]) if i < len(fn) else float("nan"),
+                    "zeta": float(zeta[i]) if i < len(zeta) else float("nan"),
+                    "f0_sigma": (float(sigma_fn[i]) if sigma_fn is not None and i < len(sigma_fn) else float("nan")),
+                    "zeta_sigma": (
+                        float(sigma_zeta[i]) if sigma_zeta is not None and i < len(sigma_zeta) else float("nan")
+                    ),
+                    "amp_front": (float(amp_f[i]) if amp_f is not None and i < len(amp_f) else float("nan")),
+                    "amp_rear": (float(amp_r[i]) if amp_r is not None and i < len(amp_r) else float("nan")),
+                    "amp_front_sigma": (
+                        float(sig_amp_f[i]) if sig_amp_f is not None and i < len(sig_amp_f) else float("nan")
+                    ),
+                    "amp_rear_sigma": (
+                        float(sig_amp_r[i]) if sig_amp_r is not None and i < len(sig_amp_r) else float("nan")
+                    ),
+                    # Bootstrap CIs; NaN when disabled or unavailable.
+                    "f0_lo": _from(fn_lo, i),
+                    "f0_hi": _from(fn_hi, i),
+                    "zeta_lo": _from(z_lo, i),
+                    "zeta_hi": _from(z_hi, i),
+                    "amp_front_lo": _from(af_lo, i),
+                    "amp_front_hi": _from(af_hi, i),
+                    "amp_rear_lo": _from(ar_lo, i),
+                    "amp_rear_hi": _from(ar_hi, i),
+                }
+            )
     return rows
 
 
 def _mode_color(mode: str) -> str:
     return {
-        "Heave": "#1f77b4", "Pitch": "#ff7f0e",
-        "Roll":  "#2ca02c", "Warp":  "#d62728",
+        "Heave": "#1f77b4",
+        "Pitch": "#ff7f0e",
+        "Roll": "#2ca02c",
+        "Warp": "#d62728",
     }.get(mode, "#7f7f7f")
 
 
@@ -249,7 +260,8 @@ def plot_modal_evolution(
         log.info("plot_modal_evolution: no modal_results on plotter; nothing to do.")
         return []
     runs = [
-        r for r in plotter.runs
+        r
+        for r in plotter.runs
         if r["name"].lower() in plotter.modal_results
         and (include_consolidated or "consolidated" not in r["name"].lower())
     ]
@@ -273,24 +285,58 @@ def plot_modal_evolution(
     group_colors = _resolve_group_colors(groups, runs) if compare_layout else None
     if line_ci:
         for param in _PARAMS_ALL:
-            saved.extend(_line_ci_figure(
-                rows, modes, param, groups, out_dir, dpi, name_suffix,
-                compare_layout, group_colors,
-            ))
+            saved.extend(
+                _line_ci_figure(
+                    rows,
+                    modes,
+                    param,
+                    groups,
+                    out_dir,
+                    dpi,
+                    name_suffix,
+                    compare_layout,
+                    group_colors,
+                )
+            )
         for mode in modes:
-            saved.extend(_line_ci_amp_figure(
-                rows, mode, groups, out_dir, dpi, compare_layout, group_colors,
-            ))
+            saved.extend(
+                _line_ci_amp_figure(
+                    rows,
+                    mode,
+                    groups,
+                    out_dir,
+                    dpi,
+                    compare_layout,
+                    group_colors,
+                )
+            )
     if bars:
         for param in _PARAMS_ALL:
-            saved.extend(_bar_figure(
-                rows, modes, param, groups, out_dir, dpi, name_suffix,
-                compare_layout, group_colors,
-            ))
+            saved.extend(
+                _bar_figure(
+                    rows,
+                    modes,
+                    param,
+                    groups,
+                    out_dir,
+                    dpi,
+                    name_suffix,
+                    compare_layout,
+                    group_colors,
+                )
+            )
         for mode in modes:
-            saved.extend(_bar_amp_figure(
-                rows, mode, groups, out_dir, dpi, compare_layout, group_colors,
-            ))
+            saved.extend(
+                _bar_amp_figure(
+                    rows,
+                    mode,
+                    groups,
+                    out_dir,
+                    dpi,
+                    compare_layout,
+                    group_colors,
+                )
+            )
     return saved
 
 
@@ -304,10 +350,12 @@ def _build_compare_layout(runs, compare_by):
         return None
     if isinstance(compare_by, str):
         if compare_by == "session":
+
             def extract(n):
                 return str(n).split("_")[-1]
         else:
             token = compare_by
+
             def extract(n):  # noqa: E306 — closure on plain string is not a preset
                 return token
     elif callable(compare_by):
@@ -327,8 +375,9 @@ def _build_compare_layout(runs, compare_by):
     return session_order, run_session
 
 
-def _line_ci_figure(rows, modes, param, groups, out_dir, dpi, name_suffix="",
-                    compare_layout=None, group_colors=None) -> list[Path]:
+def _line_ci_figure(
+    rows, modes, param, groups, out_dir, dpi, name_suffix="", compare_layout=None, group_colors=None
+) -> list[Path]:
     sigma_key = f"{param}_sigma"
     label_text = _PARAM_LABELS[param]
     # Build x positions per (group, run) and label list
@@ -413,29 +462,42 @@ def _line_ci_figure(rows, modes, param, groups, out_dir, dpi, name_suffix="",
                 glabel = group_by_label(gkey) or f"{mode}"
             else:
                 glabel = f"{mode}" + (f" [{gkey}]" if group_by_label(gkey) else "")
-            ax.plot(xs, ys, color=color, linestyle=ls, marker="o",
-                    linewidth=2.0, markersize=5.5, label=glabel)
+            ax.plot(xs, ys, color=color, linestyle=ls, marker="o", linewidth=2.0, markersize=5.5, label=glabel)
             if has_ci:
                 ax.fill_between(xs, los, his, color=color, alpha=0.15)
                 # Asymmetric errorbars: yerr = [ys-lo, hi-ys].
                 lower = np.maximum(ys - los, 0.0)
                 upper = np.maximum(his - ys, 0.0)
-                ax.errorbar(xs, ys, yerr=np.vstack([lower, upper]), fmt="none",
-                            ecolor=color, elinewidth=1.0,
-                            capsize=3, capthick=1.0, alpha=0.55)
+                ax.errorbar(
+                    xs,
+                    ys,
+                    yerr=np.vstack([lower, upper]),
+                    fmt="none",
+                    ecolor=color,
+                    elinewidth=1.0,
+                    capsize=3,
+                    capthick=1.0,
+                    alpha=0.55,
+                )
                 # Use half-width for the label-stacking geometry below.
                 errs = 0.5 * (his - los)
             elif np.any(errs > 0):
                 ax.fill_between(xs, ys - errs, ys + errs, color=color, alpha=0.15)
-                ax.errorbar(xs, ys, yerr=errs, fmt="none",
-                            ecolor=color, elinewidth=1.0,
-                            capsize=3, capthick=1.0, alpha=0.55)
+                ax.errorbar(
+                    xs, ys, yerr=errs, fmt="none", ecolor=color, elinewidth=1.0, capsize=3, capthick=1.0, alpha=0.55
+                )
             stack_idx = mi * n_groups + gi
             for x, y, e in zip(xs, ys, errs):
-                label_records.append((
-                    float(x), float(y) + float(e), stack_idx, float(y),
-                    color, _fmt_value(param, float(y)),
-                ))
+                label_records.append(
+                    (
+                        float(x),
+                        float(y) + float(e),
+                        stack_idx,
+                        float(y),
+                        color,
+                        _fmt_value(param, float(y)),
+                    )
+                )
     # Anchor every label at the SAME top per x then stack upward by VALUE
     # (largest at the top of the stack) so the visual order matches magnitude.
     tops_by_x: dict[float, float] = {}
@@ -454,8 +516,11 @@ def _line_ci_figure(rows, modes, param, groups, out_dir, dpi, name_suffix="",
                 xy=(xc, tops_by_x[xc]),
                 xytext=(0, base_dy_pt + slot * label_gap_pt),
                 textcoords="offset points",
-                ha="center", va="bottom",
-                fontsize=8, color=color, fontweight="bold",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                color=color,
+                fontweight="bold",
                 clip_on=False,
             )
     ax.set_xticks(x_pos)
@@ -464,11 +529,9 @@ def _line_ci_figure(rows, modes, param, groups, out_dir, dpi, name_suffix="",
     ax.minorticks_on()
     ax.grid(True, which="major", axis="y", alpha=0.35)
     ax.grid(True, which="minor", axis="y", alpha=0.15, linestyle=":")
-    ax.legend(loc="best", ncol=2, fontsize=9, framealpha=0.9,
-              handlelength=3.2, handletextpad=0.6)
+    ax.legend(loc="best", ncol=2, fontsize=9, framealpha=0.9, handlelength=3.2, handletextpad=0.6)
     title_suffix = f" — {modes[0]}" if len(modes) == 1 else ""
-    ax.set_title(f"Modal evolution — {label_text}{title_suffix}",
-                 fontweight="bold", color=_INK)
+    ax.set_title(f"Modal evolution — {label_text}{title_suffix}", fontweight="bold", color=_INK)
     # Y-headroom so stacked labels stay inside the axes.
     y_lo, y_hi = ax.get_ylim()
     if np.isfinite(y_lo) and np.isfinite(y_hi) and y_hi > y_lo:
@@ -483,8 +546,9 @@ def _line_ci_figure(rows, modes, param, groups, out_dir, dpi, name_suffix="",
     return [path]
 
 
-def _bar_figure(rows, modes, param, groups, out_dir, dpi, name_suffix="",
-                compare_layout=None, group_colors=None) -> list[Path]:
+def _bar_figure(
+    rows, modes, param, groups, out_dir, dpi, name_suffix="", compare_layout=None, group_colors=None
+) -> list[Path]:
     sigma_key = f"{param}_sigma"
     label_text = _PARAM_LABELS[param]
     n_modes = len(modes)
@@ -538,8 +602,7 @@ def _bar_figure(rows, modes, param, groups, out_dir, dpi, name_suffix="",
                     rec = None
                     if rn is not None:
                         rec = next(
-                            (r for r in rows
-                             if r["run"] == rn and r["mode"].lower() == mode.lower()),
+                            (r for r in rows if r["run"] == rn and r["mode"].lower() == mode.lower()),
                             None,
                         )
                     ys.append(rec[param] if (rec and np.isfinite(rec[param])) else np.nan)
@@ -547,14 +610,30 @@ def _bar_figure(rows, modes, param, groups, out_dir, dpi, name_suffix="",
                     errs.append(err if (err is not None and np.isfinite(err)) else np.nan)
                 xs = x_base + (series_idx - (n_series - 1) / 2) * bar_w
                 label = f"{mode} [{gkey}]" if n_modes > 1 else str(gkey)
-                ax.bar(xs, ys, width=bar_w, color=fill, label=label,
-                       edgecolor="white", linewidth=0.6, alpha=0.9,
-                       hatch=hatch)
+                ax.bar(
+                    xs,
+                    ys,
+                    width=bar_w,
+                    color=fill,
+                    label=label,
+                    edgecolor="white",
+                    linewidth=0.6,
+                    alpha=0.9,
+                    hatch=hatch,
+                )
                 finite_err = [e if np.isfinite(e) else 0.0 for e in errs]
                 if any(e > 0 for e in finite_err):
-                    ax.errorbar(xs, ys, yerr=finite_err, fmt="none",
-                                ecolor=_INK, elinewidth=1.2,
-                                capsize=3, capthick=1.0, alpha=0.85)
+                    ax.errorbar(
+                        xs,
+                        ys,
+                        yerr=finite_err,
+                        fmt="none",
+                        ecolor=_INK,
+                        elinewidth=1.2,
+                        capsize=3,
+                        capthick=1.0,
+                        alpha=0.85,
+                    )
                 for xc, yt, e in zip(xs, ys, finite_err):
                     if np.isfinite(yt):
                         label_pts.append((float(xc), float(yt), float(e), fill))
@@ -574,13 +653,20 @@ def _bar_figure(rows, modes, param, groups, out_dir, dpi, name_suffix="",
                 err = rec.get(sigma_key) if rec else None
                 errs.append(err if (err is not None and np.isfinite(err)) else np.nan)
             xs = x_base + (mi - (n_modes - 1) / 2) * bar_w
-            ax.bar(xs, ys, width=bar_w, color=color, label=mode,
-                   edgecolor="white", linewidth=0.6, alpha=0.9)
+            ax.bar(xs, ys, width=bar_w, color=color, label=mode, edgecolor="white", linewidth=0.6, alpha=0.9)
             finite_err = [e if np.isfinite(e) else 0.0 for e in errs]
             if any(e > 0 for e in finite_err):
-                ax.errorbar(xs, ys, yerr=finite_err, fmt="none",
-                            ecolor=_INK, elinewidth=1.2,
-                            capsize=3, capthick=1.0, alpha=0.85)
+                ax.errorbar(
+                    xs,
+                    ys,
+                    yerr=finite_err,
+                    fmt="none",
+                    ecolor=_INK,
+                    elinewidth=1.2,
+                    capsize=3,
+                    capthick=1.0,
+                    alpha=0.85,
+                )
             for xc, yt, e in zip(xs, ys, finite_err):
                 if np.isfinite(yt):
                     label_pts.append((float(xc), float(yt), float(e), color))
@@ -590,11 +676,17 @@ def _bar_figure(rows, modes, param, groups, out_dir, dpi, name_suffix="",
     ax.minorticks_on()
     ax.grid(True, which="major", axis="y", alpha=0.35)
     ax.grid(True, which="minor", axis="y", alpha=0.15, linestyle=":")
-    ax.legend(loc="best", ncol=min(n_series, 4), fontsize=9, framealpha=0.9,
-              handlelength=2.4, handleheight=1.4, handletextpad=0.6)
+    ax.legend(
+        loc="best",
+        ncol=min(n_series, 4),
+        fontsize=9,
+        framealpha=0.9,
+        handlelength=2.4,
+        handleheight=1.4,
+        handletextpad=0.6,
+    )
     title_suffix = f" — {modes[0]}" if len(modes) == 1 else ""
-    ax.set_title(f"Modal parameters per session — {label_text}{title_suffix}",
-                 fontweight="bold", color=_INK)
+    ax.set_title(f"Modal parameters per session — {label_text}{title_suffix}", fontweight="bold", color=_INK)
     # Y-headroom: ensure the highest label clears the top of the axes.
     y_lo, y_hi = ax.get_ylim()
     if label_pts and np.isfinite(y_lo) and np.isfinite(y_hi) and y_hi > y_lo:
@@ -614,9 +706,12 @@ def _bar_figure(rows, modes, param, groups, out_dir, dpi, name_suffix="",
             xy=(xc, yt + e),
             xytext=(0, pad_pt),
             textcoords="offset points",
-            ha="center", va="bottom",
-            rotation=label_rotation, fontsize=label_fontsize,
-            color=color, fontweight="bold",
+            ha="center",
+            va="bottom",
+            rotation=label_rotation,
+            fontsize=label_fontsize,
+            color=color,
+            fontweight="bold",
             clip_on=False,
         )
     fig.tight_layout()
@@ -642,8 +737,7 @@ def group_by_label(gkey) -> str:
     return str(gkey)
 
 
-def _line_ci_amp_figure(rows, mode, groups, out_dir, dpi,
-                        compare_layout=None, group_colors=None) -> list[Path]:
+def _line_ci_amp_figure(rows, mode, groups, out_dir, dpi, compare_layout=None, group_colors=None) -> list[Path]:
     """Per-mode line+CI plot with front and rear amplitudes overlaid."""
     mode_l = mode.lower()
     x_pos: list[float] = []
@@ -712,19 +806,24 @@ def _line_ci_amp_figure(rows, mode, groups, out_dir, dpi,
             xs = np.asarray(xs)
             ys = np.asarray(ys)
             errs = np.asarray(errs)
-            ax.plot(xs, ys, color=color, linestyle=ls, marker="o",
-                    linewidth=2.0, markersize=5.5, label=glabel)
+            ax.plot(xs, ys, color=color, linestyle=ls, marker="o", linewidth=2.0, markersize=5.5, label=glabel)
             if np.any(errs > 0):
                 ax.fill_between(xs, ys - errs, ys + errs, color=color, alpha=0.15)
-                ax.errorbar(xs, ys, yerr=errs, fmt="none",
-                            ecolor=color, elinewidth=1.0,
-                            capsize=3, capthick=1.0, alpha=0.55)
+                ax.errorbar(
+                    xs, ys, yerr=errs, fmt="none", ecolor=color, elinewidth=1.0, capsize=3, capthick=1.0, alpha=0.55
+                )
             stack_idx = ai * n_groups + gi
             for x, y, e in zip(xs, ys, errs):
-                label_records.append((
-                    float(x), float(y) + float(e), stack_idx, float(y),
-                    color, _fmt_value(param, float(y)),
-                ))
+                label_records.append(
+                    (
+                        float(x),
+                        float(y) + float(e),
+                        stack_idx,
+                        float(y),
+                        color,
+                        _fmt_value(param, float(y)),
+                    )
+                )
     tops_by_x: dict[float, float] = {}
     by_x: dict[float, list] = {}
     for rec in label_records:
@@ -741,8 +840,11 @@ def _line_ci_amp_figure(rows, mode, groups, out_dir, dpi,
                 xy=(xc, tops_by_x[xc]),
                 xytext=(0, base_dy_pt + slot * label_gap_pt),
                 textcoords="offset points",
-                ha="center", va="bottom",
-                fontsize=8, color=color, fontweight="bold",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                color=color,
+                fontweight="bold",
                 clip_on=False,
             )
     ax.set_xticks(x_pos)
@@ -751,10 +853,8 @@ def _line_ci_amp_figure(rows, mode, groups, out_dir, dpi,
     ax.minorticks_on()
     ax.grid(True, which="major", axis="y", alpha=0.35)
     ax.grid(True, which="minor", axis="y", alpha=0.15, linestyle=":")
-    ax.legend(loc="best", ncol=2, fontsize=9, framealpha=0.9,
-              handlelength=3.2, handletextpad=0.6)
-    ax.set_title(f"Modal evolution — {mode} amplitude (front vs rear)",
-                 fontweight="bold", color=_INK)
+    ax.legend(loc="best", ncol=2, fontsize=9, framealpha=0.9, handlelength=3.2, handletextpad=0.6)
+    ax.set_title(f"Modal evolution — {mode} amplitude (front vs rear)", fontweight="bold", color=_INK)
     y_lo, y_hi = ax.get_ylim()
     if np.isfinite(y_lo) and np.isfinite(y_hi) and y_hi > y_lo:
         head = 0.10 + 0.05 * (len(_AMP_AXLES) * n_groups)
@@ -768,8 +868,7 @@ def _line_ci_amp_figure(rows, mode, groups, out_dir, dpi,
     return [path]
 
 
-def _bar_amp_figure(rows, mode, groups, out_dir, dpi,
-                    compare_layout=None, group_colors=None) -> list[Path]:
+def _bar_amp_figure(rows, mode, groups, out_dir, dpi, compare_layout=None, group_colors=None) -> list[Path]:
     """Per-mode bar plot with front and rear amplitudes side-by-side per run."""
     mode_l = mode.lower()
     n_axles = len(_AMP_AXLES)
@@ -820,22 +919,37 @@ def _bar_amp_figure(rows, mode, groups, out_dir, dpi,
                     rec = None
                     if rn is not None:
                         rec = next(
-                            (r for r in rows
-                             if r["run"] == rn and r["mode"].lower() == mode_l),
+                            (r for r in rows if r["run"] == rn and r["mode"].lower() == mode_l),
                             None,
                         )
                     ys.append(rec[param] if (rec and np.isfinite(rec.get(param, np.nan))) else np.nan)
                     err = rec.get(sigma_key) if rec else None
                     errs.append(err if (err is not None and np.isfinite(err)) else np.nan)
                 xs = x_base + (series_idx - (n_series - 1) / 2) * bar_w
-                ax.bar(xs, ys, width=bar_w, color=fill, label=label,
-                       edgecolor="white", linewidth=0.6, alpha=0.9,
-                       hatch=hatch)
+                ax.bar(
+                    xs,
+                    ys,
+                    width=bar_w,
+                    color=fill,
+                    label=label,
+                    edgecolor="white",
+                    linewidth=0.6,
+                    alpha=0.9,
+                    hatch=hatch,
+                )
                 finite_err = [e if np.isfinite(e) else 0.0 for e in errs]
                 if any(e > 0 for e in finite_err):
-                    ax.errorbar(xs, ys, yerr=finite_err, fmt="none",
-                                ecolor=_INK, elinewidth=1.2,
-                                capsize=3, capthick=1.0, alpha=0.85)
+                    ax.errorbar(
+                        xs,
+                        ys,
+                        yerr=finite_err,
+                        fmt="none",
+                        ecolor=_INK,
+                        elinewidth=1.2,
+                        capsize=3,
+                        capthick=1.0,
+                        alpha=0.85,
+                    )
                 for xc, yt, e in zip(xs, ys, finite_err):
                     if np.isfinite(yt):
                         label_pts.append((float(xc), float(yt), float(e), fill, param))
@@ -855,13 +969,20 @@ def _bar_amp_figure(rows, mode, groups, out_dir, dpi,
                 err = rec.get(sigma_key) if rec else None
                 errs.append(err if (err is not None and np.isfinite(err)) else np.nan)
             xs = x_base + (ai - (n_series - 1) / 2) * bar_w
-            ax.bar(xs, ys, width=bar_w, color=color, label=axle_label,
-                   edgecolor="white", linewidth=0.6, alpha=0.9)
+            ax.bar(xs, ys, width=bar_w, color=color, label=axle_label, edgecolor="white", linewidth=0.6, alpha=0.9)
             finite_err = [e if np.isfinite(e) else 0.0 for e in errs]
             if any(e > 0 for e in finite_err):
-                ax.errorbar(xs, ys, yerr=finite_err, fmt="none",
-                            ecolor=_INK, elinewidth=1.2,
-                            capsize=3, capthick=1.0, alpha=0.85)
+                ax.errorbar(
+                    xs,
+                    ys,
+                    yerr=finite_err,
+                    fmt="none",
+                    ecolor=_INK,
+                    elinewidth=1.2,
+                    capsize=3,
+                    capthick=1.0,
+                    alpha=0.85,
+                )
             for xc, yt, e in zip(xs, ys, finite_err):
                 if np.isfinite(yt):
                     label_pts.append((float(xc), float(yt), float(e), color, param))
@@ -871,10 +992,16 @@ def _bar_amp_figure(rows, mode, groups, out_dir, dpi,
     ax.minorticks_on()
     ax.grid(True, which="major", axis="y", alpha=0.35)
     ax.grid(True, which="minor", axis="y", alpha=0.15, linestyle=":")
-    ax.legend(loc="best", ncol=min(n_series, 4), fontsize=9, framealpha=0.9,
-              handlelength=2.4, handleheight=1.4, handletextpad=0.6)
-    ax.set_title(f"Modal parameters per session — {mode} amplitude (front vs rear)",
-                 fontweight="bold", color=_INK)
+    ax.legend(
+        loc="best",
+        ncol=min(n_series, 4),
+        fontsize=9,
+        framealpha=0.9,
+        handlelength=2.4,
+        handleheight=1.4,
+        handletextpad=0.6,
+    )
+    ax.set_title(f"Modal parameters per session — {mode} amplitude (front vs rear)", fontweight="bold", color=_INK)
     y_lo, y_hi = ax.get_ylim()
     if label_pts and np.isfinite(y_lo) and np.isfinite(y_hi) and y_hi > y_lo:
         max_top = max(t + e for _, t, e, _, _ in label_pts)
@@ -892,9 +1019,12 @@ def _bar_amp_figure(rows, mode, groups, out_dir, dpi,
             xy=(xc, yt + e),
             xytext=(0, pad_pt),
             textcoords="offset points",
-            ha="center", va="bottom",
-            rotation=label_rotation, fontsize=label_fontsize,
-            color=color, fontweight="bold",
+            ha="center",
+            va="bottom",
+            rotation=label_rotation,
+            fontsize=label_fontsize,
+            color=color,
+            fontweight="bold",
             clip_on=False,
         )
     fig.tight_layout()

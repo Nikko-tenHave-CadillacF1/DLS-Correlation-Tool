@@ -46,6 +46,7 @@ Modes are then classified into Heave / Pitch / Roll / Warp based on
 which body DOFs dominate the shape and on the phase relationship between
 front and rear.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -57,31 +58,45 @@ from engine.logger import log
 # Public constants
 # ----------------------------------------------------------------------------
 
-PARAM_NAMES = ["mF", "mR", "IrF", "mu", "cFH", "cR", "cRH", "cW",
-               "kFH", "kR", "kRH", "kW", "IrR"]
-PARAM_UNITS = ["kg", "kg", "kg.m^2", "kg", "Ns/m", "Nms/rad", "Ns/m", "Nms/rad",
-               "N/m", "Nm/rad", "N/m", "Nm/rad", "kg.m^2"]
+PARAM_NAMES = ["mF", "mR", "IrF", "mu", "cFH", "cR", "cRH", "cW", "kFH", "kR", "kRH", "kW", "IrR"]
+PARAM_UNITS = [
+    "kg",
+    "kg",
+    "kg.m^2",
+    "kg",
+    "Ns/m",
+    "Nms/rad",
+    "Ns/m",
+    "Nms/rad",
+    "N/m",
+    "Nm/rad",
+    "N/m",
+    "Nm/rad",
+    "kg.m^2",
+]
 
 # Lower/upper bounds on each physical parameter (linear scale).
 # Optimisation happens in log-space inside these bounds.
-BOUNDS_PHYSICAL = np.array([
-    [200,    500],       # mF
-    [300,    600],       # mR
-    [10,      80],       # IrF
-    [50,     500],       # mu
-    [500,   5000],       # cFH
-    [100,   2000],       # cR
-    [500,   8000],       # cRH
-    [200,   5000],       # cW
-    [50000,  500000],    # kFH
-    [5000,   80000],     # kR
-    [80000,  800000],    # kRH
-    [50000,  2000000],   # kW
-    [10,      80],       # IrR
-])
+BOUNDS_PHYSICAL = np.array(
+    [
+        [200, 500],  # mF
+        [300, 600],  # mR
+        [10, 80],  # IrF
+        [50, 500],  # mu
+        [500, 5000],  # cFH
+        [100, 2000],  # cR
+        [500, 8000],  # cRH
+        [200, 5000],  # cW
+        [50000, 500000],  # kFH
+        [5000, 80000],  # kR
+        [80000, 800000],  # kRH
+        [50000, 2000000],  # kW
+        [10, 80],  # IrR
+    ]
+)
 
-_HEAVE_PITCH_IDX = [0, 1, 3, 4, 6, 8, 10]   # mF, mR, mu, cFH, cRH, kFH, kRH
-_ROLL_WARP_IDX   = [2, 5, 7, 9, 11, 12]      # IrF, cR, cW, kR, kW, IrR
+_HEAVE_PITCH_IDX = [0, 1, 3, 4, 6, 8, 10]  # mF, mR, mu, cFH, cRH, kFH, kRH
+_ROLL_WARP_IDX = [2, 5, 7, 9, 11, 12]  # IrF, cR, cW, kR, kW, IrR
 
 MODE_ORDER = ("Heave", "Pitch", "Roll", "Warp")
 
@@ -89,6 +104,7 @@ MODE_ORDER = ("Heave", "Pitch", "Roll", "Warp")
 # ----------------------------------------------------------------------------
 # Model construction & evaluation
 # ----------------------------------------------------------------------------
+
 
 def build_MCK(params: np.ndarray):
     """Assemble the full (4x4) mass, damping, stiffness matrices.
@@ -101,39 +117,42 @@ def build_MCK(params: np.ndarray):
     cFH, cR, cRH, cW = params[4:8]
     kFH, kR, kRH, kW = params[8:12]
     IrR = params[12]
-    M = np.array([
-        [mF - mu, 0,   mu,      0  ],
-        [0,       IrF, 0,        0  ],
-        [mu,      0,   mR - mu, 0  ],
-        [0,       0,   0,        IrR],
-    ])
-    C = np.array([
-        [cFH, 0,        0,    0      ],
-        [0,   cR + cW,  0,   -cW     ],
-        [0,   0,        cRH,  0      ],
-        [0,  -cW,       0,    cR + cW],
-    ])
-    K = np.array([
-        [kFH, 0,        0,    0      ],
-        [0,   kR + kW,  0,   -kW     ],
-        [0,   0,        kRH,  0      ],
-        [0,  -kW,       0,    kR + kW],
-    ])
+    M = np.array(
+        [
+            [mF - mu, 0, mu, 0],
+            [0, IrF, 0, 0],
+            [mu, 0, mR - mu, 0],
+            [0, 0, 0, IrR],
+        ]
+    )
+    C = np.array(
+        [
+            [cFH, 0, 0, 0],
+            [0, cR + cW, 0, -cW],
+            [0, 0, cRH, 0],
+            [0, -cW, 0, cR + cW],
+        ]
+    )
+    K = np.array(
+        [
+            [kFH, 0, 0, 0],
+            [0, kR + kW, 0, -kW],
+            [0, 0, kRH, 0],
+            [0, -kW, 0, kR + kW],
+        ]
+    )
     return M, C, K
 
 
-def _frf_squared(freqs_hz: np.ndarray, M: np.ndarray,
-                 C: np.ndarray, K: np.ndarray) -> np.ndarray:
+def _frf_squared(freqs_hz: np.ndarray, M: np.ndarray, C: np.ndarray, K: np.ndarray) -> np.ndarray:
     """|H_ij(omega)|^2 stacked over frequencies. Shape (n, n, nf)."""
     omega = 2.0 * np.pi * freqs_hz
-    Z = (K[None] - (omega**2)[:, None, None] * M[None]
-         + 1j * omega[:, None, None] * C[None])
+    Z = K[None] - (omega**2)[:, None, None] * M[None] + 1j * omega[:, None, None] * C[None]
     H = np.linalg.inv(Z)
-    return np.transpose(np.abs(H)**2, (1, 2, 0))
+    return np.transpose(np.abs(H) ** 2, (1, 2, 0))
 
 
-def compute_H_mag_sq(freqs_hz: np.ndarray, M: np.ndarray,
-                     C: np.ndarray, K: np.ndarray) -> np.ndarray:
+def compute_H_mag_sq(freqs_hz: np.ndarray, M: np.ndarray, C: np.ndarray, K: np.ndarray) -> np.ndarray:
     """Sum-over-driving-DOF |H_ij|^2: returns per-output PSD shape (n, nf)."""
     return _frf_squared(freqs_hz, M, C, K).sum(axis=1)
 
@@ -142,13 +161,13 @@ def compute_H_mag_sq(freqs_hz: np.ndarray, M: np.ndarray,
 # Cost functions (one per subsystem)
 # ----------------------------------------------------------------------------
 
+
 def _normalise(arr: np.ndarray) -> np.ndarray:
     peak = float(np.max(arr))
     return arr / peak if peak > 0 else arr
 
 
-def _shape_residual(meas_norm: np.ndarray, model: np.ndarray,
-                    weights: np.ndarray | None = None) -> float:
+def _shape_residual(meas_norm: np.ndarray, model: np.ndarray, weights: np.ndarray | None = None) -> float:
     """Amplitude-weighted normalised-shape SSE.
 
     Both signals are normalised to peak 1 first, then the squared
@@ -162,21 +181,24 @@ def _shape_residual(meas_norm: np.ndarray, model: np.ndarray,
     return float(np.sum(err))
 
 
-def _cost_heave_pitch(log_params: np.ndarray, freqs_fit: np.ndarray,
-                      meas_norm: np.ndarray,
-                      total_mass: float | None, wheelbase: float | None,
-                      pitch_inertia: float | None,
-                      weights: np.ndarray | None) -> float:
+def _cost_heave_pitch(
+    log_params: np.ndarray,
+    freqs_fit: np.ndarray,
+    meas_norm: np.ndarray,
+    total_mass: float | None,
+    wheelbase: float | None,
+    pitch_inertia: float | None,
+    weights: np.ndarray | None,
+) -> float:
     mF, mR, mu, cFH, cRH, kFH, kRH = np.exp(log_params)
     # 2-DOF heave subsystem
     M_hp = np.array([[mF - mu, mu], [mu, mR - mu]])
     if np.any(np.linalg.eigvalsh(M_hp) <= 0):
-        return 1e15        # mass matrix not positive-definite
+        return 1e15  # mass matrix not positive-definite
     C_hp = np.diag([cFH, cRH])
     K_hp = np.diag([kFH, kRH])
     H_sq = _frf_squared(freqs_fit, M_hp, C_hp, K_hp).sum(axis=1)
-    cost = (_shape_residual(meas_norm[0], H_sq[0], weights)
-            + _shape_residual(meas_norm[2], H_sq[1], weights))
+    cost = _shape_residual(meas_norm[0], H_sq[0], weights) + _shape_residual(meas_norm[2], H_sq[1], weights)
     nf = len(freqs_fit)
     if total_mass is not None:
         cost += 500.0 * nf * ((mF + mR - total_mass) / total_mass) ** 2
@@ -185,11 +207,15 @@ def _cost_heave_pitch(log_params: np.ndarray, freqs_fit: np.ndarray,
     return cost
 
 
-def _cost_roll_warp(log_params: np.ndarray, freqs_fit: np.ndarray,
-                    meas_norm: np.ndarray, meas_raw: np.ndarray,
-                    roll_inertia: float | None,
-                    disp_norm: np.ndarray | None,
-                    weights: np.ndarray | None) -> float:
+def _cost_roll_warp(
+    log_params: np.ndarray,
+    freqs_fit: np.ndarray,
+    meas_norm: np.ndarray,
+    meas_raw: np.ndarray,
+    roll_inertia: float | None,
+    disp_norm: np.ndarray | None,
+    weights: np.ndarray | None,
+) -> float:
     IrF, cR, cW, kR, kW, IrR = np.exp(log_params)
     # 2-DOF roll subsystem (front + rear theta linked by warp k/c)
     M_rw = np.diag([IrF, IrR])
@@ -197,8 +223,7 @@ def _cost_roll_warp(log_params: np.ndarray, freqs_fit: np.ndarray,
     K_rw = np.array([[kR + kW, -kW], [-kW, kR + kW]])
     H_ij_sq = _frf_squared(freqs_fit, M_rw, C_rw, K_rw)
     H_sq = H_ij_sq.sum(axis=1)
-    cost = (_shape_residual(meas_norm[1], H_sq[0], weights)
-            + _shape_residual(meas_norm[3], H_sq[1], weights))
+    cost = _shape_residual(meas_norm[1], H_sq[0], weights) + _shape_residual(meas_norm[3], H_sq[1], weights)
     if disp_norm is not None:
         # Cross-check: predicted displacement PSD = |H_ij|^2 * measured force PSD.
         pred_thf = H_ij_sq[0, 0] * meas_raw[1] + H_ij_sq[0, 1] * meas_raw[3]
@@ -215,8 +240,8 @@ def _cost_roll_warp(log_params: np.ndarray, freqs_fit: np.ndarray,
 # Initial-seed construction
 # ----------------------------------------------------------------------------
 
-def _seed_from_modes(fH: float, fP: float, fR: float, fW: float,
-                     zH: float, zP: float, zR: float, zW: float):
+
+def _seed_from_modes(fH: float, fP: float, fR: float, fW: float, zH: float, zP: float, zR: float, zW: float):
     """Map (f, zeta) per mode onto a feasible 13-parameter initial guess.
 
     Treats each mode as an SDOF with the textbook relation
@@ -225,25 +250,21 @@ def _seed_from_modes(fH: float, fP: float, fR: float, fW: float,
     mF, mR, IrF, IrR = 320.0, 450.0, 30.0, 30.0
     mu = BOUNDS_PHYSICAL[3, 0] * 2.0
     omH, omP, omR, omW = (2.0 * np.pi * f for f in (fH, fP, fR, fW))
-    kFH = omH ** 2 * (mF - mu)
-    kRH = omP ** 2 * (mR - mu)
-    kR  = omR ** 2 * IrF
-    kW  = (omW ** 2 * IrF - kR) / 2.0
+    kFH = omH**2 * (mF - mu)
+    kRH = omP**2 * (mR - mu)
+    kR = omR**2 * IrF
+    kW = (omW**2 * IrF - kR) / 2.0
     cFH = 2.0 * zH * np.sqrt(max(kFH * (mF - mu), 1.0))
     cRH = 2.0 * zP * np.sqrt(max(kRH * (mR - mu), 1.0))
-    cR  = 2.0 * zR * np.sqrt(max(kR  * IrF, 1.0))
-    cW  = 2.0 * zW * np.sqrt(max(kW  * IrF, 1.0))
-    seed = np.array([mF, mR, IrF, mu, cFH, cR, cRH, cW,
-                     kFH, kR, kRH, kW, IrR])
-    seed = np.clip(seed,
-                   BOUNDS_PHYSICAL[:, 0] * 1.001,
-                   BOUNDS_PHYSICAL[:, 1] * 0.999)
+    cR = 2.0 * zR * np.sqrt(max(kR * IrF, 1.0))
+    cW = 2.0 * zW * np.sqrt(max(kW * IrF, 1.0))
+    seed = np.array([mF, mR, IrF, mu, cFH, cR, cRH, cW, kFH, kR, kRH, kW, IrR])
+    seed = np.clip(seed, BOUNDS_PHYSICAL[:, 0] * 1.001, BOUNDS_PHYSICAL[:, 1] * 0.999)
     log_seed = np.log(seed)
     return log_seed[_HEAVE_PITCH_IDX], log_seed[_ROLL_WARP_IDX]
 
 
-def _resolve_seed(expected_bands: dict,
-                  seed_modes: dict | None) -> tuple[np.ndarray, np.ndarray]:
+def _resolve_seed(expected_bands: dict, seed_modes: dict | None) -> tuple[np.ndarray, np.ndarray]:
     """Pick the optimiser seed: explicit `seed_modes` wins; otherwise use
     the centres of the expected bands with a default 15 % damping ratio."""
     if seed_modes:
@@ -253,22 +274,29 @@ def _resolve_seed(expected_bands: dict,
             fR, zR = seed_modes["roll"]
             fW, zW = seed_modes["warp"]
             if all(np.isfinite([fH, fP, fR, fW, zH, zP, zR, zW])):
-                log.info("  Body4DOF seeded from caller modes: "
-                         "H=%.2fHz/%.3f  P=%.2fHz/%.3f  "
-                         "R=%.2fHz/%.3f  W=%.2fHz/%.3f",
-                         fH, zH, fP, zP, fR, zR, fW, zW)
+                log.info(
+                    "  Body4DOF seeded from caller modes: H=%.2fHz/%.3f  P=%.2fHz/%.3f  R=%.2fHz/%.3f  W=%.2fHz/%.3f",
+                    fH,
+                    zH,
+                    fP,
+                    zP,
+                    fR,
+                    zR,
+                    fW,
+                    zW,
+                )
                 return _seed_from_modes(fH, fP, fR, fW, zH, zP, zR, zW)
         except (KeyError, TypeError, ValueError) as exc:
-            log.warning("  Invalid seed_modes (%s); using band-centre defaults",
-                        exc)
+            log.warning("  Invalid seed_modes (%s); using band-centre defaults", exc)
     fH, fP = expected_bands["heave"][2], expected_bands["pitch"][2]
-    fR, fW = expected_bands["roll"][2],  expected_bands["warp"][2]
+    fR, fW = expected_bands["roll"][2], expected_bands["warp"][2]
     return _seed_from_modes(fH, fP, fR, fW, 0.15, 0.15, 0.15, 0.15)
 
 
 # ----------------------------------------------------------------------------
 # Mode extraction
 # ----------------------------------------------------------------------------
+
 
 def extract_modes(M: np.ndarray, C: np.ndarray, K: np.ndarray):
     """State-space eigendecomposition -> (fn, zeta, mode_shapes)."""
@@ -309,21 +337,33 @@ def classify_mode(shape: np.ndarray) -> str:
 # Public API
 # ----------------------------------------------------------------------------
 
-_DE_KWARGS = dict(seed=42, popsize=40, polish=True, disp=False,
-                  updating="deferred", workers=-1,
-                  init="sobol", tol=1e-7, mutation=(0.5, 1.5))
+_DE_KWARGS = dict(
+    seed=42,
+    popsize=40,
+    polish=True,
+    disp=False,
+    updating="deferred",
+    workers=-1,
+    init="sobol",
+    tol=1e-7,
+    mutation=(0.5, 1.5),
+)
 
 
-def run_fit(freqs_fit: np.ndarray, body_psds_norm: np.ndarray,
-            body_psds_raw: np.ndarray, expected_bands: dict,
-            seed_modes: dict | None = None,
-            total_mass: float | None = None,
-            wheelbase: float | None = None,
-            pitch_inertia: float | None = None,
-            roll_inertia: float | None = None,
-            disp_psds_norm: np.ndarray | None = None,
-            coh_hp: np.ndarray | None = None,
-            coh_rw: np.ndarray | None = None) -> dict:
+def run_fit(
+    freqs_fit: np.ndarray,
+    body_psds_norm: np.ndarray,
+    body_psds_raw: np.ndarray,
+    expected_bands: dict,
+    seed_modes: dict | None = None,
+    total_mass: float | None = None,
+    wheelbase: float | None = None,
+    pitch_inertia: float | None = None,
+    roll_inertia: float | None = None,
+    disp_psds_norm: np.ndarray | None = None,
+    coh_hp: np.ndarray | None = None,
+    coh_rw: np.ndarray | None = None,
+) -> dict:
     """13-parameter MCK fit, decoupled into heave/pitch and roll/warp.
 
     Parameters
@@ -365,9 +405,9 @@ def run_fit(freqs_fit: np.ndarray, body_psds_norm: np.ndarray,
     result_hp = differential_evolution(
         _cost_heave_pitch,
         bounds=list(zip(hp_bounds[:, 0], hp_bounds[:, 1])),
-        args=(freqs_fit, body_psds_norm, total_mass, wheelbase,
-              pitch_inertia, coh_hp),
-        x0=hp_x0, **_DE_KWARGS,
+        args=(freqs_fit, body_psds_norm, total_mass, wheelbase, pitch_inertia, coh_hp),
+        x0=hp_x0,
+        **_DE_KWARGS,
     )
     log.info("  Heave/pitch done (cost=%.4f)", result_hp.fun)
 
@@ -376,9 +416,9 @@ def run_fit(freqs_fit: np.ndarray, body_psds_norm: np.ndarray,
     result_rw = differential_evolution(
         _cost_roll_warp,
         bounds=list(zip(rw_bounds[:, 0], rw_bounds[:, 1])),
-        args=(freqs_fit, body_psds_norm, body_psds_raw, roll_inertia,
-              disp_psds_norm, coh_rw),
-        x0=rw_x0, **_DE_KWARGS,
+        args=(freqs_fit, body_psds_norm, body_psds_raw, roll_inertia, disp_psds_norm, coh_rw),
+        x0=rw_x0,
+        **_DE_KWARGS,
     )
     log.info("  Roll/warp done (cost=%.4f)", result_rw.fun)
 

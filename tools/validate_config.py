@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import argparse
@@ -9,6 +8,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+
 def load_module_from_path(path: Path):
     spec = importlib.util.spec_from_file_location("_user_config", path)
     if spec is None or spec.loader is None:
@@ -17,6 +17,7 @@ def load_module_from_path(path: Path):
     sys.modules["_user_config"] = mod
     spec.loader.exec_module(mod)
     return mod
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -48,6 +49,7 @@ def main() -> None:
         sys.exit(1)
     finally:
         sys.argv = old_argv
+
 
 if __name__ == "__main__":
     main()

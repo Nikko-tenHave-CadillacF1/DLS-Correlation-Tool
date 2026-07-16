@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,14 +7,15 @@ import pandas as pd
 
 REPORT_FILENAME = "data_quality_report.md"
 
+
 def _md_table(headers: list[str], rows: list[list[str]]) -> str:
     if not rows:
         return "_None_\n"
-    out = ["| " + " | ".join(headers) + " |",
-           "| " + " | ".join(["---"] * len(headers)) + " |"]
+    out = ["| " + " | ".join(headers) + " |", "| " + " | ".join(["---"] * len(headers)) + " |"]
     for row in rows:
         out.append("| " + " | ".join(str(c) for c in row) + " |")
     return "\n".join(out) + "\n"
+
 
 def build_quality_sections(
     runs: list[dict[str, Any]],
@@ -25,6 +25,7 @@ def build_quality_sections(
     outlier_log: list[dict[str, Any]] | None = None,
 ) -> list[tuple[str, list[Any]]]:
     from .dataplotter import collect_referenced_channels, estimate_slap_alignment
+
     referenced = collect_referenced_channels(plot_definitions)
     summary_rows: list[list[str]] = []
     missing_rows: list[list[str]] = []
@@ -68,15 +69,17 @@ def build_quality_sections(
             resets = int((sl.diff() < 0).sum())
             if resets > 0:
                 slap_reset_rows.append([run["name"].upper(), str(resets)])
-        summary_rows.append([
-            run["name"].upper(),
-            f"{n_rows:,}",
-            str(n_cols),
-            str(len(missing)),
-            str(nan_count),
-            str(flat_count),
-            str(resets),
-        ])
+        summary_rows.append(
+            [
+                run["name"].upper(),
+                f"{n_rows:,}",
+                str(n_cols),
+                str(len(missing)),
+                str(nan_count),
+                str(flat_count),
+                str(resets),
+            ]
+        )
     sr_rows: list[list[str]] = []
     if run_sample_rates:
         for run_name, (rate, source) in run_sample_rates.items():
@@ -85,51 +88,101 @@ def build_quality_sections(
     outlier_rows: list[list[str]] = []
     if outlier_log:
         for entry in outlier_log:
-            outlier_rows.append([
-                entry.get("plot", ""),
-                entry.get("run", ""),
-                f"{entry.get('n_outliers', 0)} / {entry.get('n_total', 0)}",
-                f"{entry.get('pseudo_r2', 0.0):.3f}",
-            ])
+            outlier_rows.append(
+                [
+                    entry.get("plot", ""),
+                    entry.get("run", ""),
+                    f"{entry.get('n_outliers', 0)} / {entry.get('n_total', 0)}",
+                    f"{entry.get('pseudo_r2', 0.0):.3f}",
+                ]
+            )
     sections: list[tuple[str, list[Any]]] = [
-        ("Summary", [{
-            "_table": True,
-            "headers": ["Run", "Rows", "Cols", "Missing", "High-NaN", "Flatlined", "sLap Resets"],
-            "rows": summary_rows,
-        }]),
-        ("Sample Rate", [{
-            "_table": True,
-            "headers": ["Run", "Detected Rate", "Source"],
-            "rows": sr_rows,
-        }] if sr_rows else []),
-        ("Missing Referenced Channels", [{
-            "_table": True,
-            "headers": ["Run", "Channels"],
-            "rows": missing_rows,
-        }] if missing_rows else []),
-        ("High NaN Ratios (>20%)", [{
-            "_table": True,
-            "headers": ["Run", "Channel", "NaN Ratio"],
-            "rows": high_nan_rows,
-        }] if high_nan_rows else []),
-        ("Flatlined Channels", [{
-            "_table": True,
-            "headers": ["Run", "Channel"],
-            "rows": flatlined_rows,
-        }] if flatlined_rows else []),
-        ("sLap Resets", [{
-            "_table": True,
-            "headers": ["Run", "Reset Count"],
-            "rows": slap_reset_rows,
-        }] if slap_reset_rows else []),
+        (
+            "Summary",
+            [
+                {
+                    "_table": True,
+                    "headers": ["Run", "Rows", "Cols", "Missing", "High-NaN", "Flatlined", "sLap Resets"],
+                    "rows": summary_rows,
+                }
+            ],
+        ),
+        (
+            "Sample Rate",
+            [
+                {
+                    "_table": True,
+                    "headers": ["Run", "Detected Rate", "Source"],
+                    "rows": sr_rows,
+                }
+            ]
+            if sr_rows
+            else [],
+        ),
+        (
+            "Missing Referenced Channels",
+            [
+                {
+                    "_table": True,
+                    "headers": ["Run", "Channels"],
+                    "rows": missing_rows,
+                }
+            ]
+            if missing_rows
+            else [],
+        ),
+        (
+            "High NaN Ratios (>20%)",
+            [
+                {
+                    "_table": True,
+                    "headers": ["Run", "Channel", "NaN Ratio"],
+                    "rows": high_nan_rows,
+                }
+            ]
+            if high_nan_rows
+            else [],
+        ),
+        (
+            "Flatlined Channels",
+            [
+                {
+                    "_table": True,
+                    "headers": ["Run", "Channel"],
+                    "rows": flatlined_rows,
+                }
+            ]
+            if flatlined_rows
+            else [],
+        ),
+        (
+            "sLap Resets",
+            [
+                {
+                    "_table": True,
+                    "headers": ["Run", "Reset Count"],
+                    "rows": slap_reset_rows,
+                }
+            ]
+            if slap_reset_rows
+            else [],
+        ),
         ("sLap Alignment Estimate (vCar-based)", list(align_lines)),
-        ("Outlier Rejection (Robust Scatter Fits)", [{
-            "_table": True,
-            "headers": ["Plot", "Run", "Outliers / Total", "pseudo-R²"],
-            "rows": outlier_rows,
-        }] if outlier_rows else []),
+        (
+            "Outlier Rejection (Robust Scatter Fits)",
+            [
+                {
+                    "_table": True,
+                    "headers": ["Plot", "Run", "Outliers / Total", "pseudo-R²"],
+                    "rows": outlier_rows,
+                }
+            ]
+            if outlier_rows
+            else [],
+        ),
     ]
     return sections
+
 
 def write_data_quality_report(plots_dir, sections) -> Path:
     plots_dir = Path(plots_dir)
@@ -157,6 +210,7 @@ def write_data_quality_report(plots_dir, sections) -> Path:
         out.append("")
     report_path.write_text("\n".join(out), encoding="utf-8")
     return report_path
+
 
 def print_quality_summary(sections) -> None:
     print("\nData Quality Summary")

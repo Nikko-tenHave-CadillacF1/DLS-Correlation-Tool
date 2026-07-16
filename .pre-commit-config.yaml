@@ -3,8 +3,11 @@
 # Install once: `pip install pre-commit && pre-commit install`
 # Run manually:  `pre-commit run --all-files`
 #
-# Hooks are intentionally lightweight — no formatter/rewrite step is applied
-# so the codebase's deliberately compressed style is preserved.
+# Ruff `format` runs alongside `check`. It is scoped by `pyproject.toml`
+# (`[tool.ruff.format].exclude = ["Run_*.py"]`) so the user-editable
+# Run_*.py configuration files at the repo root are NOT autoformatted —
+# their visually-aligned columns and inline plot-definition layouts must
+# stay stable for engineer readability.
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
@@ -24,3 +27,4 @@ repos:
     hooks:
       - id: ruff
         args: ["--fix", "--exit-non-zero-on-fix"]
+      - id: ruff-format

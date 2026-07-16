@@ -1,4 +1,3 @@
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -10,14 +9,17 @@ from .logger import log
 
 
 def _lorentz_peak_model(f, f0, zeta, amp, baseline):
-    denom = (f0 ** 2 - f ** 2) ** 2 + (2.0 * zeta * f0 * f) ** 2
-    return amp * f0 ** 4 / np.maximum(denom, 1e-30) + baseline
+    denom = (f0**2 - f**2) ** 2 + (2.0 * zeta * f0 * f) ** 2
+    return amp * f0**4 / np.maximum(denom, 1e-30) + baseline
+
 
 _ZETA_LO_PSD, _ZETA_HI_PSD = 1e-3, 1.0
 _SATURATION_MARGIN = 0.05
 
+
 def _fit_lorentz_peak(freq, power, f_lo, f_hi, min_points=8):
     from scipy.optimize import least_squares
+
     mask = (freq >= f_lo) & (freq <= f_hi)
     if int(mask.sum()) < min_points:
         return None
@@ -34,16 +36,17 @@ def _fit_lorentz_peak(freq, power, f_lo, f_hi, min_points=8):
     lo_bounds = [f_lo, _ZETA_LO_PSD, 0.0, 0.0]
     hi_bounds = [f_hi, _ZETA_HI_PSD, amp_hi, base_hi]
     log_p = np.log(np.maximum(p_fit, 1e-30))
+
     def residual(params):
         model = _lorentz_peak_model(f_fit, *params)
         return np.log(np.maximum(model, 1e-30)) - log_p
+
     try:
         res = least_squares(residual, p0, bounds=(lo_bounds, hi_bounds), max_nfev=2000)
     except Exception:
         return None
     f0_fit, zeta_fit, amp_fit, base_fit = (float(v) for v in res.x)
-    log_p_pred = np.log(np.maximum(
-        _lorentz_peak_model(f_fit, f0_fit, zeta_fit, amp_fit, base_fit), 1e-30))
+    log_p_pred = np.log(np.maximum(_lorentz_peak_model(f_fit, f0_fit, zeta_fit, amp_fit, base_fit), 1e-30))
     ss_res = float(np.sum((log_p - log_p_pred) ** 2))
     ss_tot = float(np.sum((log_p - np.mean(log_p)) ** 2))
     r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
@@ -64,14 +67,13 @@ def _fit_lorentz_peak(freq, power, f_lo, f_hi, min_points=8):
         (zeta_fit, _ZETA_LO_PSD, _ZETA_HI_PSD),
     ):
         span = b_hi - b_lo
-        if span > 0 and (val - b_lo < _SATURATION_MARGIN * span
-                         or b_hi - val < _SATURATION_MARGIN * span):
+        if span > 0 and (val - b_lo < _SATURATION_MARGIN * span or b_hi - val < _SATURATION_MARGIN * span):
             saturated = True
             break
     return f0_fit, zeta_fit, amp_fit, base_fit, f_lo, f_hi, sigma_zeta, r_squared, saturated
 
-class PsdHistMixin:
 
+class PsdHistMixin:
     LORENTZ_COMPACT_THRESHOLD = 5
 
     def generate_psd_plots(self):
@@ -82,13 +84,13 @@ class PsdHistMixin:
         self._lorentz_fit_records = []
         plot_iter = plots if self.verbose else _tqdm(plots, desc="PSD", unit="plot", leave=True)
         for plot_def in plot_iter:
-            plot_name     = plot_def.name
-            channel       = plot_def.channel
-            axis_limits   = plot_def.axis_limits
-            log_scale     = plot_def.log_scale
-            annotate_at   = plot_def.annotate_at
-            markers       = plot_def.markers
-            gate_spec     = getattr(plot_def, "gate", None)
+            plot_name = plot_def.name
+            channel = plot_def.channel
+            axis_limits = plot_def.axis_limits
+            log_scale = plot_def.log_scale
+            annotate_at = plot_def.annotate_at
+            markers = plot_def.markers
+            gate_spec = getattr(plot_def, "gate", None)
             show_envelope = bool(getattr(plot_def, "show_envelope", False))
             reference_lines = getattr(plot_def, "reference_lines", None)
             lorentz_fit_windows = getattr(plot_def, "lorentz_fit", None) or []
@@ -114,14 +116,19 @@ class PsdHistMixin:
                             sample_counts.append(int(np.isfinite(df[ch].to_numpy(dtype=float)).sum()))
                 n_min = min(sample_counts) if sample_counts else 0
                 fs_ref = min(sample_rates) if sample_rates else float(self.FILTER_SAMPLE_RATE)
-                nperseg = datafunctions.auto_nperseg(
-                    n_min, sample_rate=fs_ref,
-                    min_averages_target=self.PSD_MIN_AVERAGES_TARGET,
-                ) if n_min >= 16 else 512
+                nperseg = (
+                    datafunctions.auto_nperseg(
+                        n_min,
+                        sample_rate=fs_ref,
+                        min_averages_target=self.PSD_MIN_AVERAGES_TARGET,
+                    )
+                    if n_min >= 16
+                    else 512
+                )
                 _nperseg_ref_rate = fs_ref  # remember reference rate for per-run scaling
             line_styles = ["-", "--", ":", "-."]
             if self.verbose:
-                log.debug("Creating PSD plot: %s (%s)", plot_name, ', '.join(channels_list))
+                log.debug("Creating PSD plot: %s (%s)", plot_name, ", ".join(channels_list))
             filename = self._sanitize_plot_filename("psd", plot_name)
             figsize = self._resolve_plot_figsize(filename, self.psd_FIGSIZE)
             fig, ax = plt.subplots(figsize=figsize)
@@ -144,7 +151,8 @@ class PsdHistMixin:
                 if not loaded_runs:
                     log.warning(
                         "PSD '%s': group '%s' has no loaded runs. Skipping.",
-                        plot_name, group_name,
+                        plot_name,
+                        group_name,
                     )
                     continue
                 primary_run = loaded_runs[0]
@@ -166,20 +174,25 @@ class PsdHistMixin:
                             hint = self._format_missing_channel_hint(run_name, ch)
                             log.warning(
                                 "PSD '%s': channel '%s' missing in run '%s'. Skipping.%s",
-                                plot_name, ch, run_name, f"\n{hint}" if hint else "",
+                                plot_name,
+                                ch,
+                                run_name,
+                                f"\n{hint}" if hint else "",
                             )
                             continue
                         # Scale nperseg by sample-rate ratio so all runs share
                         # the same frequency resolution (Δf) regardless of
                         # native logging rate.
                         if _nperseg_ref_rate and _nperseg_ref_rate > 0:
-                            run_rate = self.run_sample_rates.get(
-                                run_name, (self.FILTER_SAMPLE_RATE, "default"))[0]
+                            run_rate = self.run_sample_rates.get(run_name, (self.FILTER_SAMPLE_RATE, "default"))[0]
                             run_nperseg = max(64, int(nperseg * run_rate / _nperseg_ref_rate))
                         else:
                             run_nperseg = nperseg
                         freq, power, n_segs = self._cached_psd_with_segments(
-                            run_name, ch, run_nperseg, gate_spec=gate_spec,
+                            run_name,
+                            ch,
+                            run_nperseg,
+                            gate_spec=gate_spec,
                         )
                         if freq is None or power is None or n_segs <= 0:
                             continue
@@ -210,54 +223,69 @@ class PsdHistMixin:
                     lbl = f"{group_name.upper()} — {ch}" if multi else group_name.upper()
                     plot_func = ax.semilogy if log_scale else ax.plot
                     plot_func(
-                        freq, power_mean,
-                        linewidth=1.8, color=group_color,
-                        linestyle=lstyle, alpha=0.9, label=lbl,
+                        freq,
+                        power_mean,
+                        linewidth=1.8,
+                        color=group_color,
+                        linestyle=lstyle,
+                        alpha=0.9,
+                        label=lbl,
                     )
                     if power_std is not None:
                         lower = np.clip(power_mean - power_std, 1e-30 if log_scale else None, None)
                         upper = power_mean + power_std
                         ax.fill_between(
-                            freq, lower, upper,
-                            color=group_color, alpha=0.15, linewidth=0, zorder=1,
+                            freq,
+                            lower,
+                            upper,
+                            color=group_color,
+                            alpha=0.15,
+                            linewidth=0,
+                            zorder=1,
                         )
                     psd_curves.append((group_color, freq, power_mean))
                     plotted_any = True
                     for f_lo_u, f_hi_u in lorentz_fit_windows:
-                        fit_res = _fit_lorentz_peak(
-                            freq, power_mean, f_lo_u, f_hi_u)
+                        fit_res = _fit_lorentz_peak(freq, power_mean, f_lo_u, f_hi_u)
                         if fit_res is None:
                             self._record_lorentz_fit(
-                                plot_name, group_name, ch, f_lo_u, f_hi_u,
-                                None, None, None, None, None, failed=True)
+                                plot_name, group_name, ch, f_lo_u, f_hi_u, None, None, None, None, None, failed=True
+                            )
                             continue
-                        (f0_fit, zeta_fit, amp_fit, base_fit, f_lo, f_hi,
-                         sigma_zeta, r_squared, saturated) = fit_res
+                        (f0_fit, zeta_fit, amp_fit, base_fit, f_lo, f_hi, sigma_zeta, r_squared, saturated) = fit_res
                         f_dense = np.linspace(f_lo, f_hi, 200)
-                        y_dense = _lorentz_peak_model(
-                            f_dense, f0_fit, zeta_fit, amp_fit, base_fit)
+                        y_dense = _lorentz_peak_model(f_dense, f0_fit, zeta_fit, amp_fit, base_fit)
                         plot_func(
-                            f_dense, y_dense, linewidth=1.6, color=group_color,
-                            linestyle=":", alpha=0.95, label=None, zorder=5,
+                            f_dense,
+                            y_dense,
+                            linewidth=1.6,
+                            color=group_color,
+                            linestyle=":",
+                            alpha=0.95,
+                            label=None,
+                            zorder=5,
                         )
                         peak_idx = int(np.argmax(y_dense))
                         f_peak_vis = float(f_dense[peak_idx])
                         model_peak = float(y_dense[peak_idx])
                         lorentz_results.append(
-                            (f_lo, f_hi, model_peak, f_peak_vis, group_color,
-                             zeta_fit, f0_fit, sigma_zeta, group_name))
+                            (f_lo, f_hi, model_peak, f_peak_vis, group_color, zeta_fit, f0_fit, sigma_zeta, group_name)
+                        )
                         self._record_lorentz_fit(
-                            plot_name, group_name, ch, f_lo, f_hi,
-                            f0_fit, zeta_fit, sigma_zeta, r_squared, saturated)
+                            plot_name, group_name, ch, f_lo, f_hi, f0_fit, zeta_fit, sigma_zeta, r_squared, saturated
+                        )
             if not plotted_any:
                 log.warning(
                     "PSD '%s': no valid data for '%s'. Plot not saved.",
-                    plot_name, ', '.join(channels_list),
+                    plot_name,
+                    ", ".join(channels_list),
                 )
                 plt.close(fig)
                 continue
             has_x_limits, has_y_limits = self._apply_2d_axis_limits(
-                ax, axis_limits, log_scale_y=log_scale,
+                ax,
+                axis_limits,
+                log_scale_y=log_scale,
             )
             default_y_pad = 0 if log_scale else 0.04
             self._add_axis_edge_padding(
@@ -279,14 +307,16 @@ class PsdHistMixin:
                     legend_obj = ax.get_legend()
                     self._display_gate_info(ax, gate_text, legend=legend_obj)
             lorentz_by_color = {}
-            for (lf_lo, lf_hi, _lmp, _lfpv, lcol, lzf, lff, lsz, _lgn) in lorentz_results:
+            for lf_lo, lf_hi, _lmp, _lfpv, lcol, lzf, lff, lsz, _lgn in lorentz_results:
                 lorentz_by_color.setdefault(lcol, []).append((lf_lo, lf_hi, lzf, lff, lsz))
+
             def _find_lorentz_for(color_e, f_at):
                 for entry in lorentz_by_color.get(color_e, []):
                     lo_, hi_, _zf, _ff, _sz = entry
                     if lo_ <= f_at <= hi_:
                         return entry
                 return None
+
             consumed_lorentz_keys = set()
             if annotate_at is not None and psd_curves:
                 if isinstance(annotate_at, (list, tuple)):
@@ -299,7 +329,7 @@ class PsdHistMixin:
                         continue
                     ax.axvline(f_at, color="#5E5E5E", linestyle="--", linewidth=1.2, alpha=0.7, zorder=2)
                     ann_items = []
-                    for (run_color, freq_arr, power_arr) in psd_curves:
+                    for run_color, freq_arr, power_arr in psd_curves:
                         if len(freq_arr) == 0 or f_at > freq_arr[-1]:
                             continue
                         idx = np.argmin(np.abs(freq_arr - f_at))
@@ -309,9 +339,7 @@ class PsdHistMixin:
                         ann_items.sort(key=lambda t: t[0])
                         trans = ax.transData
                         display_ys = [trans.transform((f_at, item[0]))[1] for item in ann_items]
-                        has_two_line = any(
-                            _find_lorentz_for(c, f_at) is not None for _, c in ann_items
-                        )
+                        has_two_line = any(_find_lorentz_for(c, f_at) is not None for _, c in ann_items)
                         min_sep = 30 if has_two_line else 16
                         adjusted_display_ys = list(display_ys)
                         for i in range(1, len(adjusted_display_ys)):
@@ -323,8 +351,9 @@ class PsdHistMixin:
                             p_at, color_e = ann_items[i]
                             nudge_pts = adjusted_display_ys[i] - display_ys[i]
                             y_offset = 8 + nudge_pts
-                            ax.scatter([f_at], [p_at], color=color_e, s=50, zorder=10,
-                                       edgecolors="white", linewidths=1.2)
+                            ax.scatter(
+                                [f_at], [p_at], color=color_e, s=50, zorder=10, edgecolors="white", linewidths=1.2
+                            )
                             extra = _find_lorentz_for(color_e, f_at)
                             if extra is not None:
                                 lo_, hi_, zf, ff, sz = extra
@@ -337,17 +366,25 @@ class PsdHistMixin:
                                 label = f"{p_at:.3g}"
                             ax.annotate(
                                 label,
-                                xy=(f_at, p_at), xytext=(10, y_offset),
+                                xy=(f_at, p_at),
+                                xytext=(10, y_offset),
                                 textcoords="offset points",
-                                fontsize=9, fontweight="bold", color=color_e,
+                                fontsize=9,
+                                fontweight="bold",
+                                color=color_e,
                                 zorder=11 + (n_items - 1 - i),
-                                arrowprops=dict(arrowstyle="-", color=color_e,
-                                                lw=0.8, alpha=0.6),
-                                bbox=dict(boxstyle="round,pad=0.22", facecolor="white",
-                                          alpha=0.92, edgecolor=color_e, linewidth=0.8),
+                                arrowprops=dict(arrowstyle="-", color=color_e, lw=0.8, alpha=0.6),
+                                bbox=dict(
+                                    boxstyle="round,pad=0.22",
+                                    facecolor="white",
+                                    alpha=0.92,
+                                    edgecolor=color_e,
+                                    linewidth=0.8,
+                                ),
                             )
             remaining_lorentz = [
-                t for t in lorentz_results
+                t
+                for t in lorentz_results
                 if (round(float(t[0]), 4), round(float(t[1]), 4), t[4]) not in consumed_lorentz_keys
             ]
             if remaining_lorentz:
@@ -355,16 +392,21 @@ class PsdHistMixin:
                 trans = ax.transData
                 by_window = {}
                 for f_lo, f_hi, model_pk, f_peak_vis, col, zf, ff, sz, gname in remaining_lorentz:
-                    by_window.setdefault((f_lo, f_hi), []).append(
-                        (model_pk, f_peak_vis, col, zf, ff, sz, gname))
+                    by_window.setdefault((f_lo, f_hi), []).append((model_pk, f_peak_vis, col, zf, ff, sz, gname))
                 for _win_key, items in by_window.items():
                     items.sort(key=lambda t: t[0])
                     if len(items) >= self.LORENTZ_COMPACT_THRESHOLD:
                         for model_pk, f_peak_vis, color_e, _zf, _ff, _sz, _gn in items:
                             if xl <= f_peak_vis <= xr:
-                                ax.scatter([f_peak_vis], [model_pk],
-                                           color=color_e, s=40, zorder=10,
-                                           edgecolors="white", linewidths=1.2)
+                                ax.scatter(
+                                    [f_peak_vis],
+                                    [model_pk],
+                                    color=color_e,
+                                    s=40,
+                                    zorder=10,
+                                    edgecolors="white",
+                                    linewidths=1.2,
+                                )
                         self._draw_lorentz_compact_box(ax, _win_key, items, psd_curves)
                         continue
                     display_ys = [trans.transform((it[1], it[0]))[1] for it in items]
@@ -381,22 +423,30 @@ class PsdHistMixin:
                             continue
                         nudge_pts = adjusted[i] - display_ys[i]
                         y_offset = 8 + nudge_pts
-                        ax.scatter([f_peak_vis], [model_pk], color=color_e, s=50, zorder=10,
-                                   edgecolors="white", linewidths=1.2)
+                        ax.scatter(
+                            [f_peak_vis], [model_pk], color=color_e, s=50, zorder=10, edgecolors="white", linewidths=1.2
+                        )
                         if sz is not None and np.isfinite(sz):
                             label = f"$a_0$={model_pk:.3g}\n$f_0$={f0_fit:.2f}Hz $\\zeta$={zf:.3f}\u00b1{sz:.3f}"
                         else:
                             label = f"$a_0$={model_pk:.3g}\n$f_0$={f0_fit:.2f}Hz $\\zeta$={zf:.3f}"
                         ax.annotate(
                             label,
-                            xy=(f_peak_vis, model_pk), xytext=(10, y_offset),
+                            xy=(f_peak_vis, model_pk),
+                            xytext=(10, y_offset),
                             textcoords="offset points",
-                            fontsize=9, fontweight="bold", color=color_e,
+                            fontsize=9,
+                            fontweight="bold",
+                            color=color_e,
                             zorder=11 + (n_items - 1 - i),
-                            arrowprops=dict(arrowstyle="-", color=color_e,
-                                            lw=0.8, alpha=0.6),
-                            bbox=dict(boxstyle="round,pad=0.22", facecolor="white",
-                                      alpha=0.92, edgecolor=color_e, linewidth=0.8),
+                            arrowprops=dict(arrowstyle="-", color=color_e, lw=0.8, alpha=0.6),
+                            bbox=dict(
+                                boxstyle="round,pad=0.22",
+                                facecolor="white",
+                                alpha=0.92,
+                                edgecolor=color_e,
+                                linewidth=0.8,
+                            ),
                         )
             self._draw_static_markers(ax, markers)
             self._draw_horizontal_reference_lines(ax, reference_lines)
@@ -408,25 +458,38 @@ class PsdHistMixin:
                         continue
                     line_color = "#5E5E5E" if single else color
                     ax.axvline(
-                        nyq, color=line_color, linestyle=(0, (5, 3)),
-                        linewidth=1.1, alpha=0.7, zorder=2,
+                        nyq,
+                        color=line_color,
+                        linestyle=(0, (5, 3)),
+                        linewidth=1.1,
+                        alpha=0.7,
+                        zorder=2,
                     )
                     label = "f_nyq"
                     ax.text(
-                        nyq, 1.01, label,
+                        nyq,
+                        1.01,
+                        label,
                         transform=ax.get_xaxis_transform(),
-                        ha="center", va="bottom",
-                        fontsize=8, fontweight="bold", color=line_color,
-                        bbox=dict(boxstyle="round,pad=0.18", facecolor="white",
-                                  edgecolor=line_color, linewidth=0.8, alpha=0.9),
+                        ha="center",
+                        va="bottom",
+                        fontsize=8,
+                        fontweight="bold",
+                        color=line_color,
+                        bbox=dict(
+                            boxstyle="round,pad=0.18", facecolor="white", edgecolor=line_color, linewidth=0.8, alpha=0.9
+                        ),
                         zorder=12,
                     )
             plt.tight_layout(pad=0.25)
-            fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")
+            fig.savefig(
+                self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight"
+            )
             plt.close(fig)
             if self.verbose:
                 log.debug("Saved: %s", filename)
         self._log_lorentz_fit_summary()
+
     def _draw_lorentz_compact_box(self, ax, window, items, psd_curves):
         """Render a single info box listing per-run Lorentz fits for one window.
 
@@ -434,12 +497,12 @@ class PsdHistMixin:
         Used when len(items) >= LORENTZ_COMPACT_THRESHOLD to avoid callout clutter.
         """
         from matplotlib.offsetbox import AnnotationBbox, TextArea, VPacker
+
         f_lo, f_hi = window
         fontsize = 9
         header = TextArea(
             f"Lorentz fit [{f_lo:.1f}\u2013{f_hi:.1f} Hz]",
-            textprops=dict(color="#1A1A1A", fontsize=fontsize,
-                           fontweight="bold", family="Montserrat"),
+            textprops=dict(color="#1A1A1A", fontsize=fontsize, fontweight="bold", family="Montserrat"),
         )
         children = [header]
         for _mp, _fpv, color, zf, f0, sz, gname in items:
@@ -448,19 +511,18 @@ class PsdHistMixin:
                 txt = f"  {label}: $f_0$={f0:.2f}Hz $\\zeta$={zf:.3f}\u00b1{sz:.3f}"
             else:
                 txt = f"  {label}: $f_0$={f0:.2f}Hz $\\zeta$={zf:.3f}"
-            children.append(TextArea(
-                txt,
-                textprops=dict(color=color, fontsize=fontsize,
-                               fontweight="bold", family="Montserrat"),
-            ))
+            children.append(
+                TextArea(
+                    txt,
+                    textprops=dict(color=color, fontsize=fontsize, fontweight="bold", family="Montserrat"),
+                )
+            )
         vpacker = VPacker(children=children, pad=2, sep=2)
         if psd_curves:
             xs_data = np.concatenate([np.asarray(f) for _, f, _ in psd_curves])
             ys_data = np.concatenate([np.asarray(p) for _, _, p in psd_curves])
             try:
-                trans = ax.transAxes.inverted().transform(
-                    ax.transData.transform(np.column_stack([xs_data, ys_data]))
-                )
+                trans = ax.transAxes.inverted().transform(ax.transData.transform(np.column_stack([xs_data, ys_data])))
                 xs_ax = trans[:, 0]
                 ys_ax = trans[:, 1]
                 in_view = (xs_ax >= 0) & (xs_ax <= 1) & (ys_ax >= 0) & (ys_ax <= 1)
@@ -487,6 +549,7 @@ class PsdHistMixin:
             except Exception:
                 pass
         w_frac, h_frac = 0.32, 0.38
+
         def _density(corner):
             ha, va = corner
             x_min = 0.0 if ha == "left" else (1.0 - w_frac)
@@ -495,10 +558,13 @@ class PsdHistMixin:
             y_min = y_max - h_frac
             if xs_ax.size == 0:
                 return 0
-            return int(((xs_ax >= x_min) & (xs_ax <= x_max)
-                        & (ys_ax >= y_min) & (ys_ax <= y_max)).sum())
-        corners = [c for c in self._INFO_CORNER_XY if c != legend_corner
-                   and c[0] in ("left", "right") and c[1] in ("top", "bottom")]
+            return int(((xs_ax >= x_min) & (xs_ax <= x_max) & (ys_ax >= y_min) & (ys_ax <= y_max)).sum())
+
+        corners = [
+            c
+            for c in self._INFO_CORNER_XY
+            if c != legend_corner and c[0] in ("left", "right") and c[1] in ("top", "bottom")
+        ]
         corners.sort(key=_density)
         halign, valign = corners[0]
         x_anchor, y_anchor = self._INFO_CORNER_XY[(halign, valign)]
@@ -506,54 +572,89 @@ class PsdHistMixin:
             vpacker,
             xy=(x_anchor, y_anchor),
             xycoords="axes fraction",
-            box_alignment=(0.0 if halign == "left" else 1.0,
-                           1.0 if valign == "top" else 0.0),
-            bboxprops=dict(boxstyle="round,pad=0", facecolor="white",
-                           alpha=0.92, edgecolor="#3C3C3C", linewidth=1.4),
-            frameon=True, pad=0.3,
+            box_alignment=(0.0 if halign == "left" else 1.0, 1.0 if valign == "top" else 0.0),
+            bboxprops=dict(boxstyle="round,pad=0", facecolor="white", alpha=0.92, edgecolor="#3C3C3C", linewidth=1.4),
+            frameon=True,
+            pad=0.3,
         )
         ab.set_zorder(11)
         ax.add_artist(ab)
-    def _record_lorentz_fit(self, plot, group, channel, f_lo, f_hi,
-                            f0_fit, zeta, sigma_zeta, r_squared, saturated,
-                            failed=False):
+
+    def _record_lorentz_fit(
+        self, plot, group, channel, f_lo, f_hi, f0_fit, zeta, sigma_zeta, r_squared, saturated, failed=False
+    ):
         records = getattr(self, "_lorentz_fit_records", None)
         if records is None:
             records = []
             self._lorentz_fit_records = records
-        records.append({
-            "plot": plot, "group": group, "channel": channel,
-            "f_lo": f_lo, "f_hi": f_hi,
-            "f0_fit": f0_fit, "zeta": zeta,
-            "sigma_zeta": sigma_zeta, "r_squared": r_squared,
-            "saturated": saturated, "failed": failed,
-        })
+        records.append(
+            {
+                "plot": plot,
+                "group": group,
+                "channel": channel,
+                "f_lo": f_lo,
+                "f_hi": f_hi,
+                "f0_fit": f0_fit,
+                "zeta": zeta,
+                "sigma_zeta": sigma_zeta,
+                "r_squared": r_squared,
+                "saturated": saturated,
+                "failed": failed,
+            }
+        )
+
     def _log_lorentz_fit_summary(self):
         records = getattr(self, "_lorentz_fit_records", None)
         if not records:
             return
-        header = ("%-32s %-10s %-14s %15s %7s %7s %7s %5s %s"
-                  % ("Plot", "Run", "Channel",
-                     "window (Hz)", "f0_fit", "zeta", "sig_z", "R^2", "Notes"))
+        header = "%-32s %-10s %-14s %15s %7s %7s %7s %5s %s" % (
+            "Plot",
+            "Run",
+            "Channel",
+            "window (Hz)",
+            "f0_fit",
+            "zeta",
+            "sig_z",
+            "R^2",
+            "Notes",
+        )
         log.info("Lorentz fit summary (%d entries):", len(records))
         log.info(header)
         log.info("-" * len(header))
         for r in records:
             win_str = f"[{r['f_lo']:5.2f},{r['f_hi']:5.2f}]"
             if r["failed"]:
-                log.info("%-32s %-10s %-14s %15s %7s %7s %7s %5s %s",
-                         r["plot"][:32], r["group"][:10], r["channel"][:14],
-                         win_str, "-", "-", "-", "-", "failed")
+                log.info(
+                    "%-32s %-10s %-14s %15s %7s %7s %7s %5s %s",
+                    r["plot"][:32],
+                    r["group"][:10],
+                    r["channel"][:14],
+                    win_str,
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    "failed",
+                )
                 continue
             sig = r["sigma_zeta"]
-            sig_str = (f"{sig:7.4f}" if (sig is not None and np.isfinite(sig))
-                       else "   nan ")
+            sig_str = f"{sig:7.4f}" if (sig is not None and np.isfinite(sig)) else "   nan "
             r2 = r["r_squared"]
             r2_str = f"{r2:5.2f}" if (r2 is not None and np.isfinite(r2)) else "  nan"
             notes = "saturated" if r["saturated"] else ""
-            log.info("%-32s %-10s %-14s %15s %7.3f %7.4f %s %s %s",
-                     r["plot"][:32], r["group"][:10], r["channel"][:14],
-                     win_str, r["f0_fit"], r["zeta"], sig_str, r2_str, notes)
+            log.info(
+                "%-32s %-10s %-14s %15s %7.3f %7.4f %s %s %s",
+                r["plot"][:32],
+                r["group"][:10],
+                r["channel"][:14],
+                win_str,
+                r["f0_fit"],
+                r["zeta"],
+                sig_str,
+                r2_str,
+                notes,
+            )
+
     def generate_histogram_plots(self):
         self._ensure_preprocessed()
         plots = self._get_plot_group(3)
@@ -561,12 +662,12 @@ class PsdHistMixin:
             return
         plot_iter = plots if self.verbose else _tqdm(plots, desc="Histogram", unit="plot", leave=True)
         for plot_def in plot_iter:
-            plot_name   = plot_def.name
-            channel     = plot_def.channel
+            plot_name = plot_def.name
+            channel = plot_def.channel
             axis_limits = plot_def.axis_limits
-            log_scale   = plot_def.log_scale
-            markers     = plot_def.markers
-            gate_spec   = plot_def.gate
+            log_scale = plot_def.log_scale
+            markers = plot_def.markers
+            gate_spec = plot_def.gate
             reference_lines = plot_def.reference_lines
             if self.verbose:
                 log.debug("Creating histogram plot: %s (%s)", plot_name, channel)
@@ -575,7 +676,8 @@ class PsdHistMixin:
             fig, ax = plt.subplots(figsize=figsize)
             ax.set_xlabel(
                 datafunctions.add_units_to_label(channel, self.units_map),
-                fontsize=13, fontweight="bold",
+                fontsize=13,
+                fontweight="bold",
             )
             ax.set_ylabel("Time (s)", fontsize=13, fontweight="bold")
             all_values = []
@@ -594,18 +696,24 @@ class PsdHistMixin:
             if not all_values:
                 log.warning(
                     "Histogram '%s': no valid data for '%s'. Plot not saved.",
-                    plot_name, channel,
+                    plot_name,
+                    channel,
                 )
                 plt.close(fig)
                 continue
             combined = np.concatenate(all_values)
             bins = datafunctions.compute_nice_histogram_bins(combined, num_bins=30)
             has_x_limits, has_y_limits = self._apply_2d_axis_limits(
-                ax, axis_limits, log_scale_y=log_scale, y_floor=1e-6,
+                ax,
+                axis_limits,
+                log_scale_y=log_scale,
+                y_floor=1e-6,
             )
             if has_x_limits and axis_limits[0][0] is not None and axis_limits[0][1] is not None:
                 bins = datafunctions.compute_equal_width_bins_in_limits(
-                    axis_limits[0][0], axis_limits[0][1], bins,
+                    axis_limits[0][0],
+                    axis_limits[0][1],
+                    bins,
                 )
             hist_data, hist_weights, hist_colors, hist_labels = [], [], [], []
             for run in self.runs:
@@ -627,10 +735,18 @@ class PsdHistMixin:
                 hist_labels.append(run["name"].upper())
             if hist_data:
                 ax.hist(
-                    hist_data, bins=bins, weights=hist_weights,
-                    alpha=0.72, color=hist_colors, label=hist_labels,
-                    edgecolor="white", linewidth=0.8,
-                    log=log_scale, stacked=False, histtype="bar", rwidth=0.9,
+                    hist_data,
+                    bins=bins,
+                    weights=hist_weights,
+                    alpha=0.72,
+                    color=hist_colors,
+                    label=hist_labels,
+                    edgecolor="white",
+                    linewidth=0.8,
+                    log=log_scale,
+                    stacked=False,
+                    histtype="bar",
+                    rwidth=0.9,
                 )
             if len(bins) > 1:
                 max_major_ticks = 8
@@ -639,9 +755,7 @@ class PsdHistMixin:
                 if not np.isclose(major_ticks[-1], bins[-1]):
                     major_ticks = np.append(major_ticks, bins[-1])
                 ax.set_xticks(major_ticks)
-                ax.xaxis.set_major_formatter(
-                    ticker.FuncFormatter(lambda x, pos: f"{x:.4g}")
-                )
+                ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, pos: f"{x:.4g}"))
                 if len(bins) <= 31:
                     ax.set_xticks(bins, minor=True)
                     ax.grid(True, which="minor", axis="x", **self.GRID_STYLE["minor"])
@@ -666,13 +780,15 @@ class PsdHistMixin:
                     self._display_gate_info(ax, gate_text, legend=legend_obj)
             self._draw_static_markers(ax, markers)
             plt.tight_layout(pad=0.25)
-            fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.05, facecolor="white", bbox_inches="tight")
+            fig.savefig(
+                self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.05, facecolor="white", bbox_inches="tight"
+            )
             plt.close(fig)
             if self.verbose:
                 log.debug("Saved: %s", filename)
 
-class HeatmapMixin:
 
+class HeatmapMixin:
     def generate_heatmap_plots(self):
         self._ensure_preprocessed()
         plots = self._get_plot_group(6)
@@ -680,18 +796,18 @@ class HeatmapMixin:
             return
         plot_iter = plots if self.verbose else _tqdm(plots, desc="Heatmap", unit="plot", leave=True)
         for plot_def in plot_iter:
-            plot_name   = plot_def.name
-            x_channel   = plot_def.x_channel
-            y_channel   = plot_def.y_channel
-            z_channel   = plot_def.z_channel
-            agg         = plot_def.aggregation
-            bins        = plot_def.bins
+            plot_name = plot_def.name
+            x_channel = plot_def.x_channel
+            y_channel = plot_def.y_channel
+            z_channel = plot_def.z_channel
+            agg = plot_def.aggregation
+            bins = plot_def.bins
             axis_limits = plot_def.axis_limits
-            cmap        = plot_def.cmap
-            z_limits    = plot_def.z_limits
-            gate_spec   = plot_def.gate
-            markers     = plot_def.markers
-            min_count   = plot_def.min_count
+            cmap = plot_def.cmap
+            z_limits = plot_def.z_limits
+            gate_spec = plot_def.gate
+            markers = plot_def.markers
+            min_count = plot_def.min_count
             if self.verbose:
                 log.debug("Creating heatmap plot: %s", plot_name)
             run_frames = []
@@ -709,19 +825,18 @@ class HeatmapMixin:
             ncols = len(run_frames)
             base_w = self.histogram_FIGSIZE[0]
             fig, axes = plt.subplots(
-                1, ncols,
+                1,
+                ncols,
                 figsize=(base_w * 0.9 * ncols, self.histogram_FIGSIZE[1]),
                 squeeze=False,
             )
             axes = axes[0]
-            xs_all = np.concatenate([
-                pd.to_numeric(df[x_channel], errors="coerce").dropna().to_numpy()
-                for _, df in run_frames
-            ])
-            ys_all = np.concatenate([
-                pd.to_numeric(df[y_channel], errors="coerce").dropna().to_numpy()
-                for _, df in run_frames
-            ])
+            xs_all = np.concatenate(
+                [pd.to_numeric(df[x_channel], errors="coerce").dropna().to_numpy() for _, df in run_frames]
+            )
+            ys_all = np.concatenate(
+                [pd.to_numeric(df[y_channel], errors="coerce").dropna().to_numpy() for _, df in run_frames]
+            )
             if axis_limits and axis_limits[0]:
                 x_lo = axis_limits[0][0] if axis_limits[0][0] is not None else float(np.nanmin(xs_all))
                 x_hi = axis_limits[0][1] if axis_limits[0][1] is not None else float(np.nanmax(xs_all))
@@ -764,12 +879,15 @@ class HeatmapMixin:
                             zfin = zv[mask]
                             grid = np.full((nx, ny), np.nan)
                             from collections import defaultdict
+
                             buckets = defaultdict(list)
                             for i_, j_, z_ in zip(xi, yi, zfin):
                                 buckets[(i_, j_)].append(z_)
                             reducer = {
-                                "median": np.median, "std": np.std,
-                                "max": np.max, "min": np.min,
+                                "median": np.median,
+                                "std": np.std,
+                                "max": np.max,
+                                "min": np.min,
                             }[agg]
                             for (i_, j_), values in buckets.items():
                                 if len(values) >= min_count:
@@ -779,24 +897,38 @@ class HeatmapMixin:
             zs_combined = np.concatenate([g.ravel() for _, g, _ in all_grids])
             zs_combined = zs_combined[np.isfinite(zs_combined)]
             if z_limits and (z_limits[0] is not None or z_limits[1] is not None):
-                z_min = z_limits[0] if z_limits[0] is not None else float(np.nanmin(zs_combined)) if len(zs_combined) else 0.0
-                z_max = z_limits[1] if z_limits[1] is not None else float(np.nanmax(zs_combined)) if len(zs_combined) else 1.0
+                z_min = (
+                    z_limits[0]
+                    if z_limits[0] is not None
+                    else float(np.nanmin(zs_combined))
+                    if len(zs_combined)
+                    else 0.0
+                )
+                z_max = (
+                    z_limits[1]
+                    if z_limits[1] is not None
+                    else float(np.nanmax(zs_combined))
+                    if len(zs_combined)
+                    else 1.0
+                )
             elif len(zs_combined):
                 z_min, z_max = float(np.nanmin(zs_combined)), float(np.nanmax(zs_combined))
             else:
                 z_min, z_max = 0.0, 1.0
             for ax, (run, grid, counts) in zip(axes, all_grids):
                 im = ax.imshow(
-                    grid.T, origin="lower", aspect="auto",
+                    grid.T,
+                    origin="lower",
+                    aspect="auto",
                     extent=(x_lo, x_hi, y_lo, y_hi),
-                    cmap=cmap, vmin=z_min, vmax=z_max,
+                    cmap=cmap,
+                    vmin=z_min,
+                    vmax=z_max,
                     interpolation="nearest",
                 )
                 ax.set_title(run["name"].upper(), fontsize=11, fontweight="bold", color=run["color"])
-                ax.set_xlabel(datafunctions.add_units_to_label(x_channel, self.units_map),
-                              fontweight="bold")
-                ax.set_ylabel(datafunctions.add_units_to_label(y_channel, self.units_map),
-                              fontweight="bold")
+                ax.set_xlabel(datafunctions.add_units_to_label(x_channel, self.units_map), fontweight="bold")
+                ax.set_ylabel(datafunctions.add_units_to_label(y_channel, self.units_map), fontweight="bold")
                 self._apply_grid(ax, which="major")
                 ax.spines["top"].set_visible(False)
                 ax.spines["right"].set_visible(False)
@@ -811,8 +943,9 @@ class HeatmapMixin:
                 )
             filename = self._sanitize_plot_filename("heatmap", plot_name)
             fig.suptitle(plot_name, fontweight="bold", fontsize=13)
-            fig.savefig(self.plots_dir / filename, dpi=self.output_dpi,
-                        pad_inches=0.15, facecolor="white", bbox_inches="tight")
+            fig.savefig(
+                self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight"
+            )
             plt.close(fig)
             if self.verbose:
                 log.debug("Saved: %s", filename)

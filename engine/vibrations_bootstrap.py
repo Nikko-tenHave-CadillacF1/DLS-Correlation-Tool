@@ -48,10 +48,7 @@ _MA3 = np.ones(3) / 3.0
 
 def _smooth_and_normalise(psds_fit: np.ndarray) -> np.ndarray:
     """Same medfilt5 + ma3 + peak-normalise pipeline as the point fit."""
-    smooth = np.stack([
-        np.convolve(signal.medfilt(p, kernel_size=5), _MA3, mode="same")
-        for p in psds_fit
-    ])
+    smooth = np.stack([np.convolve(signal.medfilt(p, kernel_size=5), _MA3, mode="same") for p in psds_fit])
     peak = float(np.max(smooth))
     if peak <= 0.0:
         peak = 1.0
@@ -76,8 +73,7 @@ def _params_to_seed(params: np.ndarray) -> np.ndarray:
     return arr
 
 
-def _block_indices(n_seg: int, block_size: int,
-                   rng: np.random.Generator) -> np.ndarray:
+def _block_indices(n_seg: int, block_size: int, rng: np.random.Generator) -> np.ndarray:
     """Draw block-bootstrap indices covering ``n_seg`` segments.
 
     Blocks of ``block_size`` consecutive segments are drawn with
@@ -150,24 +146,29 @@ def bootstrap_modal_fit(
         rng = np.random.default_rng(rng)
 
     # ---- One spectrogram pass; every bootstrap draw resamples this axis.
-    freqs, sxx = compute_body_psds(corners, fs, nperseg=nperseg,
-                                    return_segments=True)
+    freqs, sxx = compute_body_psds(corners, fs, nperseg=nperseg, return_segments=True)
     fit_mask = (freqs >= fmin) & (freqs <= fmax)
     freqs_fit = freqs[fit_mask]
     sxx_fit = sxx[:, fit_mask, :]  # (4, nf_fit, n_seg)
     n_seg = sxx_fit.shape[-1]
     if n_seg < 2:
         log.warning(
-            "bootstrap_modal_fit: only %d Welch segment(s) available; "
-            "cannot construct CIs. Returning NaN.", n_seg,
+            "bootstrap_modal_fit: only %d Welch segment(s) available; cannot construct CIs. Returning NaN.",
+            n_seg,
         )
         nan4 = np.full(4, np.nan)
         return {
-            "fn_lo": nan4, "fn_hi": nan4, "fn_samples": np.empty((0, 4)),
-            "zeta_lo": nan4, "zeta_hi": nan4, "zeta_samples": np.empty((0, 4)),
-            "amp_front_lo": nan4, "amp_front_hi": nan4,
+            "fn_lo": nan4,
+            "fn_hi": nan4,
+            "fn_samples": np.empty((0, 4)),
+            "zeta_lo": nan4,
+            "zeta_hi": nan4,
+            "zeta_samples": np.empty((0, 4)),
+            "amp_front_lo": nan4,
+            "amp_front_hi": nan4,
             "amp_front_samples": np.empty((0, 4)),
-            "amp_rear_lo": nan4, "amp_rear_hi": nan4,
+            "amp_rear_lo": nan4,
+            "amp_rear_hi": nan4,
             "amp_rear_samples": np.empty((0, 4)),
             "n_boot_effective": 0,
         }
@@ -195,9 +196,13 @@ def bootstrap_modal_fit(
         n_avg_i = max(int(np.unique(idx).size), 1)
         try:
             res_i = vibrations_lorentz.run_fit(
-                freqs_fit, meas_norm, expected_freqs,
-                coh_hp=coh_hp, coh_rw=coh_rw,
-                n_avg=n_avg_i, x0_seed=x0_seed,
+                freqs_fit,
+                meas_norm,
+                expected_freqs,
+                coh_hp=coh_hp,
+                coh_rw=coh_rw,
+                n_avg=n_avg_i,
+                x0_seed=x0_seed,
             )
         except Exception as exc:  # noqa: BLE001 - individual draws may fail
             log.debug("bootstrap iter %d failed: %s", i, exc)
@@ -216,7 +221,7 @@ def bootstrap_modal_fit(
         if not np.array_equal(np.argmin(dist, axis=1), self_idx):
             n_swapped += 1
             continue
-        fn_samples[i]   = fn_i
+        fn_samples[i] = fn_i
         zeta_samples[i] = params_i[:, 1]
         ampf_samples[i] = params_i[:, 2]
         ampr_samples[i] = params_i[:, 3]
@@ -226,11 +231,17 @@ def bootstrap_modal_fit(
         log.warning("bootstrap_modal_fit: 0 / %d draws succeeded", n_boot)
         nan4 = np.full(4, np.nan)
         return {
-            "fn_lo": nan4, "fn_hi": nan4, "fn_samples": fn_samples,
-            "zeta_lo": nan4, "zeta_hi": nan4, "zeta_samples": zeta_samples,
-            "amp_front_lo": nan4, "amp_front_hi": nan4,
+            "fn_lo": nan4,
+            "fn_hi": nan4,
+            "fn_samples": fn_samples,
+            "zeta_lo": nan4,
+            "zeta_hi": nan4,
+            "zeta_samples": zeta_samples,
+            "amp_front_lo": nan4,
+            "amp_front_hi": nan4,
             "amp_front_samples": ampf_samples,
-            "amp_rear_lo": nan4, "amp_rear_hi": nan4,
+            "amp_rear_lo": nan4,
+            "amp_rear_hi": nan4,
             "amp_rear_samples": ampr_samples,
             "n_boot_effective": 0,
         }
@@ -246,21 +257,33 @@ def bootstrap_modal_fit(
     ar_lo, ar_hi = _pct(ampr_samples)
     if n_swapped > 0:
         log.info(
-            "  Bootstrap CIs: %d / %d draws OK (block=%d, K_seg=%d, "
-            "mode-swaps rejected=%d)",
-            n_ok, n_boot, block_size, n_seg, n_swapped,
+            "  Bootstrap CIs: %d / %d draws OK (block=%d, K_seg=%d, mode-swaps rejected=%d)",
+            n_ok,
+            n_boot,
+            block_size,
+            n_seg,
+            n_swapped,
         )
     else:
         log.info(
             "  Bootstrap CIs: %d / %d draws OK (block=%d, K_seg=%d)",
-            n_ok, n_boot, block_size, n_seg,
+            n_ok,
+            n_boot,
+            block_size,
+            n_seg,
         )
     return {
-        "fn_lo": fn_lo, "fn_hi": fn_hi, "fn_samples": fn_samples,
-        "zeta_lo": z_lo, "zeta_hi": z_hi, "zeta_samples": zeta_samples,
-        "amp_front_lo": af_lo, "amp_front_hi": af_hi,
+        "fn_lo": fn_lo,
+        "fn_hi": fn_hi,
+        "fn_samples": fn_samples,
+        "zeta_lo": z_lo,
+        "zeta_hi": z_hi,
+        "zeta_samples": zeta_samples,
+        "amp_front_lo": af_lo,
+        "amp_front_hi": af_hi,
         "amp_front_samples": ampf_samples,
-        "amp_rear_lo": ar_lo, "amp_rear_hi": ar_hi,
+        "amp_rear_lo": ar_lo,
+        "amp_rear_hi": ar_hi,
         "amp_rear_samples": ampr_samples,
         "n_boot_effective": n_ok,
     }

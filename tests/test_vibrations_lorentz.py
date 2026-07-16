@@ -3,6 +3,7 @@
 These target pure-math helpers so they run fast and depend only on numpy
 and scipy — no channel_config, no file I/O, no matplotlib.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -91,8 +92,8 @@ class TestRunFit:
         expected_bands = {
             "heave": (3.0, 6.5),
             "pitch": (7.0, 10.5),
-            "roll":  (4.0, 7.5),
-            "warp":  (9.0, 13.0),
+            "roll": (4.0, 7.5),
+            "warp": (9.0, 13.0),
         }
         result = run_fit(freqs, psds, expected_bands)
         assert result["fn"].shape == (4,)
@@ -102,26 +103,32 @@ class TestRunFit:
             f_fit = result["fn"][i]
             f_true = true_peaks[mode.lower()]
             assert np.isfinite(f_fit), f"{mode} produced non-finite f0"
-            assert abs(f_fit - f_true) < 0.5, (
-                f"{mode}: fitted {f_fit:.3f} Hz vs true {f_true:.3f} Hz"
-            )
+            assert abs(f_fit - f_true) < 0.5, f"{mode}: fitted {f_fit:.3f} Hz vs true {f_true:.3f} Hz"
         # Damping stays within advertised bounds.
         for z in result["zeta"]:
             assert ZETA_MIN <= z <= ZETA_MAX
 
     def test_result_dict_has_expected_keys(self):
         freqs = np.linspace(1.0, 15.0, 1024)
-        psds = _synthetic_body_psds(
-            freqs, {"heave": 5.0, "pitch": 8.5, "roll": 6.0, "warp": 11.0}
-        )
+        psds = _synthetic_body_psds(freqs, {"heave": 5.0, "pitch": 8.5, "roll": 6.0, "warp": 11.0})
         bands = {
-            "heave": (3.0, 6.5), "pitch": (7.0, 10.5),
-            "roll":  (4.0, 7.5), "warp":  (9.0, 13.0),
+            "heave": (3.0, 6.5),
+            "pitch": (7.0, 10.5),
+            "roll": (4.0, 7.5),
+            "warp": (9.0, 13.0),
         }
         r = run_fit(freqs, psds, bands)
-        for key in ("params", "baselines", "fn", "zeta",
-                    "amp_front", "amp_rear",
-                    "sigma_fn", "sigma_zeta",
-                    "r_squared", "mode_labels"):
+        for key in (
+            "params",
+            "baselines",
+            "fn",
+            "zeta",
+            "amp_front",
+            "amp_rear",
+            "sigma_fn",
+            "sigma_zeta",
+            "r_squared",
+            "mode_labels",
+        ):
             assert key in r, f"missing key {key!r} in run_fit result"
         assert list(r["mode_labels"]) == list(MODE_ORDER)

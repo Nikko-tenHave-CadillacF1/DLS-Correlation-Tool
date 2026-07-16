@@ -1,4 +1,3 @@
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -17,8 +16,8 @@ def _resolve_scatter_style(point_count, base_size, base_alpha):
         return max(3.0, base_size * 0.8), max(0.35, base_alpha * 0.8)
     return max(2.5, base_size * 0.7), max(0.22, base_alpha * 0.65)
 
-class ScatterMixin:
 
+class ScatterMixin:
     def _prepare_scatter_xy(self, df, x_var, y_var):
         if df is None:
             return None, None, None
@@ -34,8 +33,10 @@ class ScatterMixin:
         if xy.empty:
             return None, None, None
         return xy.index, xy[x_var].to_numpy(dtype=float), xy[y_var].to_numpy(dtype=float)
+
     def _resolve_scatter_plot_style(self, point_count):
         return _resolve_scatter_style(point_count, self.SCATTER_DOT_SIZE, self.SCATTER_TRANSPARENCY)
+
     def _build_gradient_segment_labels(self, fit_defs, x_var=None, y_var=None, data_bounds=None):
         if not isinstance(fit_defs, (list, tuple)):
             return None
@@ -61,28 +62,32 @@ class ScatterMixin:
             else:
                 labels.append(f"{axis_name} $\\in$ [{min_val:.4g}, {max_val:.4g}]")
         return labels if labels else None
-    def _select_trendline_anchor(self, ax, equations_list, avoid_corner=None,
-                                   n_text_lines=0):
+
+    def _select_trendline_anchor(self, ax, equations_list, avoid_corner=None, n_text_lines=0):
         w_frac = min(0.35, 0.22 + max(0, n_text_lines - 2) * 0.015)
         h_frac = 0.28 * min(1.5, 1.0 + max(0, n_text_lines - 4) * 0.06)
-        xs = np.concatenate([np.asarray(xv) for _, _, _, xv, _, _ in equations_list]) \
-            if equations_list else np.array([])
-        ys = np.concatenate([np.asarray(yv) for _, _, _, _, yv, _ in equations_list]) \
-            if equations_list else np.array([])
+        xs = (
+            np.concatenate([np.asarray(xv) for _, _, _, xv, _, _ in equations_list]) if equations_list else np.array([])
+        )
+        ys = (
+            np.concatenate([np.asarray(yv) for _, _, _, _, yv, _ in equations_list]) if equations_list else np.array([])
+        )
         x0, x1 = ax.get_xlim()
         y0, y1 = ax.get_ylim()
+
         def _density(corner):
             if xs.size == 0:
                 return 0
-            return self._count_points_in_region(
-                xs, ys, x0, x1, y0, y1, corner[0], corner[1], w_frac, h_frac
-            )
+            return self._count_points_in_region(xs, ys, x0, x1, y0, y1, corner[0], corner[1], w_frac, h_frac)
+
         corners = [c for c in self._INFO_CORNER_XY if c != avoid_corner]
         corners.sort(key=_density)
         halign, valign = corners[0]
         x_anchor, y_anchor = self._INFO_CORNER_XY[(halign, valign)]
         return x_anchor, y_anchor, halign, valign
+
     COMPACT_SEGMENT_THRESHOLD = 3
+
     @staticmethod
     def _fmt_coeff(v):
         if v is None:
@@ -100,16 +105,14 @@ class ScatterMixin:
                     formatted = formatted.rstrip("0").rstrip(".")
                 return formatted
         return raw
+
     def _parse_eq_list_to_segments(self, eq_list, fit_labels=None):
         if not eq_list:
             return []
         run_payload = []
         n_segments = 1
         for run_label, eq_text, color, x_vals, y_vals, slopes in eq_list:
-            lines = (
-                [l.strip() for l in str(eq_text).splitlines() if l.strip()]
-                if eq_text else []
-            )
+            lines = [l.strip() for l in str(eq_text).splitlines() if l.strip()] if eq_text else []
             n_segments = max(n_segments, len(lines) or 1)
             run_payload.append((run_label, color, lines, slopes))
         segments = []
@@ -129,19 +132,12 @@ class ScatterMixin:
                 if seg_idx >= len(lines):
                     continue
                 line = lines[seg_idx]
-                eq_part = (
-                    "y = " + line.split("   y = ")[1].strip()
-                    if "   y = " in line
-                    else line
-                )
-                slope_val = (
-                    slopes[seg_idx]
-                    if isinstance(slopes, tuple) and seg_idx < len(slopes)
-                    else slopes
-                )
+                eq_part = "y = " + line.split("   y = ")[1].strip() if "   y = " in line else line
+                slope_val = slopes[seg_idx] if isinstance(slopes, tuple) and seg_idx < len(slopes) else slopes
                 runs_in_seg.append((run_label, color, eq_part, slope_val))
             segments.append({"condition": condition, "runs": runs_in_seg})
         return segments
+
     def _compute_segment_pct_errors(self, runs_in_seg, baseline_label):
         baseline_slope = next(
             (s for lbl, _, _, s in runs_in_seg if lbl.upper() == baseline_label.upper()),
@@ -156,6 +152,7 @@ class ScatterMixin:
             else:
                 errors[lbl] = ((baseline_slope - slope) / slope) * 100
         return errors
+
     @staticmethod
     def _format_pct_error(pct, as_factor=False):
         if pct is None:
@@ -163,16 +160,14 @@ class ScatterMixin:
         if as_factor:
             return f"x {1.0 + pct / 100.0:.3f}"
         return f"{pct:+.1f}%"
-    def _display_fit_info(self, ax, eq_list, show_equations, show_error,
-                           fit_labels=None, avoid_corner=None,
-                           error_as_factor=False):
+
+    def _display_fit_info(
+        self, ax, eq_list, show_equations, show_error, fit_labels=None, avoid_corner=None, error_as_factor=False
+    ):
         segments = self._parse_eq_list_to_segments(eq_list, fit_labels)
         if not segments:
             return None
-        baseline_label = (
-            self.runs[0]["name"].upper() if self.runs
-            else (eq_list[0][0] if eq_list else "")
-        )
+        baseline_label = self.runs[0]["name"].upper() if self.runs else (eq_list[0][0] if eq_list else "")
         n_text_lines = 0
         for seg in segments:
             has_cond = bool(seg["condition"])
@@ -184,21 +179,45 @@ class ScatterMixin:
         )
         if len(segments) > self.COMPACT_SEGMENT_THRESHOLD:
             return self._display_compact_fit_box(
-                ax, segments, show_equations, show_error, baseline_label,
-                x_anchor, y_anchor, halign, valign,
+                ax,
+                segments,
+                show_equations,
+                show_error,
+                baseline_label,
+                x_anchor,
+                y_anchor,
+                halign,
+                valign,
                 error_as_factor=error_as_factor,
             )
         return self._display_segment_boxes(
-            ax, segments, show_equations, show_error, baseline_label,
-            x_anchor, y_anchor, halign, valign,
+            ax,
+            segments,
+            show_equations,
+            show_error,
+            baseline_label,
+            x_anchor,
+            y_anchor,
+            halign,
+            valign,
             error_as_factor=error_as_factor,
         )
+
     def _display_segment_boxes(
-        self, ax, segments, show_equations, show_error, baseline_label,
-        x_anchor, y_anchor, halign, valign,
+        self,
+        ax,
+        segments,
+        show_equations,
+        show_error,
+        baseline_label,
+        x_anchor,
+        y_anchor,
+        halign,
+        valign,
         error_as_factor=False,
     ):
         from matplotlib.offsetbox import AnnotationBbox, TextArea, VPacker
+
         fig = ax.get_figure()
         fig_h = fig.get_size_inches()[1]
         total_lines = 0
@@ -212,9 +231,9 @@ class ScatterMixin:
         _va_map = {"top": 1.0, "center": 0.5, "bottom": 0.0}
         ha_val = _ha_map.get(halign, 0.0)
         va_val = _va_map.get(valign, 1.0)
-        ab_pad   = 0
-        sep_pts  = 3
-        vpk_pad  = 8
+        ab_pad = 0
+        sep_pts = 3
+        vpk_pad = 8
         box_gap_frac = 0.015
         cursor = y_anchor
         all_ypos = []
@@ -281,9 +300,18 @@ class ScatterMixin:
             else:
                 cursor += box_h_frac + box_gap_frac
         return (x_anchor, halign, valign, all_ypos) if all_ypos else None
+
     def _display_compact_fit_box(
-        self, ax, segments, show_equations, show_error, baseline_label,
-        x_anchor, y_anchor, halign, valign,
+        self,
+        ax,
+        segments,
+        show_equations,
+        show_error,
+        baseline_label,
+        x_anchor,
+        y_anchor,
+        halign,
+        valign,
         error_as_factor=False,
     ):
         fontsize = 9
@@ -314,19 +342,27 @@ class ScatterMixin:
         if not show_equations and show_error:
             lines = [f"$\\delta$m vs {baseline_label}"] + [f"  {l}" for l in lines]
         ax.text(
-            x_anchor, y_anchor, "\n".join(lines),
+            x_anchor,
+            y_anchor,
+            "\n".join(lines),
             transform=ax.transAxes,
             fontsize=fontsize,
             verticalalignment=valign,
             horizontalalignment=halign,
             bbox=dict(
                 boxstyle="round,pad=0.25",
-                facecolor="white", alpha=0.92,
-                edgecolor="#3C3C3C", linewidth=1.4,
+                facecolor="white",
+                alpha=0.92,
+                edgecolor="#3C3C3C",
+                linewidth=1.4,
             ),
-            color="#1A1A1A", fontweight="bold", family="Montserrat", zorder=10,
+            color="#1A1A1A",
+            fontweight="bold",
+            family="Montserrat",
+            zorder=10,
         )
         return x_anchor, halign, valign, [y_anchor]
+
     def generate_scatter_plots(self):
         self._ensure_preprocessed()
         plots = self._get_plot_group(1)
@@ -356,11 +392,13 @@ class ScatterMixin:
             fig, ax = plt.subplots(figsize=figsize)
             ax.set_xlabel(
                 datafunctions.add_units_to_label(x_var, self.units_map),
-                fontweight="bold", fontsize=14,
+                fontweight="bold",
+                fontsize=14,
             )
             ax.set_ylabel(
                 datafunctions.add_units_to_label(y_var, self.units_map),
-                fontweight="bold", fontsize=14,
+                fontweight="bold",
+                fontsize=14,
             )
             eq_list = []
             fit_line_params = {}
@@ -374,10 +412,7 @@ class ScatterMixin:
                     continue
                 if x_var not in df.columns or y_var not in df.columns:
                     missing = [ch for ch in (x_var, y_var) if ch not in df.columns]
-                    msg = (
-                        f"Scatter '{plot_name}': "
-                        f"missing {missing} in run '{rn}'. Skipping."
-                    )
+                    msg = f"Scatter '{plot_name}': missing {missing} in run '{rn}'. Skipping."
                     for ch in missing:
                         hint = self._format_missing_channel_hint(rn, ch)
                         if hint:
@@ -388,7 +423,8 @@ class ScatterMixin:
                 if x_values is None:
                     log.warning(
                         "Scatter '%s': no valid points in run '%s'. Skipping.",
-                        plot_name, rn,
+                        plot_name,
+                        rn,
                     )
                     continue
                 point_size, point_alpha = self._resolve_scatter_plot_style(len(x_values))
@@ -400,19 +436,31 @@ class ScatterMixin:
                     cg_idx = set(df_cg.index) if df_cg is not None and not df_cg.empty else set()
                     in_cg = np.isin(xy_index, list(cg_idx))
                     x_normal, y_normal = x_values[~in_cg], y_values[~in_cg]
-                    x_cg,     y_cg     = x_values[in_cg],  y_values[in_cg]
+                    x_cg, y_cg = x_values[in_cg], y_values[in_cg]
                     if len(x_normal):
                         datafunctions.plot_scatter(
-                            ax, x_normal, y_normal,
-                            run["name"].upper(), run["color"],
-                            point_alpha, point_size, x_var, y_var,
+                            ax,
+                            x_normal,
+                            y_normal,
+                            run["name"].upper(),
+                            run["color"],
+                            point_alpha,
+                            point_size,
+                            x_var,
+                            y_var,
                             max_points=max_points,
                         )
                     if len(x_cg):
                         datafunctions.plot_scatter(
-                            ax, x_cg, y_cg,
-                            "_nolegend_", cg_color,
-                            min(point_alpha + 0.1, 1.0), point_size * 1.3, x_var, y_var,
+                            ax,
+                            x_cg,
+                            y_cg,
+                            "_nolegend_",
+                            cg_color,
+                            min(point_alpha + 0.1, 1.0),
+                            point_size * 1.3,
+                            x_var,
+                            y_var,
                             max_points=max_points,
                         )
                     x_fit, y_fit = x_values, y_values
@@ -420,11 +468,15 @@ class ScatterMixin:
                     x_fit, y_fit = x_values, y_values
                 if isinstance(best_fit, (list, tuple)) and best_fit and isinstance(best_fit[0], (list, tuple)):
                     fit_condition_data = datafunctions.build_fit_condition_data(
-                        df, xy_index, best_fit, plot_name=plot_name, run_name=rn,
+                        df,
+                        xy_index,
+                        best_fit,
+                        plot_name=plot_name,
+                        run_name=rn,
                     )
                     if fit_condition_data:
                         for ch_name, ch_arr in fit_condition_data.items():
-                            finite_vals = ch_arr[np.isfinite(ch_arr)] if hasattr(ch_arr, '__len__') else np.array([])
+                            finite_vals = ch_arr[np.isfinite(ch_arr)] if hasattr(ch_arr, "__len__") else np.array([])
                             if len(finite_vals) > 0:
                                 ch_min, ch_max = float(np.min(finite_vals)), float(np.max(finite_vals))
                                 if ch_name in condition_data_bounds:
@@ -432,20 +484,40 @@ class ScatterMixin:
                                     condition_data_bounds[ch_name] = (min(prev_min, ch_min), max(prev_max, ch_max))
                                 else:
                                     condition_data_bounds[ch_name] = (ch_min, ch_max)
-                    ok, slopes, intercepts, eq_text, fit_meta = datafunctions.plot_scatter_with_multi_fit(
-                        ax, x_fit, y_fit,
-                        run["name"].upper(), run["color"],
-                        point_alpha, point_size, x_var, y_var,
-                        fit_defs=best_fit, fit_condition_data=fit_condition_data,
-                        max_points=max_points,
-                        robust=robust, robust_threshold=robust_threshold,
-                    ) if color_gate is None else datafunctions.plot_scatter_with_multi_fit(
-                        ax, x_fit, y_fit,
-                        "_nolegend_", run["color"],
-                        0, 0, x_var, y_var,
-                        fit_defs=best_fit, fit_condition_data=fit_condition_data,
-                        max_points=max_points,
-                        robust=robust, robust_threshold=robust_threshold,
+                    ok, slopes, intercepts, eq_text, fit_meta = (
+                        datafunctions.plot_scatter_with_multi_fit(
+                            ax,
+                            x_fit,
+                            y_fit,
+                            run["name"].upper(),
+                            run["color"],
+                            point_alpha,
+                            point_size,
+                            x_var,
+                            y_var,
+                            fit_defs=best_fit,
+                            fit_condition_data=fit_condition_data,
+                            max_points=max_points,
+                            robust=robust,
+                            robust_threshold=robust_threshold,
+                        )
+                        if color_gate is None
+                        else datafunctions.plot_scatter_with_multi_fit(
+                            ax,
+                            x_fit,
+                            y_fit,
+                            "_nolegend_",
+                            run["color"],
+                            0,
+                            0,
+                            x_var,
+                            y_var,
+                            fit_defs=best_fit,
+                            fit_condition_data=fit_condition_data,
+                            max_points=max_points,
+                            robust=robust,
+                            robust_threshold=robust_threshold,
+                        )
                     )
                     if ok:
                         eq_list.append((run["name"].upper(), eq_text, run["color"], x_values, y_values, slopes))
@@ -453,29 +525,43 @@ class ScatterMixin:
                         if robust and isinstance(fit_meta, dict) and fit_meta.get("robust_info"):
                             info = fit_meta["robust_info"]
                             if info["n_outliers"] > 0:
-                                self._outlier_log.append({
-                                    "plot": plot_name,
-                                    "run": run["name"].upper(),
-                                    "n_outliers": info["n_outliers"],
-                                    "n_total": info["n_total"],
-                                    "pseudo_r2": None,
-                                })
+                                self._outlier_log.append(
+                                    {
+                                        "plot": plot_name,
+                                        "run": run["name"].upper(),
+                                        "n_outliers": info["n_outliers"],
+                                        "n_total": info["n_total"],
+                                        "pseudo_r2": None,
+                                    }
+                                )
                 elif best_fit == 0:
                     if color_gate is None:
                         datafunctions.plot_scatter(
-                            ax, x_fit, y_fit,
-                            run["name"].upper(), run["color"],
-                            point_alpha, point_size, x_var, y_var,
+                            ax,
+                            x_fit,
+                            y_fit,
+                            run["name"].upper(),
+                            run["color"],
+                            point_alpha,
+                            point_size,
+                            x_var,
+                            y_var,
                             max_points=max_points,
                         )
                 elif best_fit in (1, 2):
                     ok, slope, interc, eq_text, fit_meta = datafunctions.plot_scatter_with_1fit(
-                        ax, x_fit, y_fit,
+                        ax,
+                        x_fit,
+                        y_fit,
                         run["name"].upper() if color_gate is None else "_nolegend_",
                         run["color"],
-                        point_alpha, point_size, x_var, y_var,
+                        point_alpha,
+                        point_size,
+                        x_var,
+                        y_var,
                         max_points=max_points,
-                        robust=robust, robust_threshold=robust_threshold,
+                        robust=robust,
+                        robust_threshold=robust_threshold,
                     )
                     if ok:
                         eq_list.append((run["name"].upper(), eq_text, run["color"], x_values, y_values, slope))
@@ -483,13 +569,15 @@ class ScatterMixin:
                         if robust and isinstance(fit_meta, dict) and fit_meta.get("robust_info"):
                             info = fit_meta["robust_info"]
                             if info["n_outliers"] > 0:
-                                self._outlier_log.append({
-                                    "plot": plot_name,
-                                    "run": run["name"].upper(),
-                                    "n_outliers": info["n_outliers"],
-                                    "n_total": info["n_total"],
-                                    "pseudo_r2": info["pseudo_r2"],
-                                })
+                                self._outlier_log.append(
+                                    {
+                                        "plot": plot_name,
+                                        "run": run["name"].upper(),
+                                        "n_outliers": info["n_outliers"],
+                                        "n_total": info["n_total"],
+                                        "pseudo_r2": info["pseudo_r2"],
+                                    }
+                                )
             has_x_limits, has_y_limits = self._apply_2d_axis_limits(ax, axis_limits)
             self._add_axis_edge_padding(
                 ax,
@@ -508,11 +596,7 @@ class ScatterMixin:
             anchor = None
             if eq_list and (show_equations or show_error):
                 fit_labels = None
-                if (
-                    isinstance(best_fit, (list, tuple))
-                    and best_fit
-                    and isinstance(best_fit[0], (list, tuple))
-                ):
+                if isinstance(best_fit, (list, tuple)) and best_fit and isinstance(best_fit[0], (list, tuple)):
                     data_bounds = dict(condition_data_bounds)
                     all_x = np.concatenate([e[3] for e in eq_list if e[3] is not None])
                     all_y = np.concatenate([e[4] for e in eq_list if e[4] is not None])
@@ -524,7 +608,11 @@ class ScatterMixin:
                         best_fit, x_var=x_var, y_var=y_var, data_bounds=data_bounds
                     )
                 anchor = self._display_fit_info(
-                    ax, eq_list, show_equations, show_error, fit_labels=fit_labels,
+                    ax,
+                    eq_list,
+                    show_equations,
+                    show_error,
+                    fit_labels=fit_labels,
                     error_as_factor=error_as_factor,
                 )
             fit_corner = (anchor[1], anchor[2]) if anchor else None
@@ -535,6 +623,7 @@ class ScatterMixin:
                     self._display_gate_info(ax, gate_text, legend=legend, trend_anchor=anchor)
             if color_gate is not None and len(color_gate) >= 4 and legend is not None:
                 import matplotlib.patches as mpatches
+
                 cg_label = datafunctions.format_gate_text(color_gate[:3]) or str(color_gate[:3])
                 patch = mpatches.Patch(color=color_gate[3], label=f"Gate: {cg_label}")
                 existing = list(legend.legend_handles)
@@ -598,27 +687,38 @@ class ScatterMixin:
                             else:
                                 x_text_offset = 10
                                 ha = "left"
-                            ax.scatter([x_at], [y_at], color=color_e, s=50, zorder=10,
-                                       edgecolors="white", linewidths=1.2)
+                            ax.scatter(
+                                [x_at], [y_at], color=color_e, s=50, zorder=10, edgecolors="white", linewidths=1.2
+                            )
                             ax.annotate(
                                 f"{y_at:.3g}",
-                                xy=(x_at, y_at), xytext=(x_text_offset, y_offset),
+                                xy=(x_at, y_at),
+                                xytext=(x_text_offset, y_offset),
                                 textcoords="offset points",
-                                fontsize=9, fontweight="bold", color=color_e,
+                                fontsize=9,
+                                fontweight="bold",
+                                color=color_e,
                                 ha=ha,
                                 zorder=11,
-                                arrowprops=dict(arrowstyle="-", color=color_e,
-                                                lw=0.8, alpha=0.6),
-                                bbox=dict(boxstyle="round,pad=0.22", facecolor="white",
-                                          alpha=0.92, edgecolor=color_e, linewidth=0.8),
+                                arrowprops=dict(arrowstyle="-", color=color_e, lw=0.8, alpha=0.6),
+                                bbox=dict(
+                                    boxstyle="round,pad=0.22",
+                                    facecolor="white",
+                                    alpha=0.92,
+                                    edgecolor=color_e,
+                                    linewidth=0.8,
+                                ),
                             )
             self._draw_static_markers(ax, markers)
             self._draw_horizontal_reference_lines(ax, reference_lines)
             plt.tight_layout(pad=0.25)
-            fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight")
+            fig.savefig(
+                self.plots_dir / filename, dpi=self.output_dpi, pad_inches=0.15, facecolor="white", bbox_inches="tight"
+            )
             plt.close(fig)
             if self.verbose:
                 log.debug("Saved: %s", filename)
+
     def generate_scatter3d_plots(self, plots=None):
         self._ensure_preprocessed()
         if plots is None:
@@ -664,7 +764,9 @@ class ScatterMixin:
                 if missing:
                     log.warning(
                         "Scatter3D '%s': missing %s in run '%s'. Skipping run.",
-                        plot_name, missing, rn,
+                        plot_name,
+                        missing,
+                        rn,
                     )
                     continue
                 xyz = pd.concat(
@@ -678,21 +780,27 @@ class ScatterMixin:
                 if xyz.empty:
                     log.warning(
                         "Scatter3D '%s': no valid points in run '%s'. Skipping run.",
-                        plot_name, rn,
+                        plot_name,
+                        rn,
                     )
                     continue
                 max_points = self.SCATTER_MAX_POINTS
                 if len(xyz) > max_points:
                     xyz = xyz.sample(n=max_points, random_state=0).sort_index()
                 point_size, point_alpha = _resolve_scatter_style(
-                    len(xyz), self.SCATTER_DOT_SIZE, self.SCATTER_TRANSPARENCY,
+                    len(xyz),
+                    self.SCATTER_DOT_SIZE,
+                    self.SCATTER_TRANSPARENCY,
                 )
                 ax.scatter(
                     xyz[x_var].to_numpy(dtype=float),
                     xyz[y_var].to_numpy(dtype=float),
                     xyz[z_var].to_numpy(dtype=float),
-                    c=run["color"], s=point_size, alpha=point_alpha,
-                    label=run["name"].upper(), depthshade=True,
+                    c=run["color"],
+                    s=point_size,
+                    alpha=point_alpha,
+                    label=run["name"].upper(),
+                    depthshade=True,
                 )
                 any_plotted = True
             if not any_plotted:

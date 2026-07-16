@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import matplotlib
@@ -40,6 +39,7 @@ def make_unique(names):
             unique_names.append(name)
     return unique_names
 
+
 def _find_split_column(df: pd.DataFrame, column: str) -> str | None:
     """Resolve a split_by column name against a DataFrame, case-insensitively.
 
@@ -58,6 +58,7 @@ def _find_split_column(df: pd.DataFrame, column: str) -> str | None:
         return lower_map[target[1:]]
     return None
 
+
 def _format_split_key(value) -> str:
     """Render a split_by group value as a filesystem-friendly suffix."""
     if value is None:
@@ -72,6 +73,7 @@ def _format_split_key(value) -> str:
         return str(int(value))
     s = str(value).strip()
     return s.replace(" ", "_") if s else "blank"
+
 
 def _split_by_required_columns(spec) -> list[str] | None:
     """Return the source column(s) a split_by spec depends on.
@@ -91,7 +93,9 @@ def _split_by_required_columns(spec) -> list[str] | None:
         return [col] if col else []
     return []
 
+
 _CALC_DEP_CACHE = {}
+
 
 def _extract_calculated_dependencies(func):
     key = id(func)
@@ -105,6 +109,7 @@ def _extract_calculated_dependencies(func):
         return deps
     import inspect
     import re
+
     try:
         source = inspect.getsource(func)
     except Exception:
@@ -121,14 +126,17 @@ def _extract_calculated_dependencies(func):
     _CALC_DEP_CACHE[key] = deps
     return deps
 
+
 def collect_referenced_channels(plot_definitions):
     referenced = set()
+
     def _add(value):
         if isinstance(value, str):
             referenced.add(value)
         elif isinstance(value, (list, tuple)):
             for v in value:
                 _add(v)
+
     for plot_group in plot_definitions or []:
         for plot_def in plot_group or []:
             kind = getattr(plot_def, "kind", None)
@@ -137,22 +145,16 @@ def collect_referenced_channels(plot_definitions):
                 _add(plot_def.x_channel)
                 for m in getattr(plot_def, "markers", None) or []:
                     if getattr(m, "condition", None) is not None:
-                        referenced.update(
-                            datafunctions.collect_gate_channels(m.condition)
-                        )
+                        referenced.update(datafunctions.collect_gate_channels(m.condition))
             elif kind == "scatter":
                 _add(plot_def.x_channel)
                 _add(plot_def.y_channel)
                 if isinstance(plot_def.best_fit, (list, tuple)):
-                    referenced.update(
-                        datafunctions.collect_multi_fit_condition_channels(plot_def.best_fit)
-                    )
+                    referenced.update(datafunctions.collect_multi_fit_condition_channels(plot_def.best_fit))
                 if plot_def.gate is not None:
                     referenced.update(datafunctions.collect_gate_channels(plot_def.gate))
                 if isinstance(plot_def.color_gate, (list, tuple)) and len(plot_def.color_gate) >= 3:
-                    referenced.update(
-                        datafunctions.collect_gate_channels(tuple(plot_def.color_gate[:3]))
-                    )
+                    referenced.update(datafunctions.collect_gate_channels(tuple(plot_def.color_gate[:3])))
             elif kind == "psd":
                 _add(plot_def.channel)
                 if getattr(plot_def, "gate", None) is not None:
@@ -186,6 +188,7 @@ def collect_referenced_channels(plot_definitions):
                     referenced.update(datafunctions.collect_gate_channels(plot_def.gate))
     return sorted(referenced)
 
+
 def _prepare_slap_vcar_series(df):
     if "sLap" not in df.columns or "vCar" not in df.columns:
         return None, None
@@ -201,6 +204,7 @@ def _prepare_slap_vcar_series(df):
     if len(tmp) < 50:
         return None, None
     return tmp["s"].to_numpy(dtype=float), tmp["v"].to_numpy(dtype=float)
+
 
 def _score_slap_alignment(ref_s, ref_v, oth_s, oth_v, scale, offset):
     transformed = oth_s * scale + offset
@@ -221,6 +225,7 @@ def _score_slap_alignment(ref_s, ref_v, oth_s, oth_v, scale, offset):
             corr = 0.0
     mae = float(np.mean(np.abs(ref_interp - oth_interp)))
     return corr, mae, grid.size
+
 
 def estimate_slap_alignment(runs, run_data):
     lines = []
@@ -259,34 +264,45 @@ def estimate_slap_alignment(runs, run_data):
                 corr, mae, n = score
                 key = (corr, -mae, n)
                 if best is None or key > best["key"]:
-                    best = {"scale": float(scale), "offset": float(offset),
-                            "corr": corr, "mae": mae, "n": int(n), "key": key}
+                    best = {
+                        "scale": float(scale),
+                        "offset": float(offset),
+                        "corr": corr,
+                        "mae": mae,
+                        "n": int(n),
+                        "key": key,
+                    }
         if best is not None:
             try:
                 from scipy.optimize import minimize
+
                 def _obj(x):
                     score = _score_slap_alignment(ref_s, ref_v, oth_s, oth_v, x[0], x[1])
                     if score is None:
                         return 1e6
                     corr, mae, _n = score
                     return -corr + 1e-3 * mae
+
                 result = minimize(
-                    _obj, x0=[best["scale"], best["offset"]],
+                    _obj,
+                    x0=[best["scale"], best["offset"]],
                     method="Nelder-Mead",
                     options={"xatol": 1e-6, "fatol": 1e-6, "maxiter": 200},
                 )
                 if result.success or result.nit > 0:
-                    score = _score_slap_alignment(
-                        ref_s, ref_v, oth_s, oth_v, float(result.x[0]), float(result.x[1])
-                    )
+                    score = _score_slap_alignment(ref_s, ref_v, oth_s, oth_v, float(result.x[0]), float(result.x[1]))
                     if score is not None:
                         corr, mae, n = score
                         key = (corr, -mae, n)
                         if key > best["key"]:
-                            best = {"scale": float(result.x[0]),
-                                    "offset": float(result.x[1]),
-                                    "corr": corr, "mae": mae,
-                                    "n": int(n), "key": key}
+                            best = {
+                                "scale": float(result.x[0]),
+                                "offset": float(result.x[1]),
+                                "corr": corr,
+                                "mae": mae,
+                                "n": int(n),
+                                "key": key,
+                            }
             except Exception:
                 pass
         if best is None:
@@ -294,15 +310,14 @@ def estimate_slap_alignment(runs, run_data):
             continue
         drift_end = (best["scale"] - 1.0) * ref_range
         lines.append(
-
-                f"{rn.upper()} vs {base_name.upper()}: "
-                f"scale={best['scale']:.6f}, offset={best['offset']:+.2f} m, "
-                f"end_drift_est={drift_end:+.2f} m, "
-                f"vCar_corr={best['corr']:.4f}, vCar_mae={best['mae']:.2f} kph, "
-                f"samples={best['n']}"
-
+            f"{rn.upper()} vs {base_name.upper()}: "
+            f"scale={best['scale']:.6f}, offset={best['offset']:+.2f} m, "
+            f"end_drift_est={drift_end:+.2f} m, "
+            f"vCar_corr={best['corr']:.4f}, vCar_mae={best['mae']:.2f} kph, "
+            f"samples={best['n']}"
         )
     return lines
+
 
 def compute_slap_alignment(runs, run_data, target_length=None):
     result = {}
@@ -370,8 +385,8 @@ def compute_slap_alignment(runs, run_data, target_length=None):
         result[rn] = scale
     return result
 
-class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBoxMixin):
 
+class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBoxMixin):
     def __init__(
         self,
         root_folder: str | Path,
@@ -399,13 +414,27 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         debug_scatter3d_plots: list | None = None,
     ):
         if fig_size is None:
-            fig_size = {"waveform": (15.5, 6.4), "scatter": (10, 8), "psd": (10, 8),
-                        "histogram": (10, 8), "bar": (10, 6), "box": (10, 6)}
+            fig_size = {
+                "waveform": (15.5, 6.4),
+                "scatter": (10, 8),
+                "psd": (10, 8),
+                "histogram": (10, 8),
+                "bar": (10, 6),
+                "box": (10, 6),
+            }
         root_folder = Path(root_folder)
         output_dir = Path(output_dir) if output_dir is not None else root_folder
         _AUTO_COLORS = (
-            "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
-            "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+            "#1f77b4",
+            "#ff7f0e",
+            "#2ca02c",
+            "#d62728",
+            "#9467bd",
+            "#8c564b",
+            "#e377c2",
+            "#7f7f7f",
+            "#bcbd22",
+            "#17becf",
         )
         for _i, _r in enumerate(runs):
             if isinstance(_r, dict):
@@ -448,14 +477,15 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         self.SCATTER_MAX_POINTS = scatter_max_points
         if isinstance(fig_size, dict):
             default = fig_size.get("default", (10, 8))
-            self.waveform_figsize  = fig_size.get("waveform",  fig_size.get("default", (15.5, 6.4)))
-            self.scatter_FIGSIZE   = fig_size.get("scatter",   default)
-            self.psd_FIGSIZE       = fig_size.get("psd",       default)
+            self.waveform_figsize = fig_size.get("waveform", fig_size.get("default", (15.5, 6.4)))
+            self.scatter_FIGSIZE = fig_size.get("scatter", default)
+            self.psd_FIGSIZE = fig_size.get("psd", default)
             self.histogram_FIGSIZE = fig_size.get("histogram", default)
-            self.bar_FIGSIZE       = fig_size.get("bar",       fig_size.get("default", (10, 6)))
-            self.boxplot_FIGSIZE   = fig_size.get("box",       self.bar_FIGSIZE)
+            self.bar_FIGSIZE = fig_size.get("bar", fig_size.get("default", (10, 6)))
+            self.boxplot_FIGSIZE = fig_size.get("box", self.bar_FIGSIZE)
         elif (
-            isinstance(fig_size, (list, tuple)) and len(fig_size) == 2
+            isinstance(fig_size, (list, tuple))
+            and len(fig_size) == 2
             and all(isinstance(v, (int, float)) for v in fig_size)
         ):
             size = (float(fig_size[0]), float(fig_size[1]))
@@ -489,13 +519,12 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         if self.CHANNEL_MAPPINGS:
             for source_type, mapping in self.CHANNEL_MAPPINGS.items():
                 if mapping:
-                    self._reverse_mappings[source_type] = {
-                        mapped: raw for raw, mapped in mapping.items()
-                    }
+                    self._reverse_mappings[source_type] = {mapped: raw for raw, mapped in mapping.items()}
         self.plots_dir = output_dir / "plots"
         self.plots_dir.mkdir(parents=True, exist_ok=True)
         self.load_data(root_folder)
         self.preprocess_data()
+
     PLOT_FONT = {
         "family": "Montserrat",
         "fallback": ["DejaVu Sans", "Arial", "sans-serif"],
@@ -509,41 +538,44 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         "major": {"alpha": 0.30, "linewidth": 0.6},
         "minor": {"alpha": 0.22, "linewidth": 0.4},
     }
+
     def _configure_plot_style(self):
         available_fonts = {font.name for font in font_manager.fontManager.ttflist}
         preferred_font = (
-            self.PLOT_FONT["family"]
-            if self.PLOT_FONT["family"] in available_fonts
-            else self.PLOT_FONT["fallback"][0]
+            self.PLOT_FONT["family"] if self.PLOT_FONT["family"] in available_fonts else self.PLOT_FONT["fallback"][0]
         )
         ink = "#1A1A1A"
-        plt.rcParams.update({
-            "font.family": preferred_font,
-            "font.sans-serif": [self.PLOT_FONT["family"]] + self.PLOT_FONT["fallback"],
-            "axes.titlesize": self.PLOT_FONT["title_size"],
-            "axes.titleweight": "bold",
-            "axes.labelsize": self.PLOT_FONT["label_size"],
-            "axes.labelweight": "bold",
-            "axes.edgecolor": ink,
-            "axes.labelcolor": ink,
-            "axes.titlecolor": ink,
-            "xtick.color": ink,
-            "ytick.color": ink,
-            "xtick.labelsize": self.PLOT_FONT["tick_size"],
-            "ytick.labelsize": self.PLOT_FONT["tick_size"],
-            "xtick.minor.visible": True,
-            "ytick.minor.visible": True,
-            "text.color": ink,
-            "legend.fontsize": self.PLOT_FONT["legend_size"],
-            "figure.titlesize": self.PLOT_FONT["figure_title_size"],
-            "figure.titleweight": "bold",
-        })
+        plt.rcParams.update(
+            {
+                "font.family": preferred_font,
+                "font.sans-serif": [self.PLOT_FONT["family"]] + self.PLOT_FONT["fallback"],
+                "axes.titlesize": self.PLOT_FONT["title_size"],
+                "axes.titleweight": "bold",
+                "axes.labelsize": self.PLOT_FONT["label_size"],
+                "axes.labelweight": "bold",
+                "axes.edgecolor": ink,
+                "axes.labelcolor": ink,
+                "axes.titlecolor": ink,
+                "xtick.color": ink,
+                "ytick.color": ink,
+                "xtick.labelsize": self.PLOT_FONT["tick_size"],
+                "ytick.labelsize": self.PLOT_FONT["tick_size"],
+                "xtick.minor.visible": True,
+                "ytick.minor.visible": True,
+                "text.color": ink,
+                "legend.fontsize": self.PLOT_FONT["legend_size"],
+                "figure.titlesize": self.PLOT_FONT["figure_title_size"],
+                "figure.titleweight": "bold",
+            }
+        )
+
     def _apply_grid(self, ax, which="both", axis="both"):
         if which in ("major", "both"):
             ax.grid(True, which="major", axis=axis, **self.GRID_STYLE["major"])
         if which in ("minor", "both"):
             ax.grid(True, which="minor", axis=axis, **self.GRID_STYLE["minor"])
         ax.set_axisbelow(True)
+
     def _run_fs(self, run_name: str) -> float:
         """Sample rate for a run: detected per-run value, else the global default.
 
@@ -556,6 +588,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         if pair and pair[0]:
             return float(pair[0])
         return float(self.FILTER_SAMPLE_RATE)
+
     @staticmethod
     def _apply_2d_axis_limits(ax, axis_limits, *, log_scale_y=False, y_floor=1e-4):
         if not axis_limits:
@@ -570,6 +603,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 ymin = max(ymin, y_floor)
             ax.set_ylim(bottom=ymin, top=ymax)
         return has_x, has_y
+
     @staticmethod
     def _draw_horizontal_reference_lines(ax, refs, *, label=True):
         if not refs:
@@ -590,11 +624,17 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             ax.axhline(v, color="#4A4A4A", linestyle="--", linewidth=0.8, alpha=0.65, zorder=1)
             if label:
                 ax.text(
-                    0.995, v, f" {v:g}",
+                    0.995,
+                    v,
+                    f" {v:g}",
                     transform=ax.get_yaxis_transform(),
-                    ha="right", va="bottom",
-                    fontsize=8, fontweight="bold", color="#333333",
+                    ha="right",
+                    va="bottom",
+                    fontsize=8,
+                    fontweight="bold",
+                    color="#333333",
                 )
+
     @staticmethod
     def _draw_static_markers(axes, markers, *, label_y=1.01, x_clip=True):
         if not markers:
@@ -611,20 +651,27 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 if x_clip and not (xl <= m.x <= xr):
                     continue
                 color = m.color or "#5E5E5E"
-                ax.axvline(m.x, color=color, linestyle=m.linestyle,
-                           linewidth=1.2, alpha=0.7, zorder=2)
+                ax.axvline(m.x, color=color, linestyle=m.linestyle, linewidth=1.2, alpha=0.7, zorder=2)
                 if m.label and m.show_label:
                     ax.text(
-                        m.x, label_y, m.label,
+                        m.x,
+                        label_y,
+                        m.label,
                         transform=ax.get_xaxis_transform(),
-                        ha="center", va="bottom",
-                        fontsize=9, fontweight="bold", color=color,
-                        bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
-                                  edgecolor=color, linewidth=0.8, alpha=0.9),
+                        ha="center",
+                        va="bottom",
+                        fontsize=9,
+                        fontweight="bold",
+                        color=color,
+                        bbox=dict(
+                            boxstyle="round,pad=0.2", facecolor="white", edgecolor=color, linewidth=0.8, alpha=0.9
+                        ),
                         zorder=12,
                     )
+
     def _get_required_source_columns(self, source_type):
         required_channels = set()
+
         def _extract_channels(spec_item):
             if isinstance(spec_item, str):
                 required_channels.add(spec_item)
@@ -632,6 +679,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             if isinstance(spec_item, (list, tuple)):
                 for part in spec_item:
                     _extract_channels(part)
+
         if self.PLOT_DEFINITIONS:
             for plot_group in self.PLOT_DEFINITIONS:
                 if not plot_group:
@@ -644,9 +692,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                             required_channels.add(plot_def.x_channel)
                         for m in getattr(plot_def, "markers", None) or []:
                             if getattr(m, "condition", None) is not None:
-                                required_channels.update(
-                                    datafunctions.collect_gate_channels(m.condition)
-                                )
+                                required_channels.update(datafunctions.collect_gate_channels(m.condition))
                     elif kind == "scatter":
                         required_channels.add(plot_def.x_channel)
                         required_channels.add(plot_def.y_channel)
@@ -655,9 +701,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                                 datafunctions.collect_multi_fit_condition_channels(plot_def.best_fit)
                             )
                         if plot_def.gate is not None:
-                            required_channels.update(
-                                datafunctions.collect_gate_channels(plot_def.gate)
-                            )
+                            required_channels.update(datafunctions.collect_gate_channels(plot_def.gate))
                         if isinstance(plot_def.color_gate, (list, tuple)) and len(plot_def.color_gate) >= 3:
                             required_channels.update(
                                 datafunctions.collect_gate_channels(tuple(plot_def.color_gate[:3]))
@@ -665,9 +709,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     elif kind == "psd":
                         _extract_channels(plot_def.channel)
                         if getattr(plot_def, "gate", None) is not None:
-                            required_channels.update(
-                                datafunctions.collect_gate_channels(plot_def.gate)
-                            )
+                            required_channels.update(datafunctions.collect_gate_channels(plot_def.gate))
                     elif kind == "histogram":
                         _extract_channels(plot_def.channel)
                     elif kind == "bar":
@@ -676,38 +718,28 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     elif kind == "box":
                         _extract_channels(plot_def.channels)
                         if plot_def.gate is not None:
-                            required_channels.update(
-                                datafunctions.collect_gate_channels(plot_def.gate)
-                            )
+                            required_channels.update(datafunctions.collect_gate_channels(plot_def.gate))
                     elif kind == "box_grid":
                         _extract_channels(plot_def.channels)
                         for _gate in plot_def.rows.values():
                             if _gate is not None:
-                                required_channels.update(
-                                    datafunctions.collect_gate_channels(_gate)
-                                )
+                                required_channels.update(datafunctions.collect_gate_channels(_gate))
                         for _gate in plot_def.cols.values():
                             if _gate is not None:
-                                required_channels.update(
-                                    datafunctions.collect_gate_channels(_gate)
-                                )
+                                required_channels.update(datafunctions.collect_gate_channels(_gate))
                     elif kind == "heatmap":
                         required_channels.add(plot_def.x_channel)
                         required_channels.add(plot_def.y_channel)
                         if plot_def.z_channel:
                             required_channels.add(plot_def.z_channel)
                         if plot_def.gate is not None:
-                            required_channels.update(
-                                datafunctions.collect_gate_channels(plot_def.gate)
-                            )
+                            required_channels.update(datafunctions.collect_gate_channels(plot_def.gate))
         for plot_def in getattr(self, "debug_scatter3d_plots", None) or []:
             required_channels.add(plot_def.x_channel)
             required_channels.add(plot_def.y_channel)
             required_channels.add(plot_def.z_channel)
             if getattr(plot_def, "gate", None) is not None:
-                required_channels.update(
-                    datafunctions.collect_gate_channels(plot_def.gate)
-                )
+                required_channels.update(datafunctions.collect_gate_channels(plot_def.gate))
         for support in ("sLap", "tLap", "vCar", "TimeIntoExport"):
             required_channels.add(support)
         resolved_channels = set()
@@ -734,6 +766,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             source_columns.add(ch)
             source_columns.add(mappings.get(ch, ch))
         return source_columns
+
     def _available_parquet_engines(self):
         engines = []
         if importlib.util.find_spec("pyarrow") is not None:
@@ -741,17 +774,21 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         if importlib.util.find_spec("fastparquet") is not None:
             engines.append("fastparquet")
         return engines
+
     def _get_parquet_schema_columns(self, file_path, engine):
         try:
             if engine == "pyarrow":
                 import pyarrow.parquet as pq
+
                 return [str(c).strip() for c in pq.read_schema(file_path).names]
             elif engine == "fastparquet":
                 import fastparquet
+
                 return [str(c).strip() for c in fastparquet.ParquetFile(str(file_path)).columns]
         except Exception:
             pass
         return None
+
     def _normalize_parquet_column_aliases(self, df):
         raw_columns = [str(c).strip() for c in df.columns]
         rename_map = {}
@@ -764,13 +801,17 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         if rename_map:
             df = df.rename(columns=rename_map)
         return df
+
     def _find_parquet_column(self, df, logical_name):
         columns = [str(c).strip() for c in df.columns]
         column_set = set(columns)
         lower_target = logical_name.lower()
         for candidate in [
-            logical_name, logical_name.lower(), logical_name.upper(),
-            f"_{logical_name}", f"_{logical_name.lower()}",
+            logical_name,
+            logical_name.lower(),
+            logical_name.upper(),
+            f"_{logical_name}",
+            f"_{logical_name.lower()}",
             logical_name[0].upper() + logical_name[1:],
         ]:
             if candidate in column_set:
@@ -780,10 +821,13 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             if len(insensitive) > 1:
                 log.warning(
                     "Multiple %s-like columns found: %s. Using '%s'.",
-                    logical_name, ', '.join(insensitive), insensitive[0],
+                    logical_name,
+                    ", ".join(insensitive),
+                    insensitive[0],
                 )
             return insensitive[0]
         return None
+
     def _resolve_required_parquet_columns(self, schema_cols, columns_to_load, nrun=None, nlap=None):
         raw_set = set(schema_cols)
         raw_lower = {c.lower(): c for c in schema_cols}
@@ -828,9 +872,17 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     if lower in raw_lower:
                         needed.add(raw_lower[lower])
         return sorted(needed) if needed else None
+
     def _apply_parquet_rank_value_filter(
-        self, df, filter_spec, column_logical_name, file_path, run_name,
-        is_rank=False, raise_on_missing_column=True, raise_on_empty_result=True,
+        self,
+        df,
+        filter_spec,
+        column_logical_name,
+        file_path,
+        run_name,
+        is_rank=False,
+        raise_on_missing_column=True,
+        raise_on_empty_result=True,
     ):
         if filter_spec is None:
             return df
@@ -868,10 +920,9 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 if numeric.notna().any():
                     unique_vals = sorted(numeric.dropna().unique().tolist())
                 else:
-                    unique_vals = sorted([
-                        v for v in series.astype(str).str.strip().unique()
-                        if v and v.lower() != "nan"
-                    ])
+                    unique_vals = sorted(
+                        [v for v in series.astype(str).str.strip().unique() if v and v.lower() != "nan"]
+                    )
                 target_values = []
                 for s in specs:
                     rank = int(pd.to_numeric(pd.Series([s]), errors="coerce").iloc[0])
@@ -905,8 +956,12 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 return df
             log.info(
                 "Run '%s' filtered by %s: %s in %s -> %d/%d rows kept.",
-                run_label, column_logical_name, run_col, target_values,
-                len(filtered), len(df),
+                run_label,
+                column_logical_name,
+                run_col,
+                target_values,
+                len(filtered),
+                len(df),
             )
             return filtered
         if is_rank:
@@ -916,20 +971,18 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             if numeric.notna().any():
                 unique_vals = sorted(numeric.dropna().unique().tolist())
             else:
-                unique_vals = sorted([
-                    v for v in series.astype(str).str.strip().unique()
-                    if v and v.lower() != "nan"
-                ])
+                unique_vals = sorted([v for v in series.astype(str).str.strip().unique() if v and v.lower() != "nan"])
             if rank > len(unique_vals):
                 raise ValueError(
                     f"Run '{run_label}' requested {column_logical_name.lower()}={rank}, "
                     f"but only {len(unique_vals)} unique values exist. "
-                    f"Available: {unique_vals[:12]}"
-                    + (" ..." if len(unique_vals) > 12 else "")
+                    f"Available: {unique_vals[:12]}" + (" ..." if len(unique_vals) > 12 else "")
                 )
             target_value = unique_vals[rank - 1]
-            mask = (numeric == target_value) if numeric.notna().any() else (
-                series.astype(str).str.strip() == str(target_value)
+            mask = (
+                (numeric == target_value)
+                if numeric.notna().any()
+                else (series.astype(str).str.strip() == str(target_value))
             )
         else:
             target_numeric = pd.to_numeric(pd.Series([filter_spec]), errors="coerce").iloc[0]
@@ -951,26 +1004,33 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 return df
         log.info(
             "Run '%s' filtered by %s: %s=%s -> %s=%s (%d/%d rows kept).",
-            run_label, column_logical_name, column_logical_name.lower(),
-            filter_spec, run_col, target_value, len(filtered), len(df),
+            run_label,
+            column_logical_name,
+            column_logical_name.lower(),
+            filter_spec,
+            run_col,
+            target_value,
+            len(filtered),
+            len(df),
         )
         return filtered
+
     def _load_parquet_with_fallback(
         self, file_path, columns_to_load=None, parquet_nrun=None, parquet_nlap=None, run_name=""
     ):
         available_engines = self._available_parquet_engines()
         if not available_engines:
-            raise ImportError(
-                "Parquet input requires 'pyarrow' or 'fastparquet', but neither is installed."
-            )
+            raise ImportError("Parquet input requires 'pyarrow' or 'fastparquet', but neither is installed.")
         errors = []
         for engine in available_engines:
             try:
                 schema_cols = self._get_parquet_schema_columns(file_path, engine)
                 if schema_cols is not None and columns_to_load:
                     col_subset = self._resolve_required_parquet_columns(
-                        schema_cols, columns_to_load,
-                        nrun=parquet_nrun, nlap=parquet_nlap,
+                        schema_cols,
+                        columns_to_load,
+                        nrun=parquet_nrun,
+                        nlap=parquet_nlap,
                     )
                 else:
                     col_subset = None
@@ -987,15 +1047,25 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 df = self._normalize_parquet_column_aliases(df)
                 if parquet_nrun is not None:
                     df = self._apply_parquet_rank_value_filter(
-                        df, filter_spec=parquet_nrun, column_logical_name="nRun",
-                        file_path=file_path, run_name=run_name,
-                        is_rank=True, raise_on_missing_column=True, raise_on_empty_result=True,
+                        df,
+                        filter_spec=parquet_nrun,
+                        column_logical_name="nRun",
+                        file_path=file_path,
+                        run_name=run_name,
+                        is_rank=True,
+                        raise_on_missing_column=True,
+                        raise_on_empty_result=True,
                     )
                 elif parquet_nlap is not None:
                     df = self._apply_parquet_rank_value_filter(
-                        df, filter_spec=parquet_nlap, column_logical_name="nLap",
-                        file_path=file_path, run_name=run_name,
-                        is_rank=False, raise_on_missing_column=False, raise_on_empty_result=False,
+                        df,
+                        filter_spec=parquet_nlap,
+                        column_logical_name="nLap",
+                        file_path=file_path,
+                        run_name=run_name,
+                        is_rank=False,
+                        raise_on_missing_column=False,
+                        raise_on_empty_result=False,
                     )
                 if columns_to_load:
                     requested = sorted(set(columns_to_load))
@@ -1010,14 +1080,13 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                         if c in df_cols_set:
                             hit = c
                         elif (
-                            c.startswith("_") and len(c) > 1 and c[1].isalpha()
+                            c.startswith("_")
+                            and len(c) > 1
+                            and c[1].isalpha()
                             and (c[1].upper() + c[2:]) in df_cols_set
                         ):
                             hit = c[1].upper() + c[2:]
-                        elif (
-                            len(c) > 1 and c[0].isalpha() and c[0].islower()
-                            and (c[0].upper() + c[1:]) in df_cols_set
-                        ):
+                        elif len(c) > 1 and c[0].isalpha() and c[0].islower() and (c[0].upper() + c[1:]) in df_cols_set:
                             # e.g. user asked for 'nRun'; parquet column
                             # normalised from '_nRun' is 'NRun'.
                             hit = c[0].upper() + c[1:]
@@ -1034,31 +1103,39 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     if missing and self.verbose:
                         log.debug(
                             "Parquet '%s' missing %d channel(s): %s%s",
-                            file_path.name, len(missing), ', '.join(missing[:10]),
+                            file_path.name,
+                            len(missing),
+                            ", ".join(missing[:10]),
                             " ..." if len(missing) > 10 else "",
                         )
                     if available:
                         df = df[available]
                     else:
-                        raise KeyError(
-                            f"No requested channels found in parquet. Requested: {requested[:10]}"
-                        )
+                        raise KeyError(f"No requested channels found in parquet. Requested: {requested[:10]}")
                 return df
             except Exception as exc:
                 errors.append(f"{engine}: {exc}")
         raise RuntimeError(
-            f"Unable to load parquet '{file_path}' via engines {available_engines}. "
-            f"Errors: {' | '.join(errors)}"
+            f"Unable to load parquet '{file_path}' via engines {available_engines}. Errors: {' | '.join(errors)}"
         )
+
     def _load_run_data(
-        self, file_path, use_python_engine=False, columns_to_load=None,
-        parquet_nrun=None, parquet_nlap=None, run_name="",
+        self,
+        file_path,
+        use_python_engine=False,
+        columns_to_load=None,
+        parquet_nrun=None,
+        parquet_nlap=None,
+        run_name="",
     ):
         try:
             if file_path.suffix.lower() == ".parquet":
                 df = self._load_parquet_with_fallback(
-                    file_path, columns_to_load=columns_to_load,
-                    parquet_nrun=parquet_nrun, parquet_nlap=parquet_nlap, run_name=run_name,
+                    file_path,
+                    columns_to_load=columns_to_load,
+                    parquet_nrun=parquet_nrun,
+                    parquet_nlap=parquet_nlap,
+                    run_name=run_name,
                 )
                 df.columns = make_unique([str(c).strip() for c in df.columns])
                 units = {c: "" for c in df.columns}
@@ -1090,6 +1167,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         except Exception as e:
             log.error("Failed to load '%s': %s", file_path, e)
             raise
+
     def _clean_data(self):
         for run_name in list(self.run_data.keys()):
             df = datafunctions.convert_yes_no_to_binary(self.run_data[run_name])
@@ -1097,14 +1175,14 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             # get bridged with stale 100 Hz spacing. Detection here is independent
             # of the post-resample detection a few steps later in _preprocess_data.
             detected_rate, _ = datafunctions.detect_sample_rate(
-                df, default=self.FILTER_SAMPLE_RATE,
+                df,
+                default=self.FILTER_SAMPLE_RATE,
             )
             interp_limit = max(1, int(detected_rate))
             drop_cols = []
             for col in list(df.columns):
                 if col == "TimeIntoExport" and not pd.api.types.is_numeric_dtype(df[col]):
-                    td = pd.to_timedelta(df[col].astype(str).str.strip(),
-                                         errors="coerce")
+                    td = pd.to_timedelta(df[col].astype(str).str.strip(), errors="coerce")
                     if td.notna().any():
                         df[col] = td.dt.total_seconds()
                         continue
@@ -1129,14 +1207,18 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 cols_to_interp = list(df.columns)
             if cols_to_interp:
                 df[cols_to_interp] = df[cols_to_interp].interpolate(
-                    method="linear", limit=interp_limit, axis=0,
+                    method="linear",
+                    limit=interp_limit,
+                    axis=0,
                 )
             self.run_data[run_name] = df
+
     def _ensure_preprocessed(self):
         if not self._loaded:
             raise RuntimeError("Data has not been loaded.")
         if not self._preprocessed:
             raise RuntimeError("Data has not been preprocessed.")
+
     def _cached_psd_with_segments(self, run_name, channel, nperseg, gate_spec=None):
         gate_key = repr(gate_spec) if gate_spec is not None else None
         key = (run_name, channel, nperseg, gate_key)
@@ -1156,7 +1238,11 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     log.warning(
                         "PSD '%s'/'%s': only %d finite samples — nperseg capped from %d to %d "
                         "(coarse frequency resolution, low averaging).",
-                        run_name, channel, finite_n, nperseg, effective,
+                        run_name,
+                        channel,
+                        finite_n,
+                        nperseg,
+                        effective,
                     )
             freq, power = datafunctions.calculate_psd(signal, rate, nperseg=nperseg)
             if freq is not None:
@@ -1171,42 +1257,48 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             except Exception as exc:
                 log.warning(
                     "PSD '%s'/'%s': gate evaluation failed (%s). Skipping.",
-                    run_name, channel, exc,
+                    run_name,
+                    channel,
+                    exc,
                 )
                 self._psd_cache[key] = (None, None, 0)
                 return None, None, 0
             freq, power, n_segs = datafunctions.calculate_segmented_psd(
-                signal, mask, rate, nperseg=nperseg,
+                signal,
+                mask,
+                rate,
+                nperseg=nperseg,
             )
             if freq is None:
                 log.warning(
                     "PSD '%s'/'%s': no gated segment >= nperseg (%d). Skipping.",
-                    run_name, channel, nperseg,
+                    run_name,
+                    channel,
+                    nperseg,
                 )
         self._psd_cache[key] = (freq, power, n_segs)
         return freq, power, n_segs
+
     def _suggest_similar_channels(self, run_name, missing_channel, max_suggestions=5):
         df = self.run_data.get(run_name)
         if df is None:
             return []
-        return datafunctions.suggest_similar_channels(
-            missing_channel, list(df.columns), max_results=max_suggestions
-        )
+        return datafunctions.suggest_similar_channels(missing_channel, list(df.columns), max_results=max_suggestions)
+
     def _format_missing_channel_hint(self, run_name, missing_channel):
         suggestions = self._suggest_similar_channels(run_name, missing_channel)
         if suggestions:
             return f"  Similar available: {', '.join(suggestions)}"
         return ""
+
     def _get_plot_group(self, index):
         if not self.PLOT_DEFINITIONS or len(self.PLOT_DEFINITIONS) <= index:
             return []
         return self.PLOT_DEFINITIONS[index] or []
+
     def _sanitize_plot_filename(self, prefix, plot_name, suffix=""):
         safe = (
-            plot_name.lower()
-            .replace(" ", "_")
-            .replace("(", "").replace(")", "")
-            .replace("/", "_").replace("\\", "_")
+            plot_name.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_").replace("\\", "_")
         )
         subdir = self.plots_dir / prefix
         try:
@@ -1214,6 +1306,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         except OSError:
             pass
         return f"{prefix}/{prefix}_{safe}{suffix}.png"
+
     def _resolve_plot_figsize(self, filename, default_size, *, min_height=None):
         w0, h0 = default_size
         target_aspect = self.plot_aspect_ratios.get(filename)
@@ -1233,6 +1326,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 # the default aspect ratio so all waveforms look consistent.
                 w = h * (w0 / h0)
         return (w, h)
+
     def _add_axis_edge_padding(self, ax, x_pad_ratio=0.02, y_pad_ratio=0.03):
         xmin, xmax = ax.get_xlim()
         ymin, ymax = ax.get_ylim()
@@ -1242,6 +1336,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         if ymax > ymin:
             pad = (ymax - ymin) * y_pad_ratio
             ax.set_ylim(ymin - pad, ymax + pad)
+
     def _get_filtered_run_dataframe(self, run_name, gate_spec=None):
         if gate_spec is None:
             return self.run_data.get(run_name)
@@ -1255,6 +1350,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         filtered = datafunctions.apply_gate_to_dataframe(df, gate_spec)
         self._gated_data_cache[cache_key] = filtered
         return filtered
+
     def load_data(self, root_folder: str | Path) -> dict[str, pd.DataFrame]:
         root_folder = Path(root_folder)
         self._root_folder = root_folder
@@ -1278,14 +1374,13 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             if not file_path.exists():
                 log.warning(
                     "Missing data file for run '%s': %s. Skipping run.",
-                    run_name, file_path,
+                    run_name,
+                    file_path,
                 )
                 continue
             try:
                 use_python_engine = run.get("use_python_engine", False)
-                self.run_required_cols[run_name] = self._get_required_source_columns(
-                    run.get("type", run_name)
-                )
+                self.run_required_cols[run_name] = self._get_required_source_columns(run.get("type", run_name))
                 # Ensure the split_by column survives parquet column
                 # projection — otherwise the loader would strip it.
                 split_cols = _split_by_required_columns(run.get("split_by"))
@@ -1295,9 +1390,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     if self.run_required_cols[run_name] is None:
                         columns_to_load = None
                     else:
-                        columns_to_load = (
-                            set(self.run_required_cols[run_name]) | set(split_cols)
-                        )
+                        columns_to_load = set(self.run_required_cols[run_name]) | set(split_cols)
                         self.run_required_cols[run_name] = columns_to_load
                 data, _, units = self._load_run_data(
                     file_path,
@@ -1321,12 +1414,16 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                             data = data[mask].reset_index(drop=True)
                             log.info(
                                 "Run '%s': nlap filter %s -> kept %d/%d rows.",
-                                run_name, wanted, len(data), before,
+                                run_name,
+                                wanted,
+                                len(data),
+                                before,
                             )
                         else:
                             log.warning(
                                 "Run '%s': nlap filter %s matched no rows; keeping all data.",
-                                run_name, wanted,
+                                run_name,
+                                wanted,
                             )
                 best_n = run.get("best_n")
                 if best_n is not None and "nLap" in data.columns:
@@ -1343,14 +1440,11 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                             log.warning(
                                 "Run '%s': best_n=%d requested but no time column "
                                 "(tLap_Calc/tLap/Time) found; ignoring.",
-                                run_name, n_keep,
+                                run_name,
+                                n_keep,
                             )
                         else:
-                            durations = (
-                                data.groupby("nLap")[time_col]
-                                .agg(lambda s: s.max() - s.min())
-                                .sort_values()
-                            )
+                            durations = data.groupby("nLap")[time_col].agg(lambda s: s.max() - s.min()).sort_values()
                             durations = durations[durations > 0]
                             keep_laps = list(durations.head(n_keep).index)
                             if keep_laps:
@@ -1358,12 +1452,18 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                                 data = data[data["nLap"].isin(keep_laps)].reset_index(drop=True)
                                 log.info(
                                     "Run '%s' best_n=%d -> kept laps %s (%d/%d rows).",
-                                    run_name, n_keep, keep_laps, len(data), before,
+                                    run_name,
+                                    n_keep,
+                                    keep_laps,
+                                    len(data),
+                                    before,
                                 )
             except Exception as exc:
                 log.warning(
                     "Failed to load run '%s' from %s: %s. Skipping run.",
-                    run_name, file_path, exc,
+                    run_name,
+                    file_path,
+                    exc,
                 )
                 self.run_required_cols.pop(run_name, None)
                 continue
@@ -1375,6 +1475,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         self._loaded = True
         self._expand_split_runs()
         return self.run_data
+
     def preprocess_data(self) -> None:
         if not self._loaded:
             raise RuntimeError("Data must be loaded before preprocessing.")
@@ -1389,7 +1490,9 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 self.run_data[name], self.CHANNEL_MAPPINGS, source_type
             )
             self.run_data[name] = datafunctions.apply_transformations(
-                self.run_data[name], source_type, self.CHANNEL_TRANSFORMS,
+                self.run_data[name],
+                source_type,
+                self.CHANNEL_TRANSFORMS,
                 missing_warned=missing_transform_warned,
             )
         self._clean_data()
@@ -1399,7 +1502,9 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 if name not in self.run_data:
                     continue
                 self.run_data[name] = datafunctions.resample_to_uniform_rate(
-                    self.run_data[name], self.RESAMPLE_RATE, run_name=name,
+                    self.run_data[name],
+                    self.RESAMPLE_RATE,
+                    run_name=name,
                 )
         self._align_slap()
         detected_rates = []
@@ -1407,9 +1512,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             name = run["name"].lower()
             if name not in self.run_data:
                 continue
-            rate, source = datafunctions.detect_sample_rate(
-                self.run_data[name], default=self.FILTER_SAMPLE_RATE
-            )
+            rate, source = datafunctions.detect_sample_rate(self.run_data[name], default=self.FILTER_SAMPLE_RATE)
             self.run_sample_rates[name] = (rate, source)
             detected_rates.append(rate)
             if self.verbose:
@@ -1425,7 +1528,8 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 if representative > 0 and representative != self.FILTER_SAMPLE_RATE:
                     log.debug(
                         "FILTER_SAMPLE_RATE updated from %.1f Hz to %.1f Hz (per-run detection).",
-                        self.FILTER_SAMPLE_RATE, representative,
+                        self.FILTER_SAMPLE_RATE,
+                        representative,
                     )
                     self.FILTER_SAMPLE_RATE = representative
             if rmin > 0 and (rmax / rmin) > 1.05:
@@ -1433,7 +1537,9 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     "Per-run sample rates vary by %.2fx (%.1f–%.1f Hz). "
                     "Filters and PSDs use each run's own rate; cross-run peak "
                     "comparisons may still show different frequency resolution.",
-                    rmax / rmin, rmin, rmax,
+                    rmax / rmin,
+                    rmin,
+                    rmax,
                 )
         for run in self.runs:
             name = run["name"].lower()
@@ -1442,7 +1548,9 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             required = self.run_required_cols.get(name)
             required_set = set(required) if required else None
             self.run_data[name] = datafunctions.apply_calculated_channels(
-                self.run_data[name], name, self.CALCULATED_CHANNELS,
+                self.run_data[name],
+                name,
+                self.CALCULATED_CHANNELS,
                 required_channels=required_set,
             )
         self._compute_tdiff_channel()
@@ -1453,13 +1561,17 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             required = self.run_required_cols.get(name)
             required_set = set(required) if required else None
             self.run_data[name] = datafunctions.apply_filters(
-                self.run_data[name], self.FILTERS, self._run_fs(name), name,
+                self.run_data[name],
+                self.FILTERS,
+                self._run_fs(name),
+                name,
                 required_channels=required_set,
             )
         self._build_consolidated_runs()
         self._run_modal_fits()
         self._preprocessed = True
         return self.run_data
+
     def _expand_split_runs(self) -> None:
         """Partition entries with ``split_by`` set into one run per group value.
 
@@ -1495,8 +1607,14 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             _shades_from_cmap = None
             _interpolate_two_colors = None
             _FOLDER_RUN_COLOR_PALETTE = (
-                "#FF8000", "#2000BF", "#D70000", "#008CFF",
-                "#00CC88", "#CC0066", "#FFD700", "#4C00BF",
+                "#FF8000",
+                "#2000BF",
+                "#D70000",
+                "#008CFF",
+                "#00CC88",
+                "#CC0066",
+                "#FFD700",
+                "#4C00BF",
             )
             _TYPE_COLORMAPS = {}
         new_runs: list = []
@@ -1506,8 +1624,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 new_runs.append(run)
                 continue
             base_name = run["name"]
-            if (run.get("consolidate") or run.get("consolidate_by")
-                    or "_consolidate_sources" in run):
+            if run.get("consolidate") or run.get("consolidate_by") or "_consolidate_sources" in run:
                 raise ValueError(
                     f"Run '{base_name}': split_by cannot be combined with "
                     f"consolidate / consolidate_by on the same entry."
@@ -1516,8 +1633,8 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             df = self.run_data.get(base_lower)
             if df is None or df.empty:
                 log.warning(
-                    "Run '%s': split_by requested but no loaded data; "
-                    "leaving run intact.", base_name,
+                    "Run '%s': split_by requested but no loaded data; leaving run intact.",
+                    base_name,
                 )
                 new_runs.append(run)
                 continue
@@ -1526,7 +1643,8 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             except (KeyError, ValueError, TypeError) as exc:
                 log.error(
                     "Run '%s': split_by failed (%s). Leaving run intact.",
-                    base_name, exc,
+                    base_name,
+                    exc,
                 )
                 new_runs.append(run)
                 continue
@@ -1539,9 +1657,9 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 continue
             if len(partitions) == 1:
                 log.info(
-                    "Run '%s': split_by produced a single group %r; "
-                    "leaving run intact (no split).",
-                    base_name, partitions[0][0],
+                    "Run '%s': split_by produced a single group %r; leaving run intact (no split).",
+                    base_name,
+                    partitions[0][0],
                 )
                 new_runs.append(run)
                 continue
@@ -1552,25 +1670,25 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             if isinstance(colors_list, (list, tuple)) and colors_list:
                 child_colors = [colors_list[i % len(colors_list)] for i in range(n)]
             elif (
-                _interpolate_two_colors is not None
-                and isinstance(color_range, (list, tuple))
-                and len(color_range) == 2
+                _interpolate_two_colors is not None and isinstance(color_range, (list, tuple)) and len(color_range) == 2
             ):
                 # User-supplied gradient endpoints, HSV-interpolated.
                 child_colors = _interpolate_two_colors(
-                    color_range[0], color_range[1], n,
+                    color_range[0],
+                    color_range[1],
+                    n,
                 )
             elif _shades_from_cmap is not None and run_type in _TYPE_COLORMAPS:
                 # Use the saturated half of the type colormap (low=0.55
                 # avoids near-white tints).
                 child_colors = _shades_from_cmap(
-                    _TYPE_COLORMAPS[run_type], n, low=0.55, high=1.0,
+                    _TYPE_COLORMAPS[run_type],
+                    n,
+                    low=0.55,
+                    high=1.0,
                 )
             else:
-                child_colors = [
-                    _FOLDER_RUN_COLOR_PALETTE[i % len(_FOLDER_RUN_COLOR_PALETTE)]
-                    for i in range(n)
-                ]
+                child_colors = [_FOLDER_RUN_COLOR_PALETTE[i % len(_FOLDER_RUN_COLOR_PALETTE)] for i in range(n)]
             units = self.run_units.get(base_lower)
             fp = self.run_filepaths.get(base_lower)
             req = self.run_required_cols.get(base_lower)
@@ -1587,15 +1705,12 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 child_lower = child_name.lower()
                 self.run_data[child_lower] = sub_df.reset_index(drop=True)
                 if units is not None:
-                    self.run_units[child_lower] = (
-                        dict(units) if isinstance(units, dict) else units
-                    )
+                    self.run_units[child_lower] = dict(units) if isinstance(units, dict) else units
                 if fp is not None:
                     self.run_filepaths[child_lower] = fp
                 if req is not None:
                     self.run_required_cols[child_lower] = (
-                        set(req) if isinstance(req, (set, frozenset, list, tuple))
-                        else req
+                        set(req) if isinstance(req, (set, frozenset, list, tuple)) else req
                     )
                 child_names.append(child_name)
             self.run_data.pop(base_lower, None)
@@ -1604,12 +1719,14 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             self.run_required_cols.pop(base_lower, None)
             log.info(
                 "Run '%s': split_by produced %d sub-runs (%d rows total): %s",
-                base_name, n, sum(len(sub) for _, sub in partitions),
+                base_name,
+                n,
+                sum(len(sub) for _, sub in partitions),
                 ", ".join(child_names),
             )
         self.runs = new_runs
-    def _partition_for_split_by(self, spec, df: pd.DataFrame,
-                                run_label: str) -> list[tuple]:
+
+    def _partition_for_split_by(self, spec, df: pd.DataFrame, run_label: str) -> list[tuple]:
         """Compute (group_key, sub_df) partitions for a split_by spec.
 
         Preserves first-occurrence order of group keys, skips NaN keys, and
@@ -1620,10 +1737,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             if not isinstance(keys, pd.Series):
                 keys = pd.Series(keys)
             if len(keys) != len(df):
-                raise ValueError(
-                    f"split_by callable returned a series of length "
-                    f"{len(keys)}, expected {len(df)}."
-                )
+                raise ValueError(f"split_by callable returned a series of length {len(keys)}, expected {len(df)}.")
             keys = keys.reset_index(drop=True)
         else:
             column: str | None
@@ -1634,13 +1748,10 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 column = spec.get("column")
                 filter_values = spec.get("values")
                 if column is None:
-                    raise ValueError(
-                        "split_by dict must include a 'column' key."
-                    )
+                    raise ValueError("split_by dict must include a 'column' key.")
             else:
                 raise ValueError(
-                    f"unsupported split_by={spec!r}; expected column name "
-                    f"(str), dict with 'column', or callable."
+                    f"unsupported split_by={spec!r}; expected column name (str), dict with 'column', or callable."
                 )
             resolved = _find_split_column(df, column)
             if resolved is None:
@@ -1680,13 +1791,14 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             order.append(v)
         partitions: list[tuple] = []
         for v in order:
-            mask = (keys == v)
+            mask = keys == v
             if hasattr(mask, "fillna"):
                 mask = mask.fillna(False)
             sub = df_indexed[mask.to_numpy()]
             if not sub.empty:
                 partitions.append((v, sub))
         return partitions
+
     def _build_consolidated_runs(self) -> None:
         """Construct synthetic 'consolidated' runs by concatenating sources.
 
@@ -1749,7 +1861,11 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             self.run_sample_rates[cname] = (fs, f"inherited from {first_src}")
             log.info(
                 "Consolidated '%s' built from %d source(s) -> %d rows (%.1f s @ %.0f Hz).",
-                cname, len(src_dfs), len(merged), len(merged) / max(fs, 1.0), fs,
+                cname,
+                len(src_dfs),
+                len(merged),
+                len(merged) / max(fs, 1.0),
+                fs,
             )
             if run.get("_consolidate_drop_sources"):
                 drop_source_names.update(s for s in src_names)
@@ -1759,14 +1875,13 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 self.run_units.pop(s, None)
                 self.run_sample_rates.pop(s, None)
                 self.run_filepaths.pop(s, None)
-            keep_runs = [
-                r for r in self.runs if r["name"].lower() not in drop_source_names
-            ]
+            keep_runs = [r for r in self.runs if r["name"].lower() not in drop_source_names]
             self.runs = keep_runs
             log.info(
                 "Consolidation 'only' mode: removed %d source run(s) from active set.",
                 len(drop_source_names),
             )
+
     def _run_modal_fits(self) -> None:
         """Run vibrations Lorentz/body4dof fit per run and inject constants.
 
@@ -1805,30 +1920,40 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 if self.verbose:
                     log.debug(
                         "Modal fit skipped for '%s' — missing channel(s): %s",
-                        name, missing,
+                        name,
+                        missing,
                     )
                 continue
             sr_pair = self.run_sample_rates.get(name)
             fs = sr_pair[0] if sr_pair else self.FILTER_SAMPLE_RATE
             try:
-                arr = np.stack([
-                    pd.to_numeric(df[c], errors="coerce")
-                      .interpolate(limit=int(fs))
-                      .ffill().bfill().to_numpy(dtype=float)
-                    for c in primary_channels
-                ])
+                arr = np.stack(
+                    [
+                        pd.to_numeric(df[c], errors="coerce")
+                        .interpolate(limit=int(fs))
+                        .ffill()
+                        .bfill()
+                        .to_numpy(dtype=float)
+                        for c in primary_channels
+                    ]
+                )
             except Exception as exc:
                 log.warning("Modal fit '%s': channel extraction failed: %s", name, exc)
                 continue
             source_type = run.get("type")
             try:
                 result = _vib.run_fit_from_arrays(
-                    arr, fs=fs,
+                    arr,
+                    fs=fs,
                     source_type=source_type,
-                    fmin=fmin, fmax=fmax, nperseg=nperseg,
-                    method=method, expected_freqs=expected_freqs,
+                    fmin=fmin,
+                    fmax=fmax,
+                    nperseg=nperseg,
+                    method=method,
+                    expected_freqs=expected_freqs,
                     displacement_mode=displacement_mode,
-                    label=run["name"], output_dir=self.plots_dir.parent,
+                    label=run["name"],
+                    output_dir=self.plots_dir.parent,
                     event=cfg.get("event", ""),
                     show_plots=bool(cfg.get("show_plots", False)),
                     output_dpi=self.output_dpi,
@@ -1863,10 +1988,8 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             amp_rear = _as_list(amp_rear_raw) if amp_rear_raw is not None else None
             sigma_amp_front_raw = result.get("sigma_amp_front")
             sigma_amp_rear_raw = result.get("sigma_amp_rear")
-            sigma_amp_front = (_as_list(sigma_amp_front_raw)
-                               if sigma_amp_front_raw is not None else None)
-            sigma_amp_rear = (_as_list(sigma_amp_rear_raw)
-                              if sigma_amp_rear_raw is not None else None)
+            sigma_amp_front = _as_list(sigma_amp_front_raw) if sigma_amp_front_raw is not None else None
+            sigma_amp_rear = _as_list(sigma_amp_rear_raw) if sigma_amp_rear_raw is not None else None
 
             # Bootstrap CIs (Option B). When present, they replace the
             # symmetric Jacobian sigmas: the per-mode `_sigma` channels are
@@ -1892,22 +2015,25 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 if lst is None or i >= len(lst):
                     return default
                 return float(lst[i])
+
             n_rows = len(df)
             new_cols: dict[str, np.ndarray] = {}
             for i, mlabel in enumerate(mode_labels):
                 key = str(mlabel).lower()
                 f0 = float(fn[i]) if i < len(fn) else float("nan")
                 z = float(zeta[i]) if i < len(zeta) else float("nan")
-                sf = (float(sigma_fn[i]) if sigma_fn is not None
-                      and i < len(sigma_fn) else float("nan"))
-                sz = (float(sigma_zeta[i]) if sigma_zeta is not None
-                      and i < len(sigma_zeta) else float("nan"))
+                sf = float(sigma_fn[i]) if sigma_fn is not None and i < len(sigma_fn) else float("nan")
+                sz = float(sigma_zeta[i]) if sigma_zeta is not None and i < len(sigma_zeta) else float("nan")
 
                 # Bootstrap CI values (NaN when disabled).
-                f0_lo = _from(fn_lo, i); f0_hi = _from(fn_hi, i)
-                z_lo = _from(zeta_lo, i); z_hi = _from(zeta_hi, i)
-                af_lo_i = _from(af_lo, i); af_hi_i = _from(af_hi, i)
-                ar_lo_i = _from(ar_lo, i); ar_hi_i = _from(ar_hi, i)
+                f0_lo = _from(fn_lo, i)
+                f0_hi = _from(fn_hi, i)
+                z_lo = _from(zeta_lo, i)
+                z_hi = _from(zeta_hi, i)
+                af_lo_i = _from(af_lo, i)
+                af_hi_i = _from(af_hi, i)
+                ar_lo_i = _from(ar_lo, i)
+                ar_hi_i = _from(ar_hi, i)
 
                 # When CIs exist, override the symmetric sigmas with
                 # half-width so bar plots reflect the honest uncertainty.
@@ -1916,14 +2042,16 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 if np.isfinite(z_lo) and np.isfinite(z_hi):
                     sz = 0.5 * (z_hi - z_lo)
 
-                af = (float(amp_front[i]) if amp_front is not None
-                      and i < len(amp_front) else float("nan"))
-                ar = (float(amp_rear[i]) if amp_rear is not None
-                      and i < len(amp_rear) else float("nan"))
-                saf = (float(sigma_amp_front[i]) if sigma_amp_front is not None
-                       and i < len(sigma_amp_front) else float("nan"))
-                sar = (float(sigma_amp_rear[i]) if sigma_amp_rear is not None
-                       and i < len(sigma_amp_rear) else float("nan"))
+                af = float(amp_front[i]) if amp_front is not None and i < len(amp_front) else float("nan")
+                ar = float(amp_rear[i]) if amp_rear is not None and i < len(amp_rear) else float("nan")
+                saf = (
+                    float(sigma_amp_front[i])
+                    if sigma_amp_front is not None and i < len(sigma_amp_front)
+                    else float("nan")
+                )
+                sar = (
+                    float(sigma_amp_rear[i]) if sigma_amp_rear is not None and i < len(sigma_amp_rear) else float("nan")
+                )
                 if np.isfinite(af_lo_i) and np.isfinite(af_hi_i):
                     saf = 0.5 * (af_hi_i - af_lo_i)
                 if np.isfinite(ar_lo_i) and np.isfinite(ar_hi_i):
@@ -1947,24 +2075,25 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 new_cols[f"modal_{key}_amp_rear_hi"] = np.full(n_rows, ar_hi_i, dtype=float)
             df = pd.concat(
                 [df, pd.DataFrame(new_cols, index=df.index)],
-                axis=1, copy=False,
+                axis=1,
+                copy=False,
             )
             self.run_data[name] = df
             log.info(
                 "Modal fit '%s' (%s): %s",
-                name, method,
-                ", ".join(
-                    f"{m}={float(fn[i]):.2f}Hz/{float(zeta[i]):.3f}"
-                    for i, m in enumerate(mode_labels)
-                ),
+                name,
+                method,
+                ", ".join(f"{m}={float(fn[i]):.2f}Hz/{float(zeta[i]):.3f}" for i, m in enumerate(mode_labels)),
             )
+
     def _align_slap(self) -> None:
         if not self.runs:
             return
         track_length = self._detect_track_length()
         if track_length is not None:
             log.info(
-                "sLap alignment: using official track length %.1f m", track_length,
+                "sLap alignment: using official track length %.1f m",
+                track_length,
             )
             alignment = compute_slap_alignment(self.runs, self.run_data, target_length=track_length)
         else:
@@ -1982,8 +2111,11 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             drift_est = (scale - 1.0) * float(df["sLap"].max() - df["sLap"].min())
             log.info(
                 "sLap aligned '%s': scale=%.6f (drift correction ~%.1f m)",
-                rn, scale, drift_est,
+                rn,
+                scale,
+                drift_est,
             )
+
     def _detect_track_length(self) -> float | None:
         try:
             from channel_config import TRACK_LENGTHS
@@ -1998,6 +2130,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             if code and code in TRACK_LENGTHS:
                 return TRACK_LENGTHS[code]
         return None
+
     @staticmethod
     def _extract_track_code(path) -> str | None:
         if path is None:
@@ -2008,6 +2141,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             if code.isalpha():
                 return code
         return None
+
     @staticmethod
     def _extract_track_code_from_filename(filename: str) -> str | None:
         if not filename:
@@ -2018,6 +2152,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             if code.isalpha():
                 return code
         return None
+
     def reference_run_name(self) -> str | None:
         loaded = [r["name"].lower() for r in self.runs if r["name"].lower() in self.run_data]
         if not loaded:
@@ -2026,15 +2161,18 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             if run.get("reference") and run["name"].lower() in self.run_data:
                 return run["name"].lower()
         return loaded[0]
+
     def _compute_tdiff_channel(self) -> None:
         loaded = [r["name"].lower() for r in self.runs if r["name"].lower() in self.run_data]
         if len(loaded) < 2:
             return
+
         def _time_series(df):
             for col in ("tLap", "tLap_Calc", "Time", "time"):
                 if col in df.columns:
                     return df[col].to_numpy(dtype=float)
             return None
+
         ref_name = self.reference_run_name()
         if ref_name is None:
             return
@@ -2064,10 +2202,10 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             if t is None:
                 continue
             s = df["sLap"].to_numpy(dtype=float)
-            ref_t_on_s = np.interp(s, ref_s_sorted, ref_t_sorted,
-                                   left=np.nan, right=np.nan)
+            ref_t_on_s = np.interp(s, ref_s_sorted, ref_t_sorted, left=np.nan, right=np.nan)
             df["tDiff"] = t - ref_t_on_s
             log.debug("tDiff computed for '%s' (vs '%s').", name, ref_name)
+
     def _colorize_legend_labels(self, legend):
         if legend is None:
             return
@@ -2089,14 +2227,15 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     color = fc[0] if isinstance(fc[0], (list, tuple, np.ndarray)) else fc
             if color is not None:
                 text.set_color(color)
+
     def _legend_corner(self, legend):
         if legend is None:
             return None
         loc_map = {
-            "upper right":  ("right",  "top"),
-            "upper left":   ("left",   "top"),
-            "lower right":  ("right",  "bottom"),
-            "lower left":   ("left",   "bottom"),
+            "upper right": ("right", "top"),
+            "upper left": ("left", "top"),
+            "lower right": ("right", "bottom"),
+            "lower left": ("left", "bottom"),
             "upper center": ("center", "top"),
             "lower center": ("center", "bottom"),
         }
@@ -2108,6 +2247,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         except Exception:
             pass
         return self._legend_corner_from_bbox(legend)
+
     def _legend_corner_from_bbox(self, legend):
         bbox = self._legend_axes_bbox(legend)
         if bbox is None:
@@ -2121,9 +2261,9 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             return corner
         return min(
             self._INFO_CORNER_XY.keys(),
-            key=lambda c: (self._INFO_CORNER_XY[c][0] - cx) ** 2
-                          + (self._INFO_CORNER_XY[c][1] - cy) ** 2,
+            key=lambda c: (self._INFO_CORNER_XY[c][0] - cx) ** 2 + (self._INFO_CORNER_XY[c][1] - cy) ** 2,
         )
+
     def _legend_axes_bbox(self, legend):
         if legend is None:
             return None
@@ -2143,36 +2283,38 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             return (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
         except Exception:
             return None
+
     _INFO_CORNER_XY = {
-        ("left",   "top"):    (0.02, 0.98),
-        ("right",  "top"):    (0.98, 0.98),
-        ("left",   "bottom"): (0.02, 0.02),
-        ("right",  "bottom"): (0.98, 0.02),
-        ("center", "top"):    (0.50, 0.98),
+        ("left", "top"): (0.02, 0.98),
+        ("right", "top"): (0.98, 0.98),
+        ("left", "bottom"): (0.02, 0.02),
+        ("right", "bottom"): (0.98, 0.02),
+        ("center", "top"): (0.50, 0.98),
         ("center", "bottom"): (0.50, 0.02),
-        ("left",   "center"): (0.02, 0.50),
-        ("right",  "center"): (0.98, 0.50),
+        ("left", "center"): (0.02, 0.50),
+        ("right", "center"): (0.98, 0.50),
     }
     _CORNER_TO_LOC = {
-        ("left",   "top"):    "upper left",
-        ("right",  "top"):    "upper right",
-        ("left",   "bottom"): "lower left",
-        ("right",  "bottom"): "lower right",
-        ("center", "top"):    "upper center",
+        ("left", "top"): "upper left",
+        ("right", "top"): "upper right",
+        ("left", "bottom"): "lower left",
+        ("right", "bottom"): "lower right",
+        ("center", "top"): "upper center",
         ("center", "bottom"): "lower center",
-        ("left",   "center"): "center left",
-        ("right",  "center"): "center right",
+        ("left", "center"): "center left",
+        ("right", "center"): "center right",
     }
     _LOC_TO_CORNER = {
-        "upper right":  ("right",  "top"),
-        "upper left":   ("left",   "top"),
-        "lower right":  ("right",  "bottom"),
-        "lower left":   ("left",   "bottom"),
+        "upper right": ("right", "top"),
+        "upper left": ("left", "top"),
+        "lower right": ("right", "bottom"),
+        "lower left": ("left", "bottom"),
         "upper center": ("center", "top"),
         "lower center": ("center", "bottom"),
-        "center left":  ("left",   "center"),
-        "center right": ("right",  "center"),
+        "center left": ("left", "center"),
+        "center right": ("right", "center"),
     }
+
     def _sample_ax_data(self, ax):
         xs, ys = [], []
         for coll in ax.collections:
@@ -2189,6 +2331,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             xs.extend(xd[::step])
             ys.extend(yd[::step])
         return np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
+
     def _count_points_in_region(self, xs, ys, x0, x1, y0, y1, halign, valign, w_frac=0.18, h_frac=0.20):
         if xs.size == 0:
             return 0
@@ -2207,6 +2350,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         else:
             y_min, y_max = y_abs - h / 2, y_abs + h / 2
         return int(((xs >= x_min) & (xs <= x_max) & (ys >= y_min) & (ys <= y_max)).sum())
+
     def _rank_info_corners(self, ax, w_frac=0.22, h_frac=0.28):
         xs, ys = self._sample_ax_data(ax)
         x0, x1 = ax.get_xlim()
@@ -2216,12 +2360,12 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             return corners
         return sorted(
             corners,
-            key=lambda c: self._count_points_in_region(
-                xs, ys, x0, x1, y0, y1, c[0], c[1], w_frac, h_frac
-            ),
+            key=lambda c: self._count_points_in_region(xs, ys, x0, x1, y0, y1, c[0], c[1], w_frac, h_frac),
         )
-    def _add_standard_legend(self, ax, handles=None, labels=None, loc="best",
-                              bbox_to_anchor=None, ncol=1, avoid_corner=None):
+
+    def _add_standard_legend(
+        self, ax, handles=None, labels=None, loc="best", bbox_to_anchor=None, ncol=1, avoid_corner=None
+    ):
         if handles is None or labels is None:
             handles, labels = ax.get_legend_handles_labels()
         if not handles:
@@ -2251,31 +2395,43 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         legend.set_zorder(10)
         self._colorize_legend_labels(legend)
         return legend
+
     def _add_waveform_figure_legend(self, fig, handles, labels, position="top"):
         if not handles:
             return None
         if position == "right":
             legend = fig.legend(
-                handles, labels,
-                loc="center right", bbox_to_anchor=(1.0, 0.5),
+                handles,
+                labels,
+                loc="center right",
+                bbox_to_anchor=(1.0, 0.5),
                 ncol=1,
-                fancybox=True, framealpha=0.92, edgecolor="#3C3C3C",
-                borderpad=0.4, handlelength=1.8,
+                fancybox=True,
+                framealpha=0.92,
+                edgecolor="#3C3C3C",
+                borderpad=0.4,
+                handlelength=1.8,
                 prop={"family": self.PLOT_FONT["family"], "weight": "bold", "size": self.PLOT_FONT["legend_size"]},
             )
         else:
             legend = fig.legend(
-                handles, labels,
-                loc="upper center", bbox_to_anchor=(0.5, 1.0),
+                handles,
+                labels,
+                loc="upper center",
+                bbox_to_anchor=(0.5, 1.0),
                 ncol=max(1, min(len(handles), 5)),
-                fancybox=True, framealpha=0.92, edgecolor="#3C3C3C",
-                borderpad=0.3, handlelength=1.8,
+                fancybox=True,
+                framealpha=0.92,
+                edgecolor="#3C3C3C",
+                borderpad=0.3,
+                handlelength=1.8,
                 prop={"family": self.PLOT_FONT["family"], "weight": "bold", "size": self.PLOT_FONT["legend_size"]},
             )
         legend.get_frame().set_linewidth(1.4)
         legend.set_zorder(10)
         self._colorize_legend_labels(legend)
         return legend
+
     def _display_gate_info(self, ax, text, legend=None, trend_anchor=None):
         occupied = set()
         if trend_anchor is not None:
@@ -2286,47 +2442,59 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             occupied.add(legend_corner)
         ranked = self._rank_info_corners(ax)
         free = [c for c in ranked if c not in occupied]
-        halign, valign = (free[0] if free else ranked[0])
+        halign, valign = free[0] if free else ranked[0]
         x_anchor, y_anchor = self._INFO_CORNER_XY[(halign, valign)]
         ax.text(
-            x_anchor, y_anchor, text,
-            transform=ax.transAxes, fontsize=9.5,
-            verticalalignment=valign, horizontalalignment=halign,
+            x_anchor,
+            y_anchor,
+            text,
+            transform=ax.transAxes,
+            fontsize=9.5,
+            verticalalignment=valign,
+            horizontalalignment=halign,
             zorder=10,
             bbox=dict(
                 boxstyle="round,pad=0.45",
-                facecolor="white", alpha=0.92,
-                edgecolor="#3C3C3C", linewidth=1.4,
+                facecolor="white",
+                alpha=0.92,
+                edgecolor="#3C3C3C",
+                linewidth=1.4,
             ),
-            color="#1A1A1A", fontweight="bold", family=self.PLOT_FONT["family"],
+            color="#1A1A1A",
+            fontweight="bold",
+            family=self.PLOT_FONT["family"],
         )
+
     def plot_data(self, plot_types: list[str] | None = None, plot_names: list[str] | None = None) -> None:
         self._ensure_preprocessed()
         self._psd_cache = {}
         self._gated_data_cache = {}
         self._outlier_log = []
         from collections import Counter as _Counter
+
         class _AggregatingHandler(logging.Handler):
             def __init__(self):
                 super().__init__(level=logging.WARNING)
                 self.counts = _Counter()
+
             def emit(self, record):
                 try:
                     key = record.getMessage()
                 except Exception:
                     key = record.msg
                 self.counts[key] += 1
+
         agg = _AggregatingHandler()
         log.addHandler(agg)
         all_generators = [
-            ("waveform",   self.generate_waveform_plots),
-            ("scatter",    self.generate_scatter_plots),
-            ("psd",        self.generate_psd_plots),
-            ("histogram",  self.generate_histogram_plots),
-            ("bar",        self.generate_bar_plots),
-            ("box",        self.generate_box_plots),
-            ("heatmap",    self.generate_heatmap_plots),
-            ("scatter3d",  self.generate_scatter3d_plots),
+            ("waveform", self.generate_waveform_plots),
+            ("scatter", self.generate_scatter_plots),
+            ("psd", self.generate_psd_plots),
+            ("histogram", self.generate_histogram_plots),
+            ("bar", self.generate_bar_plots),
+            ("box", self.generate_box_plots),
+            ("heatmap", self.generate_heatmap_plots),
+            ("scatter3d", self.generate_scatter3d_plots),
         ]
         if plot_types is not None:
             requested = {t.lower() for t in plot_types}
@@ -2354,8 +2522,9 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             if repeated:
                 top = repeated[:10]
                 log.info(
-                    "Plot-time warning summary: %d unique repeated message(s); "
-                    "showing top %d.", len(repeated), len(top),
+                    "Plot-time warning summary: %d unique repeated message(s); showing top %d.",
+                    len(repeated),
+                    len(top),
                 )
                 for msg, n in top:
                     log.info("  [x%d] %s", n, msg)
