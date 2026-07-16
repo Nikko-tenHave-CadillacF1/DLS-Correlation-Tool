@@ -1,10 +1,11 @@
 """Damper workflow — edit RUNS and plot definitions to configure your analysis."""
 
 from bootstrap import ensure_dependencies
+
 ensure_dependencies()
 
 from channel_config import get_workflow_dirs
-from engine import run_workflow, WaveformPlot, ScatterPlot, PsdPlot
+from engine import PsdPlot, ScatterPlot, WaveformPlot, run_workflow
 
 WORKFLOW_NAME = "dampers"
 EVENT = "26R06MCO"
@@ -62,10 +63,10 @@ PSD_PLOT_DEFINITIONS = [
     PsdPlot("Front Ride PSD",                  "hRideF (raw)", axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 7)),
     PsdPlot("Rear Ride PSD",                   "hRideR (raw)", axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 7)),
 
-    PsdPlot("FPushrodFL PSD", "FProdFL_High",  axis_limits=[(0, 20), (1e4, None)]),
-    PsdPlot("FPushrodFR PSD", "FProdFR_High",  axis_limits=[(0, 20), (1e4, None)]),
-    PsdPlot("FPushrodRL PSD", "FProdRL_High",  axis_limits=[(0, 20), (1e4, None)]),
-    PsdPlot("FPushrodRR PSD", "FProdRR_High",  axis_limits=[(0, 20), (1e4, None)]),
+    PsdPlot("FPushrodFL PSD", "FPushrodFL_High",  axis_limits=[(0, 20), (1e4, None)]),
+    PsdPlot("FPushrodFR PSD", "FPushrodFR_High",  axis_limits=[(0, 20), (1e4, None)]),
+    PsdPlot("FPushrodRL PSD", "FPushrodRL_High",  axis_limits=[(0, 20), (1e4, None)]),
+    PsdPlot("FPushrodRR PSD", "FPushrodRR_High",  axis_limits=[(0, 20), (1e4, None)]),
 
     PsdPlot("Heave Mode PSD - ungated",  "FPRodHeave", axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(4, 7)),
     PsdPlot("Pitch Mode PSD - ungated",  "FPRodPitch", axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(7, 11)),

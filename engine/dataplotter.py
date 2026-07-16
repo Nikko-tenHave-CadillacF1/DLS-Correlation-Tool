@@ -2,25 +2,27 @@
 from __future__ import annotations
 
 import matplotlib
+
 matplotlib.use("Agg")
 
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib import font_manager
-from pathlib import Path
 import importlib.util
-from typing import Optional
-from . import datafunctions
+import logging
 from collections import Counter, deque
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from matplotlib import font_manager
 from matplotlib.patches import Patch
 
-from .plot_generators_waveform import WaveformMixin
-from .plot_generators_scatter import ScatterMixin
-from .plot_generators_misc import PsdHistMixin, HeatmapMixin
-from .plot_generators_bar_box import BarBoxMixin
+from . import datafunctions
 from .logger import log
-import logging
+from .plot_generators_bar_box import BarBoxMixin
+from .plot_generators_misc import HeatmapMixin, PsdHistMixin
+from .plot_generators_scatter import ScatterMixin
+from .plot_generators_waveform import WaveformMixin
+
 
 def make_unique(names):
     counts = Counter(names)
@@ -38,7 +40,7 @@ def make_unique(names):
             unique_names.append(name)
     return unique_names
 
-def _find_split_column(df: pd.DataFrame, column: str) -> Optional[str]:
+def _find_split_column(df: pd.DataFrame, column: str) -> str | None:
     """Resolve a split_by column name against a DataFrame, case-insensitively.
 
     Also tries the parquet-style ``_<column>`` / ``<column>`` underscore alias
@@ -71,7 +73,7 @@ def _format_split_key(value) -> str:
     s = str(value).strip()
     return s.replace(" ", "_") if s else "blank"
 
-def _split_by_required_columns(spec) -> Optional[list[str]]:
+def _split_by_required_columns(spec) -> list[str] | None:
     """Return the source column(s) a split_by spec depends on.
 
     Returns ``None`` for callable specs (caller should disable column
@@ -106,6 +108,12 @@ def _extract_calculated_dependencies(func):
     try:
         source = inspect.getsource(func)
     except Exception:
+        log.debug(
+            "Could not extract source for calc-channel func %r; "
+            "dependency inference disabled. Decorate the func with "
+            "`@calc_channel('col1', 'col2', ...)` to declare deps explicitly.",
+            getattr(func, "__name__", repr(func)),
+        )
         _CALC_DEP_CACHE[key] = set()
         return _CALC_DEP_CACHE[key]
     matches = re.findall(r"df\['([^']+)'\]|df\[\"([^\"]+)\"\]", source)
@@ -169,6 +177,12 @@ def collect_referenced_channels(plot_definitions):
                 if plot_def.z_channel:
                     _add(plot_def.z_channel)
                 if plot_def.gate is not None:
+                    referenced.update(datafunctions.collect_gate_channels(plot_def.gate))
+            elif kind == "scatter3d":
+                _add(plot_def.x_channel)
+                _add(plot_def.y_channel)
+                _add(plot_def.z_channel)
+                if getattr(plot_def, "gate", None) is not None:
                     referenced.update(datafunctions.collect_gate_channels(plot_def.gate))
     return sorted(referenced)
 
@@ -280,13 +294,13 @@ def estimate_slap_alignment(runs, run_data):
             continue
         drift_end = (best["scale"] - 1.0) * ref_range
         lines.append(
-            (
+
                 f"{rn.upper()} vs {base_name.upper()}: "
                 f"scale={best['scale']:.6f}, offset={best['offset']:+.2f} m, "
                 f"end_drift_est={drift_end:+.2f} m, "
                 f"vCar_corr={best['corr']:.4f}, vCar_mae={best['mae']:.2f} kph, "
                 f"samples={best['n']}"
-            )
+
         )
     return lines
 
@@ -381,6 +395,8 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         output_dpi: int = 300,
         resample_rate: float | None = None,
         vibrations_fit: dict | None = None,
+        psd_min_averages_target: int = 200,
+        debug_scatter3d_plots: list | None = None,
     ):
         if fig_size is None:
             fig_size = {"waveform": (15.5, 6.4), "scatter": (10, 8), "psd": (10, 8),
@@ -454,6 +470,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             self.boxplot_FIGSIZE = fig_size[5] if len(fig_size) > 5 else self.bar_FIGSIZE
         self.plot_aspect_ratios = plot_aspect_ratios or {}
         self.BOX_PLOT_SETTINGS = box_plot_settings or {}
+        self.debug_scatter3d_plots = list(debug_scatter3d_plots or [])
         self.run_filepaths = {}
         self.run_data = {}
         self.run_units = {}
@@ -461,6 +478,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         self.run_sample_rates = {}
         self.modal_results = {}
         self.VIBRATIONS_FIT = vibrations_fit
+        self.PSD_MIN_AVERAGES_TARGET = int(psd_min_averages_target)
         self._gated_data_cache = {}
         self._psd_cache = {}
         self._outlier_log = []
@@ -682,6 +700,14 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                             required_channels.update(
                                 datafunctions.collect_gate_channels(plot_def.gate)
                             )
+        for plot_def in getattr(self, "debug_scatter3d_plots", None) or []:
+            required_channels.add(plot_def.x_channel)
+            required_channels.add(plot_def.y_channel)
+            required_channels.add(plot_def.z_channel)
+            if getattr(plot_def, "gate", None) is not None:
+                required_channels.update(
+                    datafunctions.collect_gate_channels(plot_def.gate)
+                )
         for support in ("sLap", "tLap", "vCar", "TimeIntoExport"):
             required_channels.add(support)
         resolved_channels = set()
@@ -1037,7 +1063,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 df.columns = make_unique([str(c).strip() for c in df.columns])
                 units = {c: "" for c in df.columns}
                 return df, df.columns, units
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 lines = f.readlines()
             header = make_unique(lines[1].strip().split(","))
             units_row = lines[2].strip().split(",")
@@ -1202,6 +1228,10 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             h = max(h, min_height)
             if target_aspect:
                 w = h * target_aspect
+            elif h > h0:
+                # Height was forced above the default; scale width to preserve
+                # the default aspect ratio so all waveforms look consistent.
+                w = h * (w0 / h0)
         return (w, h)
     def _add_axis_edge_padding(self, ax, x_pad_ratio=0.02, y_pad_ratio=0.03):
         xmin, xmax = ax.get_xlim()
@@ -1456,10 +1486,10 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             return
         try:
             from .plot_runtime import (
-                _shades_from_cmap,
-                _interpolate_two_colors,
                 _FOLDER_RUN_COLOR_PALETTE,
                 _TYPE_COLORMAPS,
+                _interpolate_two_colors,
+                _shades_from_cmap,
             )
         except Exception:
             _shades_from_cmap = None
@@ -1596,7 +1626,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 )
             keys = keys.reset_index(drop=True)
         else:
-            column: Optional[str]
+            column: str | None
             filter_values = None
             if isinstance(spec, str):
                 column = spec
@@ -1805,6 +1835,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     bootstrap_ci=bootstrap_ci,
                     bootstrap_n=bootstrap_n,
                     bootstrap_seed=bootstrap_seed,
+                    min_averages_target=self.PSD_MIN_AVERAGES_TARGET,
                 )
             except Exception as exc:
                 log.warning("Modal fit failed for run '%s': %s", name, exc)
@@ -1862,6 +1893,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     return default
                 return float(lst[i])
             n_rows = len(df)
+            new_cols: dict[str, np.ndarray] = {}
             for i, mlabel in enumerate(mode_labels):
                 key = str(mlabel).lower()
                 f0 = float(fn[i]) if i < len(fn) else float("nan")
@@ -1884,14 +1916,6 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 if np.isfinite(z_lo) and np.isfinite(z_hi):
                     sz = 0.5 * (z_hi - z_lo)
 
-                df[f"modal_{key}_f0"] = np.full(n_rows, f0, dtype=float)
-                df[f"modal_{key}_zeta"] = np.full(n_rows, z, dtype=float)
-                df[f"modal_{key}_f0_sigma"] = np.full(n_rows, sf, dtype=float)
-                df[f"modal_{key}_zeta_sigma"] = np.full(n_rows, sz, dtype=float)
-                df[f"modal_{key}_f0_lo"] = np.full(n_rows, f0_lo, dtype=float)
-                df[f"modal_{key}_f0_hi"] = np.full(n_rows, f0_hi, dtype=float)
-                df[f"modal_{key}_zeta_lo"] = np.full(n_rows, z_lo, dtype=float)
-                df[f"modal_{key}_zeta_hi"] = np.full(n_rows, z_hi, dtype=float)
                 af = (float(amp_front[i]) if amp_front is not None
                       and i < len(amp_front) else float("nan"))
                 ar = (float(amp_rear[i]) if amp_rear is not None
@@ -1904,14 +1928,27 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                     saf = 0.5 * (af_hi_i - af_lo_i)
                 if np.isfinite(ar_lo_i) and np.isfinite(ar_hi_i):
                     sar = 0.5 * (ar_hi_i - ar_lo_i)
-                df[f"modal_{key}_amp_front"] = np.full(n_rows, af, dtype=float)
-                df[f"modal_{key}_amp_rear"] = np.full(n_rows, ar, dtype=float)
-                df[f"modal_{key}_amp_front_sigma"] = np.full(n_rows, saf, dtype=float)
-                df[f"modal_{key}_amp_rear_sigma"] = np.full(n_rows, sar, dtype=float)
-                df[f"modal_{key}_amp_front_lo"] = np.full(n_rows, af_lo_i, dtype=float)
-                df[f"modal_{key}_amp_front_hi"] = np.full(n_rows, af_hi_i, dtype=float)
-                df[f"modal_{key}_amp_rear_lo"] = np.full(n_rows, ar_lo_i, dtype=float)
-                df[f"modal_{key}_amp_rear_hi"] = np.full(n_rows, ar_hi_i, dtype=float)
+
+                new_cols[f"modal_{key}_f0"] = np.full(n_rows, f0, dtype=float)
+                new_cols[f"modal_{key}_zeta"] = np.full(n_rows, z, dtype=float)
+                new_cols[f"modal_{key}_f0_sigma"] = np.full(n_rows, sf, dtype=float)
+                new_cols[f"modal_{key}_zeta_sigma"] = np.full(n_rows, sz, dtype=float)
+                new_cols[f"modal_{key}_f0_lo"] = np.full(n_rows, f0_lo, dtype=float)
+                new_cols[f"modal_{key}_f0_hi"] = np.full(n_rows, f0_hi, dtype=float)
+                new_cols[f"modal_{key}_zeta_lo"] = np.full(n_rows, z_lo, dtype=float)
+                new_cols[f"modal_{key}_zeta_hi"] = np.full(n_rows, z_hi, dtype=float)
+                new_cols[f"modal_{key}_amp_front"] = np.full(n_rows, af, dtype=float)
+                new_cols[f"modal_{key}_amp_rear"] = np.full(n_rows, ar, dtype=float)
+                new_cols[f"modal_{key}_amp_front_sigma"] = np.full(n_rows, saf, dtype=float)
+                new_cols[f"modal_{key}_amp_rear_sigma"] = np.full(n_rows, sar, dtype=float)
+                new_cols[f"modal_{key}_amp_front_lo"] = np.full(n_rows, af_lo_i, dtype=float)
+                new_cols[f"modal_{key}_amp_front_hi"] = np.full(n_rows, af_hi_i, dtype=float)
+                new_cols[f"modal_{key}_amp_rear_lo"] = np.full(n_rows, ar_lo_i, dtype=float)
+                new_cols[f"modal_{key}_amp_rear_hi"] = np.full(n_rows, ar_hi_i, dtype=float)
+            df = pd.concat(
+                [df, pd.DataFrame(new_cols, index=df.index)],
+                axis=1, copy=False,
+            )
             self.run_data[name] = df
             log.info(
                 "Modal fit '%s' (%s): %s",
@@ -1947,7 +1984,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 "sLap aligned '%s': scale=%.6f (drift correction ~%.1f m)",
                 rn, scale, drift_est,
             )
-    def _detect_track_length(self) -> Optional[float]:
+    def _detect_track_length(self) -> float | None:
         try:
             from channel_config import TRACK_LENGTHS
         except ImportError:
@@ -1962,7 +1999,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 return TRACK_LENGTHS[code]
         return None
     @staticmethod
-    def _extract_track_code(path) -> Optional[str]:
+    def _extract_track_code(path) -> str | None:
         if path is None:
             return None
         name = Path(path).name
@@ -1972,7 +2009,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 return code
         return None
     @staticmethod
-    def _extract_track_code_from_filename(filename: str) -> Optional[str]:
+    def _extract_track_code_from_filename(filename: str) -> str | None:
         if not filename:
             return None
         event = filename.split("_")[0] if "_" in filename else filename
@@ -1981,7 +2018,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             if code.isalpha():
                 return code
         return None
-    def reference_run_name(self) -> Optional[str]:
+    def reference_run_name(self) -> str | None:
         loaded = [r["name"].lower() for r in self.runs if r["name"].lower() in self.run_data]
         if not loaded:
             return None
@@ -2289,6 +2326,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
             ("bar",        self.generate_bar_plots),
             ("box",        self.generate_box_plots),
             ("heatmap",    self.generate_heatmap_plots),
+            ("scatter3d",  self.generate_scatter3d_plots),
         ]
         if plot_types is not None:
             requested = {t.lower() for t in plot_types}

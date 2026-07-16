@@ -1,11 +1,13 @@
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from matplotlib import ticker
+
 from . import datafunctions
 from .datafunctions import _tqdm
 from .logger import log
+
 
 def _lorentz_peak_model(f, f0, zeta, amp, baseline):
     denom = (f0 ** 2 - f ** 2) ** 2 + (2.0 * zeta * f0 * f) ** 2
@@ -93,6 +95,7 @@ class PsdHistMixin:
             channels_list = [channel] if isinstance(channel, str) else list(channel)
             if plot_def.nperseg is not None:
                 nperseg = plot_def.nperseg
+                _nperseg_ref_rate = None  # user-specified; no per-run scaling
             else:
                 sample_counts = []
                 sample_rates = []
@@ -111,7 +114,11 @@ class PsdHistMixin:
                             sample_counts.append(int(np.isfinite(df[ch].to_numpy(dtype=float)).sum()))
                 n_min = min(sample_counts) if sample_counts else 0
                 fs_ref = min(sample_rates) if sample_rates else float(self.FILTER_SAMPLE_RATE)
-                nperseg = datafunctions.auto_nperseg(n_min, sample_rate=fs_ref) if n_min >= 16 else 512
+                nperseg = datafunctions.auto_nperseg(
+                    n_min, sample_rate=fs_ref,
+                    min_averages_target=self.PSD_MIN_AVERAGES_TARGET,
+                ) if n_min >= 16 else 512
+                _nperseg_ref_rate = fs_ref  # remember reference rate for per-run scaling
             line_styles = ["-", "--", ":", "-."]
             if self.verbose:
                 log.debug("Creating PSD plot: %s (%s)", plot_name, ', '.join(channels_list))
@@ -126,8 +133,7 @@ class PsdHistMixin:
             )
             run_groups = {}
             for run in self.runs:
-                gname = run.get("group") or run["name"]
-                run_groups.setdefault(gname, []).append(run)
+                run_groups[run["name"]] = [run]
             plotted_any = False
             multi = len(channels_list) > 1
             psd_curves = []
@@ -163,8 +169,17 @@ class PsdHistMixin:
                                 plot_name, ch, run_name, f"\n{hint}" if hint else "",
                             )
                             continue
+                        # Scale nperseg by sample-rate ratio so all runs share
+                        # the same frequency resolution (Δf) regardless of
+                        # native logging rate.
+                        if _nperseg_ref_rate and _nperseg_ref_rate > 0:
+                            run_rate = self.run_sample_rates.get(
+                                run_name, (self.FILTER_SAMPLE_RATE, "default"))[0]
+                            run_nperseg = max(64, int(nperseg * run_rate / _nperseg_ref_rate))
+                        else:
+                            run_nperseg = nperseg
                         freq, power, n_segs = self._cached_psd_with_segments(
-                            run_name, ch, nperseg, gate_spec=gate_spec,
+                            run_name, ch, run_nperseg, gate_spec=gate_spec,
                         )
                         if freq is None or power is None or n_segs <= 0:
                             continue

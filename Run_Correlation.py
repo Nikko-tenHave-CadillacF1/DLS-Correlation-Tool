@@ -1,34 +1,36 @@
 """Correlation workflow — edit RUNS and plot definitions to configure your analysis."""
 
 from bootstrap import ensure_dependencies
+
 ensure_dependencies()
 
 from channel_config import get_workflow_dirs, resolve_template_path
 from engine import (
-    run_workflow, Slide,
-    WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot, BarPlot,
+    BarPlot,
+    HistogramPlot,
+    PsdPlot,
+    ScatterPlot,
+    Slide,
+    WaveformPlot,
+    run_workflow,
 )
+from engine.plot_definitions import Scatter3DPlot
 
 WORKFLOW_NAME = "correlation"
-EVENT = "26R10SPA"
+EVENT = "26R08SPB"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
+# Supported "type" values: "CAR", "OC", "DIL", "DLS", "FMIOpt"
+# (FMIOpt = LapSim/AVL-TR parquet output; handled like DLS with a reduced
+# channel set — see CHANNEL_MAPPINGS["FMIOpt"] in channel_config.py.)
 
 RUNS = [
     {
-        "name": "OC",
-        "file": r"20260707-OC-XPG - 26R10SPA - v1 Corr - v1-SPA.parquet",
-        "color": "#10F100",
-        "nrun": 1,
-        "type": "OC",
-    },
-    {
-        "name": "DLS",
-        "file": r"Tharish Ranjit  26R10SPA  VPG v1_DLS.parquet",
-        "color": "#0400FF",
-        "nlap": 1,
-        "type": "DLS",
+        "name": "CAR - PER FP1",
+        "file": r"26R08SPB_260626_MAC26-02_PER_P1_R02PARTIAL.txt",
+        "color": "#C82000",
+        "type": "CAR",
     },
 ]
 
@@ -89,18 +91,18 @@ WAVEFORM_PLOT_DEFINITIONS = [
     #     reference_lines=(None, (-100,100), (-100, 100), None, None),
     #     subplot_heights=(0.8, 0.5, 0.5, 0.5, 0.5),
     # ),
-    # WaveformPlot(
-    #     name="Brake Powers",
-    #     channels=(('vCar', 'NGear'), 'PMGUK', "rBrakeBiasF", 'PBrakeFL', 'PBrakeRL', ('rThrottle', 'SM')),
-    #     axis_limits=(((None, 400), (-1, 9)), None, (0,101), None, None, ((0, 105), (0, 1.3))),
-    #     subplot_heights=(0.8, 0.5, 0.5, 0.5, 0.5, 0.5),
-    # ),
-    # WaveformPlot(
-    #     name="Brake Energies",
-    #     channels=(('vCar', 'NGear'), 'PMGUK', "rBrakeBiasF", 'EBrakeFL', 'EBrakeRL', ('rThrottle', 'SM')),
-    #     axis_limits=(((None, 400), (-1, 9)), None, (0,101), None, None, ((0, 105), (0, 1.3))),
-    #     subplot_heights=(0.8, 0.5, 0.5, 0.5, 0.5, 0.5),
-    # ),
+    WaveformPlot(
+        name="Brake Powers",
+        channels=(('vCar', 'NGear'), 'PMGUK', 'PBrakeFL', 'PBrakeRL', ('rThrottle', 'SM')),
+        axis_limits=(((None, 400), (-1, 9)), None, None, None, ((0, 105), (0, 1.3))),
+        subplot_heights=(0.8, 0.5, 0.5, 0.5, 0.5),
+    ),
+    WaveformPlot(
+        name="Brake Energies",
+        channels=(('vCar', 'NGear'), 'PMGUK', 'EBrakeFL', 'EBrakeRL', ('rThrottle', 'SM')),
+        axis_limits=(((None, 400), (-1, 9)), None, None, None, ((0, 105), (0, 1.3))),
+        subplot_heights=(0.8, 0.5, 0.5, 0.5, 0.5),
+    ),
     # WaveformPlot(
     #     name="tyre slip ratios",
     #     channels=(('vCar', 'NGear'), 'rSlipTyreFL', 'rSlipTyreFR', 'rSlipTyreRL', 'rSlipTyreRR', ('rThrottle', 'SM')),
@@ -193,16 +195,16 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("Rear Heave",              "xHubVertR_Avg",   "FzTyreR_Avg",
                  best_fit=[('y', None, 5000), ('y', 5000, None)]),
     ScatterPlot("Rear Roll",               "xHubVertR_Delta", "FzTyreR_Delta",          best_fit=[('x', None, None)]),
-    
+
     ScatterPlot("Roll angle gLat",         "gLat",          "aRoll",                best_fit=[('x', None, None)]),
     ScatterPlot("Front Pushrod vCar",      "vCar",          "FPRodAvgF",
                 best_fit=[('gLat_Abs', 0, 1)], gate=[('SM', '<', 1), ("pBrakeF", '<', 1)]),
     ScatterPlot("Rear Pushrod vCar",       "vCar",          "FPRodAvgR",
                 best_fit=[('gLat_Abs', 0, 1)], gate=[('SM', '<', 1), ("pBrakeF", '<', 1)]),
-    ScatterPlot("Front Ride vCar",         "vCar",          "hRideF",  best_fit=[('SM', 0, 0.5)],             
+    ScatterPlot("Front Ride vCar",         "vCar",          "hRideF",  best_fit=[('SM', 0, 0.5)],
                 axis_limits=[(None, None), (None, 40)],
                 annotate_fit_at=(100,200,300)),
-    ScatterPlot("Rear Ride vCar",          "vCar",          "hRideR",  best_fit=[('SM', 0, 0.5)],            
+    ScatterPlot("Rear Ride vCar",          "vCar",          "hRideR",  best_fit=[('SM', 0, 0.5)],
                 axis_limits=[(None, None), (None, 75)],
                 annotate_fit_at=(100,200,300)),
     ScatterPlot("Ride Height Compare",         "hRideF",    "hRideR"),
@@ -243,7 +245,7 @@ HISTOGRAM_PLOT_DEFINITIONS = [
 
 BAR_PLOT_DEFINITIONS = [
     BarPlot("Cumulative Metrics", (("dmInjector (kg/s)", "integral"), ("PMGUK_Deploy (MJ)", "integral"), ("PMGUK_Charge (MJ)", "integral"))),
-    BarPlot("Brake Energies Bar", (("EBrakeFL", "max"), ("EBrakeFR", "max"), ("EBrakeRL", "max"), ("EBrakeRR", "max"))),
+    BarPlot("Brake Energies Bar", (("EBrakeFL", "max"), ("EBrakeFR", "max"), ("EBrakeRL", "max"), ("EBrakeRR", "max")), secondary_axis=False),
     # BarPlot("CPLV", (("CPLV_Front", "last"), ("CPLV_Rear", "last"))),
     BarPlot("Plank Energy",       (("EPlank_F",          "max"),)),
     BarPlot("Lap Time",           (("tLap_Calc",         "max"),)),
@@ -258,6 +260,15 @@ BOX_PLOT_DEFINITIONS = []
 # ─── HEATMAP PLOTS ────────────────────────────────────────────────────────────
 HEATMAP_PLOT_DEFINITIONS = []
 
+# ─── DEBUG 3D SCATTER PLOTS (not exported, interactive) ───────────────────────────
+SCATTER3D_PLOT_DEFINITIONS = [
+    Scatter3DPlot(
+        name="Engine Map (nEngine vs nBoost vs PEngine)",
+        x_channel="nEngine",
+        y_channel="nBoost",
+        z_channel="PEngine",
+    ),
+]
 # ─── POWERPOINT EXPORT MAP ────────────────────────────────────────────────────
 # Maps slides to generated plot images using Slide() helper.
 # Layouts: "main_plot" (full-width) | "double_plot" (two side-by-side images)
@@ -291,7 +302,7 @@ POWERPOINT_EXPORT_MAP = [
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    run_workflow(
+    plotter = run_workflow(
         WORKFLOW_NAME,
         title=f"{WORKFLOW_NAME.upper()} PLOT GENERATION",
         runs=RUNS,
@@ -302,8 +313,16 @@ if __name__ == "__main__":
         psds=PSD_PLOT_DEFINITIONS,
         histograms=HISTOGRAM_PLOT_DEFINITIONS,
         bars=BAR_PLOT_DEFINITIONS,
+        scatter3d=SCATTER3D_PLOT_DEFINITIONS,
         powerpoint_template=POWERPOINT_TEMPLATE if EXPORT_TO_POWERPOINT else None,
         powerpoint_output=POWERPOINT_OUTPUT if EXPORT_TO_POWERPOINT else None,
         export_map=POWERPOINT_EXPORT_MAP if EXPORT_TO_POWERPOINT else None,
         powerpoint_start_slide=POWERPOINT_START_SLIDE,
     )
+    if plotter is not None and SCATTER3D_PLOT_DEFINITIONS:
+        import matplotlib
+        try:
+            matplotlib.use("TkAgg", force=True)
+        except Exception:
+            pass
+        plotter.plot_data(plot_types=["scatter3d"])

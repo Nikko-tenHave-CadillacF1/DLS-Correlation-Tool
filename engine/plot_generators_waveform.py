@@ -1,11 +1,13 @@
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib import ticker
 from matplotlib.lines import Line2D
+
 from . import datafunctions
 from .datafunctions import _tqdm
 from .logger import log
+
 
 class WaveformMixin:
 
@@ -391,9 +393,7 @@ class WaveformMixin:
                                 x_arr[s], x_arr[xe],
                                 alpha=0.15, color=shade_color, zorder=0, linewidth=0,
                             )
-                if idx < len(prepared_rows) - 1:
-                    ax.tick_params(labelbottom=False)
-                elif ax_delta is not None:
+                if idx < len(prepared_rows) - 1 or ax_delta is not None:
                     ax.tick_params(labelbottom=False)
                 if ax_delta is not None and ref_run_name in delta_traces and len(delta_traces) >= 2:
                     xa, ya = delta_traces[ref_run_name]

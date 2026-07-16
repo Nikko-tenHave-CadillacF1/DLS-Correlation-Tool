@@ -33,6 +33,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
@@ -46,16 +47,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from channel_config import RESAMPLE_RATE
-from engine.dataplotter import DataPlotter
+from engine import vibrations_body4dof, vibrations_lorentz
 from engine.datafunctions import (
     _apply_butterworth_filter_to_data,
     auto_nperseg,
     resample_to_uniform_rate,
     sanitize_numeric_series,
 )
+from engine.dataplotter import DataPlotter
 from engine.logger import log
 from engine.plot_runtime import _expand_folder_runs
-from engine import vibrations_lorentz, vibrations_body4dof
 
 # ============================================================================
 # Constants
@@ -631,6 +632,15 @@ def generate_diagnosis_plot(result: dict, freqs_fit: np.ndarray,
         if row == 0:
             _add_legend(ax, loc="upper left" if is_lorentz else "upper right")
 
+    # Synchronise y-axis limits within each subsystem so front and rear share
+    # a common scale. Heave (rows 0-1) and Roll (rows 2-3) are scaled
+    # independently — their force/acceleration magnitudes differ.
+    for pair in ((0, 1), (2, 3)):
+        ymin = min(axes[r].get_ylim()[0] for r in pair)
+        ymax = max(axes[r].get_ylim()[1] for r in pair)
+        for r in pair:
+            axes[r].set_ylim(ymin, ymax)
+
     # Residual subplot at the bottom.
     ax_res = axes[4]
     residual = sum((_peak_normalise(psds_fit[d])
@@ -886,6 +896,7 @@ def run_fit_from_arrays(
     bootstrap_ci: bool = False,
     bootstrap_n: int = 400,
     bootstrap_seed: int = 0,
+    min_averages_target: int = 200,
 ) -> dict:
     """Run the modal fit on an already-loaded (4, N) corner array.
 
@@ -903,7 +914,8 @@ def run_fit_from_arrays(
 
     n_samples = corners.shape[1]
     if nperseg == "auto":
-        nperseg = auto_nperseg(n_samples, sample_rate=fs)
+        nperseg = auto_nperseg(n_samples, sample_rate=fs,
+                               min_averages_target=min_averages_target)
         log.info("  Auto NPERSEG: %d (delta_f=%.3f Hz, ~%d averages)",
                  nperseg, fs / nperseg,
                  int(2 * n_samples / nperseg - 1))

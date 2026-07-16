@@ -9,13 +9,22 @@ Run ``python Run_Template.py --help`` for CLI options.
 """
 
 from bootstrap import ensure_dependencies
+
 ensure_dependencies()
 
 from channel_config import get_workflow_dirs, resolve_template_path
 from engine import (
-    run_workflow, Slide,
-    WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot, BarPlot, BoxPlot, BoxPlotGrid, HeatmapPlot,
-    Marker, calc_channel,
+    BarPlot,
+    BoxPlot,
+    BoxPlotGrid,
+    HeatmapPlot,
+    HistogramPlot,
+    Marker,
+    PsdPlot,
+    ScatterPlot,
+    Slide,
+    WaveformPlot,
+    run_workflow,
 )
 
 # ─── WORKFLOW NAME & EVENT ────────────────────────────────────────────────────

@@ -17,10 +17,11 @@ workflow has run via a slim helper that re-creates the plotter).
 """
 from __future__ import annotations
 
-from pathlib import Path
 from collections import OrderedDict
+from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
@@ -28,7 +29,6 @@ import numpy as np
 
 from .logger import log
 from .plot_runtime import _session_sort_key
-
 
 _FIG_FONT = {"family": "DejaVu Sans", "size": 11}
 _INK = "#1A1A1A"
@@ -264,7 +264,7 @@ def plot_modal_evolution(
     saved: list[Path] = []
     dpi = getattr(plotter, "output_dpi", 300)
     # ── group runs (preserving run order) ───────────────────────────────────
-    groups: "OrderedDict[str | None, list[str]]" = OrderedDict()
+    groups: OrderedDict[str | None, list[str]] = OrderedDict()
     for r in runs:
         gkey = r.get(group_by) if group_by else None
         groups.setdefault(gkey, []).append(r["name"])

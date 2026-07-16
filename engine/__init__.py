@@ -1,24 +1,37 @@
 
+from engine.datafunctions import calc_channel  # noqa: F401
+from engine.modal_plots import plot_modal_evolution  # noqa: F401
 from engine.plot_runtime import (  # noqa: F401
-    run_workflow,
-    run_from_config,
-    parse_plot_cli,
-    build_plot_groups,
-    workflow_config,
-    PlotJobConfig,
-    Slide,
-    Marker,
-    WaveformPlot,
-    ScatterPlot,
-    PsdPlot,
-    HistogramPlot,
     BarPlot,
     BoxPlot,
     BoxPlotGrid,
     HeatmapPlot,
+    HistogramPlot,
+    Marker,
+    PlotJobConfig,
+    PsdPlot,
+    ScatterPlot,
+    Slide,
+    WaveformPlot,
+    build_plot_groups,
+    parse_plot_cli,
+    run_from_config,
+    run_workflow,
+    workflow_config,
 )
-from engine.datafunctions import calc_channel  # noqa: F401
-from engine.modal_plots import plot_modal_evolution  # noqa: F401
+
+__all__ = [
+    # Workflow entrypoints
+    "run_workflow", "run_from_config", "parse_plot_cli",
+    "build_plot_groups", "workflow_config", "PlotJobConfig",
+    # Plot dataclasses (re-exported from plot_definitions via plot_runtime)
+    "Slide", "Marker",
+    "WaveformPlot", "ScatterPlot", "PsdPlot", "HistogramPlot",
+    "BarPlot", "BoxPlot", "BoxPlotGrid", "HeatmapPlot",
+    # Helpers
+    "calc_channel",
+    "plot_modal_evolution",
+]
 
 # NOTE: `engine.vibrations_io` is NOT re-exported here because it transitively
 # imports `channel_config`, which imports `engine.datafunctions` — eager

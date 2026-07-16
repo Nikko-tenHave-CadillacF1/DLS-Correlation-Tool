@@ -44,8 +44,7 @@ PSD magnitude (and optional coherence) re-emphasises the peaks.
 from __future__ import annotations
 
 import numpy as np
-from scipy.optimize import (differential_evolution, least_squares,
-                            linear_sum_assignment, minimize)
+from scipy.optimize import differential_evolution, least_squares, linear_sum_assignment, minimize
 from scipy.signal import find_peaks
 from scipy.special import polygamma
 

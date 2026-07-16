@@ -11,17 +11,22 @@ requires-python = ">=3.10"
 license = { text = "Proprietary" }
 authors = [{ name = "DLS Engineering" }]
 dependencies = [
-    "pandas>=1.3.0",
-    "numpy>=1.21.0",
-    "matplotlib>=3.5.0",
-    "scipy>=1.7.0",
-    "tqdm>=4.64.0",
+    "pandas>=1.3.0,<3.0",
+    "numpy>=1.21.0,<3.0",
+    "matplotlib>=3.5.0,<4.0",
+    "scipy>=1.7.0,<2.0",
+    "tqdm>=4.64.0,<5.0",
 ]
 
 [project.optional-dependencies]
-parquet = ["pyarrow>=15.0.0", "fastparquet>=2024.11.0"]
-pptx = ["python-pptx>=0.6.23"]
+parquet = ["pyarrow>=15.0.0,<22.0", "fastparquet>=2024.11.0,<2027.0"]
+pptx = ["python-pptx>=0.6.23,<2.0"]
 windows = ["pywin32>=306; sys_platform == 'win32'"]
+dev = [
+    "pytest>=7.0,<9.0",
+    "ruff>=0.6.0,<1.0",
+    "pre-commit>=3.0,<5.0",
+]
 
 [tool.setuptools]
 py-modules = ["bootstrap", "channel_config",
@@ -29,3 +34,52 @@ py-modules = ["bootstrap", "channel_config",
 
 [tool.setuptools.packages.find]
 include = ["engine*", "tools*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = [".venv", "Data", "build", "dist"]
+
+[tool.ruff.lint]
+# Baseline rule set — E/W (pycodestyle), F (pyflakes), I (import sort),
+# B (bugbear), UP (pyupgrade), SIM (simplifications).
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+ignore = [
+    "E501",  # line-too-long — codebase uses a deliberately compressed style
+    "E701",  # multiple statements on one line — same reason
+    "E702",  # multiple statements on one line (semicolon)
+    "E731",  # do-not-assign-lambda — used intentionally for `calc_channel`
+    "E741",  # ambiguous variable name — domain code uses single-letter maths vars
+    "B008",  # function call in default argument — `Path()` defaults are fine here
+    "B028",  # no-explicit-stacklevel — noise for this codebase
+    "SIM108", # ternary-vs-if — hurts readability of numerical branches
+    "UP007",  # PEP-604 Union[A, B] -> A | B — codebase mixes intentionally
+    "UP035",  # deprecated typing import — same reason
+
+    # ── TODO: enable progressively (each requires contextual review) ─────
+    # Delete the entry after auditing every callsite and either fixing it
+    # or adding an inline `# noqa: <rule>` with a short justification.
+    "B007",  # unused loop-control variable (10) — mostly stylistic (`_`)
+    "B023",  # function uses loop variable (8) — verify no late-binding closures
+    "B904",  # raise without `from` inside except (1) — chain the cause
+    "B905",  # zip() without explicit strict= (29) — audit for length mismatches
+    "E402",  # module-level import not at top (25) — mostly intentional late imports
+    "SIM102", # collapsible if (1)
+    "SIM105", # suppressible-exception -> contextlib.suppress (8) — stylistic
+    "UP031",  # printf-style formatting (1)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"engine/__init__.py"    = ["F401"]  # re-exports
+"engine/plot_runtime.py" = ["F401"]  # re-exports of plot dataclasses
+"tests/*"               = ["B011", "B015", "B018"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = ["-q", "--strict-markers", "--strict-config"]
+filterwarnings = [
+    "error::DeprecationWarning:engine.*",
+    "ignore::DeprecationWarning:matplotlib.*",
+    "ignore::DeprecationWarning:pandas.*",
+]

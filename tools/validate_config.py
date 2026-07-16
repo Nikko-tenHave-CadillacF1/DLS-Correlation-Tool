@@ -28,7 +28,6 @@ def main() -> None:
         sys.exit(1)
     print(f"Validating: {config_path.name}")
     print("-" * 50)
-    from engine.plot_runtime import validate_config, workflow_config, build_plot_groups
     print("  Running with --dry-run to validate...")
     old_argv = sys.argv
     sys.argv = [str(config_path), "--dry-run"]

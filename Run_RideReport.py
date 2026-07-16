@@ -25,23 +25,36 @@ This is the *complementary* report to the correlation report. Pipeline:
 """
 
 from bootstrap import ensure_dependencies
+
 ensure_dependencies()
 
 from channel_config import get_workflow_dirs, resolve_template_path
 from engine import (
-    run_workflow, Slide,
-    WaveformPlot, ScatterPlot, PsdPlot, BarPlot,
+    BarPlot,
+    PsdPlot,
+    ScatterPlot,
+    Slide,
+    WaveformPlot,
     plot_modal_evolution,
+    run_workflow,
 )
 
 WORKFLOW_NAME = "ride_report"
-EVENT = "26R07BCN"
-_INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
+_INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME)
 
 # Single source of truth for Welch window length. 512 samples @ 100 Hz gives
 # ?f ~0.2 Hz and many averages — better confidence on modal peaks than the
 # default auto-sizing which favours frequency resolution over averaging.
-NPERSEG = "auto"
+NPERSEG = 512
+
+# Minimum number of Welch segment averages targeted by the auto-nperseg
+# algorithm. Higher values shrink the window (coarser Δf) to guarantee more
+# averages — tighter PSD confidence intervals at the cost of frequency
+# resolution. Only effective when NPERSEG = "auto".
+#   50  = hard floor (auto_nperseg never allows fewer than this)
+#  200  = default soft target (sessions ≥ ~4 min hit this comfortably)
+#  400+ = aggressive averaging for very long sessions
+PSD_MIN_AVERAGES = 120
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 # Folder expansion + consolidation. Modes for `consolidate`:
@@ -66,26 +79,31 @@ NPERSEG = "auto"
 # split the modal-evolution series — `plot_modal_evolution(group_by="group")`.
 
 RUNS = [
-    # One consolidated run per session (FP1, FP2, FP3, Q, GP) — car setup
-    # changes between sessions so a single weekend-wide merge is not valid.
-    # The car-tag prefix in `consolidated_name` guarantees RED and BLUE
-    # consolidated runs have distinct names (otherwise BLUE would overwrite 
-    # RED in `plotter.modal_results`, which keys by run name).
+    # ── Monaco (26R06MCO) ────────────────────────────────────────────────────
+    # RED has two GP stints (R02+R03) → consolidated for better PSD statistics.
+    {"folder": "26R06MCO/RED",  "filetype": ".txt", "type": "CAR", "contains": "GP",
+     "consolidate": "only", "consolidated_name": "26R06MCO RED",
+     "color": "#D62728", "group": "RED"},
+    {"folder": "26R06MCO/BLUE", "filetype": ".txt", "type": "CAR", "contains": "GP",
+     "consolidate": "only", "consolidated_name": "26R06MCO BLUE",
+     "color": "#FF7F0E", "group": "BLUE"},
 
-    {"folder": "RED", "filetype": ".txt", "type": "CAR",
-     "consolidate": "only", "consolidate_by": "session",
-     "consolidated_name": EVENT + "_RED", "group": "RED"},
-    {"name": "DLS RED R", "type": "DLS", "file": r"RED/26R07BCN  11  Race_DLS.parquet", "group": "RED"},
-    {"folder": "BLUE", "filetype": ".txt", "type": "CAR",
-     "consolidate": "only", "consolidate_by": "session",
-     "consolidated_name": EVENT + "_BLUE", "group": "BLUE"},
-    {"name": "DLS BLUE R", "type": "DLS", "file": r"BLUE/26R07BCN  77  Race_DLS.parquet", "group": "BLUE"},
-    # {"name": "BSL", "type": "DLS", "file": r"VPG Baselines  SPB  26R08SPB v1 LF_DLS.parquet", "color": "#FF0000"},
-    # {"name": "500 HS", "type": "DLS", "file": r"VPG Baselines  SPB  26R08SPB v1 LF_HS500_DLS.parquet", "color": "#FF9900"},
-    # {"name": "750 HS", "type": "DLS", "file": r"VPG Baselines  SPB  26R08SPB v1 LF_HS750_DLS.parquet", "color": "#8EB200"},
-    # {"name": "1000 HS", "type": "DLS", "file": r"VPG Baselines  SPB  26R08SPB v1 LF_HS1000_DLS.parquet", "color": "#00A088"},
-    # {"name": "7A HD", "type": "DLS", "file": r"VPG Baselines  SPB  26R08SPB v1 LF_7AFH_DLS.parquet", "color": "#0026FF"},
-    # {"name": "7C HD", "type": "DLS", "file": r"VPG Baselines  SPB  26R08SPB v1 LF_7CFH_DLS.parquet", "color": "#6200FF"},
+    # ── Barcelona (26R07BCN) ─────────────────────────────────────────────────
+    {"folder": "26R07BCN/RED",  "filetype": ".txt", "type": "CAR", "contains": "GP",
+     "consolidate": "only", "consolidated_name": "26R07BCN RED",
+     "color": "#1F77B4", "group": "RED"},
+    {"folder": "26R07BCN/BLUE", "filetype": ".txt", "type": "CAR", "contains": "GP",
+     "consolidate": "only", "consolidated_name": "26R07BCN BLUE",
+     "color": "#9467BD", "group": "BLUE"},
+
+    # ── Silverstone (26R09SIL) ───────────────────────────────────────────────
+    # 26R08SPB excluded — no GP file available.
+    {"folder": "26R09SIL/RED",  "filetype": ".txt", "type": "CAR", "contains": "GP",
+     "consolidate": "only", "consolidated_name": "26R09SIL RED",
+     "color": "#2CA02C", "group": "RED"},
+    {"folder": "26R09SIL/BLUE", "filetype": ".txt", "type": "CAR", "contains": "GP",
+     "consolidate": "only", "consolidated_name": "26R09SIL BLUE",
+     "color": "#17BECF", "group": "BLUE"},
 ]
 
 # ─── VIBRATIONS FIT ─────────────────
@@ -105,7 +123,7 @@ VIBRATIONS_FIT = {
         "roll":  (5.0, 7.5),
         "warp":  (8.5, 12.5),
     },
-    "event": EVENT,
+    "event": "GP_COMPARISON",
     "show_plots": True,               # auto-emits diagnosis plot per run
     # Segment block-bootstrap CIs on (fn, zeta, amp_front, amp_rear).
     # 400 draws x ~50 ms per fit adds ~20 s per run to the pipeline;
@@ -119,14 +137,14 @@ VIBRATIONS_FIT = {
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
 EXPORT_TO_POWERPOINT  = False
 POWERPOINT_TEMPLATE   = resolve_template_path("template.pptx")
-POWERPOINT_OUTPUT     = _OUTPUT_DIR / "DIL_Ride_Report.pptx"
+POWERPOINT_OUTPUT     = _OUTPUT_DIR / "GP_Comparison_Ride_Report.pptx"
 POWERPOINT_START_SLIDE = 4
 
 # Secondary deck for modal evolution artefacts. The `powerpoint_exports` list
 # accepts an unlimited number of `(template, output, export_map[, start])`
 # tuples in addition to the legacy single-template fields.
 MODAL_POWERPOINT_TEMPLATE = resolve_template_path("template.pptx")
-MODAL_POWERPOINT_OUTPUT   = _OUTPUT_DIR / "Modal_Evolution_Report.pptx"
+MODAL_POWERPOINT_OUTPUT   = _OUTPUT_DIR / "GP_Comparison_Modal_Evolution.pptx"
 
 # ─── WAVEFORM PLOTS ───────────────────────────────────────────────────────────
 
@@ -192,27 +210,24 @@ SCATTER_PLOT_DEFINITIONS = [
 PSD_PLOT_DEFINITIONS = [
     # ── Ride modes from pushrod forces ────────────────────────────────────────
 
-    PsdPlot("Heave Mode PSD - abs",  "FPRodHeave", axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(4, 7),                 log_scale=False, nperseg=NPERSEG),
-    PsdPlot("Pitch Mode PSD - abs",  "FPRodPitch", axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(7, 11),                log_scale=False, nperseg=NPERSEG),
-    PsdPlot("Roll Mode PSD - abs",   "FPRodRoll",  axis_limits=[(0, 30), (1e4, None)], lorentz_fit=[(4, 7), (9, 12)],      log_scale=False, nperseg=NPERSEG),
-    PsdPlot("Warp Mode PSD - abs",   "FPRodWarp",  axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(20, 30),               log_scale=False, nperseg=NPERSEG),
+    PsdPlot("Heave Mode PSD - abs",  "FPRodHeave", axis_limits=[(0, 20), (1e4, None)], nperseg=NPERSEG),
+    PsdPlot("Pitch Mode PSD - abs",  "FPRodPitch", axis_limits=[(0, 20), (1e4, None)], nperseg=NPERSEG),
+    PsdPlot("Roll Mode PSD - abs",   "FPRodRoll",  axis_limits=[(0, 20), (1e4, None)], nperseg=NPERSEG),
+    PsdPlot("Warp Mode PSD - abs",   "FPRodWarp",  axis_limits=[(0, 20), (1e4, None)], nperseg=NPERSEG),
 
-    PsdPlot("FPushrod FL PSD - ungated",  "FPushrodFL", axis_limits=[(0, 20), (1e4, None)], annotate_at=(4, 9), log_scale=False, nperseg=NPERSEG),
-    PsdPlot("FPushrod FR PSD - ungated",  "FPushrodFR", axis_limits=[(0, 20), (1e4, None)], annotate_at=(6),    log_scale=False, nperseg=NPERSEG),
-    PsdPlot("FPushrod RL PSD - ungated",  "FPushrodRL", axis_limits=[(0, 20), (1e4, None)], annotate_at=(5, 9), log_scale=False, nperseg=NPERSEG),
-    PsdPlot("FPushrod RR PSD - ungated",  "FPushrodRR", axis_limits=[(0, 20), (1e4, None)], annotate_at=(5, 9), log_scale=False, nperseg=NPERSEG),
+    PsdPlot("FPushrod FL PSD - ABS",  "FPushrodFL_High", axis_limits=[(0, 20), (1e4, None)], log_scale=False, nperseg=NPERSEG),
+    PsdPlot("FPushrod FR PSD - ABS",  "FPushrodFR_High", axis_limits=[(0, 20), (1e4, None)], log_scale=False, nperseg=NPERSEG),
+    PsdPlot("FPushrod RL PSD - ABS",  "FPushrodRL_High", axis_limits=[(0, 20), (1e4, None)], log_scale=False, nperseg=NPERSEG),
+    PsdPlot("FPushrod RR PSD - ABS",  "FPushrodRR_High", axis_limits=[(0, 20), (1e4, None)], log_scale=False, nperseg=NPERSEG),
 
     # ── Vertical chassis accelerations ─────────────────────────────────────────
-    PsdPlot("Front Vertical Acceleration PSD", "gVertF", axis_limits=[(0, 30), (None, None)], lorentz_fit=[(7, 11)],                            nperseg=NPERSEG),
-    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR", axis_limits=[(0, 30), (None, None)], lorentz_fit=[(4, 7), (7, 11)],                    nperseg=NPERSEG),
-    PsdPlot("Front Vertical Acceleration PSD - ABS", "gVertF", axis_limits=[(0, 30), (None, None)], lorentz_fit=[(7, 11), (13, 19)], log_scale=False, nperseg=NPERSEG),
-    PsdPlot("Rear Vertical Acceleration PSD - ABS",  "gVertR", axis_limits=[(0, 30), (None, None)], lorentz_fit=[(4, 7), (7, 11)],   log_scale=False, nperseg=NPERSEG),
+    PsdPlot("Front Vertical Acceleration PSD", "gVertF", axis_limits=[(0, 20), (1e-4, None)], nperseg=NPERSEG),
+    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR", axis_limits=[(0, 20), (1e-4, None)], nperseg=NPERSEG),
+    PsdPlot("Front Vertical Acceleration PSD - ABS", "gVertF", axis_limits=[(0, 20), (1e-4, None)], log_scale=False, nperseg=NPERSEG),
+    PsdPlot("Rear Vertical Acceleration PSD - ABS",  "gVertR", axis_limits=[(0, 20), (1e-4, None)], log_scale=False, nperseg=NPERSEG),
 
-    PsdPlot("hRideF PSD", "hRideF (raw)", axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5.5, 9, 15), nperseg=NPERSEG),
-    PsdPlot("hRideR PSD", "hRideR (raw)", axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5.5, 14.5),  nperseg=NPERSEG),
-
-    PsdPlot("hRideF PSD - abs", "hRideF (high)", axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5.5, 9, 15), log_scale=False, nperseg=NPERSEG),
-    PsdPlot("hRideR PSD - abs", "hRideR (high)", axis_limits=[(0, 30), (1e-4, None)], annotate_at=(5.5, 14.5),  log_scale=False, nperseg=NPERSEG),
+    PsdPlot("hRideF PSD", "hRideF (raw)", axis_limits=[(0, 20), (1e-4, None)], nperseg=NPERSEG),
+    PsdPlot("hRideR PSD", "hRideR (raw)", axis_limits=[(0, 20), (1e-4, None)], nperseg=NPERSEG),
 ]
 
 # ─── BAR PLOTS (modal parameters, per-run with sigma errorbars) ───────────────
@@ -363,6 +378,7 @@ if __name__ == "__main__":
         bars=BAR_PLOT_DEFINITIONS,
         powerpoint_exports=POWERPOINT_EXPORTS,
         vibrations_fit=VIBRATIONS_FIT,
+        psd_min_averages_target=PSD_MIN_AVERAGES,
         fig_size={"waveform": (20, 10), "default": (10, 8)},
     )
     if plotter is not None and getattr(plotter, "modal_results", None):
@@ -375,7 +391,7 @@ if __name__ == "__main__":
                 modes=(mode,),
                 name_suffix=mode.lower(),
                 group_by=GROUP_BY,
-                compare_by="session",
+                compare_by=lambda n: n.split()[0],  # extract event code: "26R06MCO RED" → "26R06MCO"
                 include_consolidated=True,
                 line_ci=True,
                 bars=True,

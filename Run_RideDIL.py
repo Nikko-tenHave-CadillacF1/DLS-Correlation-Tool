@@ -1,16 +1,20 @@
 """Ride/DIL workflow — edit RUNS and plot definitions to configure your analysis."""
 
 from bootstrap import ensure_dependencies
+
 ensure_dependencies()
 
 from channel_config import get_workflow_dirs, resolve_template_path
 from engine import (
-    run_workflow, Slide,
-    WaveformPlot, ScatterPlot, PsdPlot,
+    PsdPlot,
+    ScatterPlot,
+    Slide,
+    WaveformPlot,
+    run_workflow,
 )
 
 WORKFLOW_NAME = "ride_dil"
-EVENT = "26R07BCN - RIDE"
+EVENT = "26R09SIL"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
@@ -19,41 +23,18 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 RUNS = [
     {
         "name": "CAR",
-        "file": r"26R07BCN_260612_MAC26-01_HER_P1_R02PARTIAL.txt",
+        "file": r"26R09SIL_260703_MAC26-02_PER_SQ_R02.txt",
         "color": "#E45000",
         # "nrun": 1,
         "type": "CAR",
     },
     {
-        "name": "DLS - BSL",
-        "file": r"26R07BCN_HER_FP1R2_BSL_DLS.parquet",
-        "color": "#0DBF00",
+        "name": "DIL",
+        "file": r"Silverstone_260703_GMDiL-08_BAM_R21PARTIAL.txt",
+        "color": "#0300BF",
         #"nlap": 1,
-        "type": "DLS",
+        "type": "DIL",
     },
-    {
-        "name": "DLS - 46% MD",
-        "file": r"26R07BCN_HER_FP1R2_RigidChassis_46massDist_DLS.parquet",
-        "color": "#00BC9A",
-        #"nlap": 1,
-        "type": "DLS",
-    },
-    {
-        "name": "DLS - 700 DAMP",
-        "file": r"26R07BCN_HER_FP1R2_700DAMP_DLS.parquet",
-        "color": "#001AFF",
-        #"nlap": 1,
-        "type": "DLS",
-    },
-    {
-        "name": "DLS - 700 DAMP + 46% MD",
-        "file": r"26R07BCN_HER_FP1R2_RigidChassis_46massDist_700DAMP_DLS.parquet",
-        "color": "#C000DE",
-        #"nlap": 1,
-        "type": "DLS",
-    },
-    # {"folder": ".", "filetype": ".txt", "contains": "MAC26", "type": "CAR", "colors": ["#E00000", "#E00000", "#E00000"]},
-    # {"folder": ".", "filetype": ".parquet", "nlap" : 1, "contains": "DLS", "type": "DIL", "colors": ["#0000E0", "#00E0CD", "#00E031"]},
 ]
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
@@ -139,6 +120,12 @@ PSD_PLOT_DEFINITIONS = [
     PsdPlot("Roll Mode PSD - abs",   "FPRodRoll",  axis_limits=[(0, 20), (1e4, None)],       log_scale=False, nperseg=NPERSEG), # lorentz_fit=[(4, 7), (9, 12)],
     PsdPlot("Warp Mode PSD - abs",   "FPRodWarp",  axis_limits=[(0, 20), (1e4, None)],               log_scale=False, nperseg=NPERSEG),
 
+    PsdPlot("Heave Mode PSD - gated",  "FPRodHeave", axis_limits=[(0, 20), (1e4, None)],                 log_scale=False, nperseg=NPERSEG,         gate=[('rThrottle', '<', 95), ('gLat', '>', 1)],), # lorentz_fit=(4, 7)
+    PsdPlot("Pitch Mode PSD - gated",  "FPRodPitch", axis_limits=[(0, 20), (1e4, None)],                 log_scale=False, nperseg=NPERSEG, gate = [('rThrottle', '<', 95), ('gLat', '>', 1)]), # lorentz_fit=(4, 7)
+    PsdPlot("Roll Mode PSD - gated",   "FPRodRoll",  axis_limits=[(0, 20), (1e4, None)],       log_scale=False, nperseg=NPERSEG, gate = [('rThrottle', '<', 95), ('gLat', '>', 1)]), # lorentz_fit=[(4, 7), (9, 12)],
+    PsdPlot("Warp Mode PSD - gated",   "FPRodWarp",  axis_limits=[(0, 20), (1e4, None)],               log_scale=False, nperseg=NPERSEG, gate = [('rThrottle', '<', 95), ('gLat', '>', 1)]),
+
+
     # PsdPlot("FPushrod FL PSD - ungated",  "FPushrodFL", axis_limits=[(0, 20), (1e4, None)], annotate_at=(4, 9), log_scale=False, nperseg=NPERSEG),
     # PsdPlot("FPushrod FR PSD - ungated",  "FPushrodFR", axis_limits=[(0, 20), (1e4, None)], annotate_at=(6),    log_scale=False, nperseg=NPERSEG),
     # PsdPlot("FPushrod RL PSD - ungated",  "FPushrodRL", axis_limits=[(0, 20), (1e4, None)], annotate_at=(5, 9), log_scale=False, nperseg=NPERSEG),
@@ -161,10 +148,10 @@ PSD_PLOT_DEFINITIONS = [
     # PsdPlot("xDamperRL", "xDamperRL_High",  log_scale=False),
     # PsdPlot("xDamperRR", "xDamperRR_High",  log_scale=False),
 
-    # PsdPlot("FPushrodFL PSD", "FProdFL_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
-    # PsdPlot("FPushrodFR PSD", "FProdFR_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
-    # PsdPlot("FPushrodRL PSD", "FProdRL_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
-    # PsdPlot("FPushrodRR PSD", "FProdRR_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
+    # PsdPlot("FPushrodFL PSD", "FPushrodFL_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
+    # PsdPlot("FPushrodFR PSD", "FPushrodFR_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
+    # PsdPlot("FPushrodRL PSD", "FPushrodRL_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
+    # PsdPlot("FPushrodRR PSD", "FPushrodRR_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
 ]
 
 # ─── POWERPOINT EXPORT MAP ────────────────────────────────────────────────────

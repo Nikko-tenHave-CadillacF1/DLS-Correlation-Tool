@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, List, Optional, Sequence, Tuple, Union
+from typing import Any, ClassVar, Sequence, Union
 
 _VALID_BAR_AGGS = {
     "integral", "abs_integral", "sum", "abs_sum",
@@ -47,15 +47,15 @@ def _validate_one_gate(cond: Sequence[Any], where: str) -> None:
 @dataclass
 class Marker:
 
-    x: Optional[float] = None
-    label: Optional[str] = None
+    x: float | None = None
+    label: str | None = None
     show_label: bool = True
-    color: Optional[str] = None
+    color: str | None = None
     linestyle: str = ":"
-    row: Optional[int] = None
+    row: int | None = None
     condition: Any = None
     edge: str = "rising"
-    max_count: Optional[int] = None
+    max_count: int | None = None
     def __post_init__(self) -> None:
         has_x = self.x is not None
         has_cond = self.condition is not None
@@ -88,7 +88,7 @@ class Marker:
         if self.label is not None and not isinstance(self.label, str):
             raise TypeError(f"Marker.label must be str or None, got {self.label!r}.")
 
-def _coerce_markers(value: Any, where: str) -> List[Marker]:
+def _coerce_markers(value: Any, where: str) -> list[Marker]:
     if value is None:
         return []
     if isinstance(value, Marker):
@@ -96,7 +96,7 @@ def _coerce_markers(value: Any, where: str) -> List[Marker]:
     if isinstance(value, dict):
         return [Marker(**value)]
     if isinstance(value, (list, tuple)):
-        out: List[Marker] = []
+        out: list[Marker] = []
         for i, item in enumerate(value):
             if isinstance(item, Marker):
                 out.append(item)
@@ -111,13 +111,13 @@ def _coerce_markers(value: Any, where: str) -> List[Marker]:
         return out
     raise TypeError(f"{where}: markers must be None, Marker, dict, or list. Got {value!r}.")
 
-def _coerce_flat_reference_lines(value: Any, where: str) -> Optional[List[float]]:
+def _coerce_flat_reference_lines(value: Any, where: str) -> list[float] | None:
     if value is None:
         return None
     if isinstance(value, (int, float)):
         return [float(value)]
     if isinstance(value, (list, tuple)):
-        out: List[float] = []
+        out: list[float] = []
         for i, item in enumerate(value):
             if not isinstance(item, (int, float)):
                 raise TypeError(
@@ -127,8 +127,8 @@ def _coerce_flat_reference_lines(value: Any, where: str) -> Optional[List[float]
         return out
     raise TypeError(f"{where} must be None, a number, or a list of numbers. Got {value!r}.")
 
-def _coerce_lorentz_fit(value: Any, where: str) -> Optional[List[Tuple[float, float]]]:
-    def _coerce_window(item: Any, idx_label: str) -> Tuple[float, float]:
+def _coerce_lorentz_fit(value: Any, where: str) -> list[tuple[float, float]] | None:
+    def _coerce_window(item: Any, idx_label: str) -> tuple[float, float]:
         if isinstance(item, (list, tuple)) and len(item) == 2 \
                 and all(isinstance(v, (int, float)) for v in item):
             lo = float(item[0])
@@ -156,18 +156,18 @@ def _coerce_lorentz_fit(value: Any, where: str) -> Optional[List[Tuple[float, fl
 class WaveformPlot:
 
     name: str
-    channels: Tuple[Any, ...]
-    axis_limits: Optional[Tuple[Any, ...]] = None
-    reference_lines: Optional[Tuple[Any, ...]] = None
-    subplot_heights: Optional[Tuple[float, ...]] = None
-    x_limits: Optional[Tuple[Optional[float], Optional[float]]] = None
+    channels: tuple[Any, ...]
+    axis_limits: tuple[Any, ...] | None = None
+    reference_lines: tuple[Any, ...] | None = None
+    subplot_heights: tuple[float, ...] | None = None
+    x_limits: tuple[float | None, float | None] | None = None
     x_channel: str = "sLap"
     highlight_zones: Any = None
     normalise: bool = False
     legend_position: str = "top"
-    show_delta: Union[bool, Tuple[bool, ...], List[bool]] = False
-    markers: List[Marker] = field(default_factory=list)
-    annotate_at: Optional[Union[Tuple[float, ...], List[float], float]] = None
+    show_delta: Union[bool, tuple[bool, ...], list[bool]] = False
+    markers: list[Marker] = field(default_factory=list)
+    annotate_at: Union[tuple[float, ...], list[float], float] | None = None
     kind: ClassVar[str] = "waveform"
     def __post_init__(self) -> None:
         where = f"WaveformPlot {self.name!r}"
@@ -218,16 +218,16 @@ class ScatterPlot:
     name: str
     x_channel: str
     y_channel: str
-    axis_limits: Optional[List[Tuple[Optional[float], Optional[float]]]] = None
-    best_fit: Union[int, List[Tuple[str, Optional[float], Optional[float]]], None] = 0
+    axis_limits: list[tuple[float | None, float | None]] | None = None
+    best_fit: Union[int, list[tuple[str, float | None, float | None]], None] = 0
     gate: Any = None
     show_equations: bool = True
     show_error: bool = True
     error_as_factor: bool = False
     color_gate: Any = None
     annotate_fit_at: Any = None
-    markers: List[Marker] = field(default_factory=list)
-    reference_lines: Optional[List[float]] = None
+    markers: list[Marker] = field(default_factory=list)
+    reference_lines: list[float] | None = None
     robust: bool = False
     robust_threshold: float = 3.0
     kind: ClassVar[str] = "scatter"
@@ -264,17 +264,37 @@ class ScatterPlot:
         self.reference_lines = _coerce_flat_reference_lines(self.reference_lines, f"{where}.reference_lines")
 
 @dataclass
+class Scatter3DPlot:
+    name: str
+    x_channel: str
+    y_channel: str
+    z_channel: str
+    gate: Any = None
+    axis_limits: list[tuple[float | None, float | None]] | None = None
+    kind: ClassVar[str] = "scatter3d"
+    def __post_init__(self) -> None:
+        where = f"Scatter3DPlot {self.name!r}"
+        _require_str(self.name, "Scatter3DPlot.name")
+        _require_str(self.x_channel, f"{where}.x_channel")
+        _require_str(self.y_channel, f"{where}.y_channel")
+        _require_str(self.z_channel, f"{where}.z_channel")
+        _validate_gate(self.gate, f"{where}.gate")
+        if self.axis_limits is not None:
+            if not isinstance(self.axis_limits, (list, tuple)) or len(self.axis_limits) != 3:
+                raise ValueError(f"{where}.axis_limits must be a length-3 list of (lo, hi) tuples.")
+
+@dataclass
 class PsdPlot:
     name: str
-    channel: Union[str, List[str], Tuple[str, ...]]
-    axis_limits: Optional[List[Tuple[Optional[float], Optional[float]]]] = None
+    channel: Union[str, list[str], tuple[str, ...]]
+    axis_limits: list[tuple[float | None, float | None]] | None = None
     log_scale: bool = True
-    nperseg: Optional[Union[int, str]] = None
+    nperseg: Union[int, str] | None = None
     annotate_at: Any = None
-    markers: List[Marker] = field(default_factory=list)
+    markers: list[Marker] = field(default_factory=list)
     gate: Any = None
     show_envelope: bool = False
-    reference_lines: Optional[List[float]] = None
+    reference_lines: list[float] | None = None
     lorentz_fit: Any = None
     kind: ClassVar[str] = "psd"
     def __post_init__(self) -> None:
@@ -310,11 +330,11 @@ class PsdPlot:
 class HistogramPlot:
     name: str
     channel: str
-    axis_limits: Optional[List[Tuple[Optional[float], Optional[float]]]] = None
+    axis_limits: list[tuple[float | None, float | None]] | None = None
     log_scale: bool = False
-    markers: List[Marker] = field(default_factory=list)
+    markers: list[Marker] = field(default_factory=list)
     gate: Any = None
-    reference_lines: Optional[List[float]] = None
+    reference_lines: list[float] | None = None
     kind: ClassVar[str] = "histogram"
     def __post_init__(self) -> None:
         where = f"HistogramPlot {self.name!r}"
@@ -328,12 +348,13 @@ class HistogramPlot:
 @dataclass
 class BarPlot:
     name: str
-    metrics: Tuple[Any, ...]
+    metrics: tuple[Any, ...]
     default_aggregation: str = "last"
-    axis_limits: Optional[Tuple[Optional[float], Optional[float]]] = None
+    axis_limits: tuple[float | None, float | None] | None = None
     gate: Any = None
-    reference_lines: Optional[List[float]] = None
-    error_metrics: Optional[Tuple[Any, ...]] = None
+    reference_lines: list[float] | None = None
+    error_metrics: tuple[Any, ...] | None = None
+    secondary_axis: bool = True
     kind: ClassVar[str] = "bar"
     def __post_init__(self) -> None:
         where = f"BarPlot {self.name!r}"
@@ -366,12 +387,12 @@ class BarPlot:
 @dataclass
 class BoxPlot:
     name: str
-    channels: Union[str, List[str], Tuple[str, ...]]
+    channels: Union[str, list[str], tuple[str, ...]]
     aggregation_mode: str = "per_run"
-    axis_limits: Optional[Tuple[Optional[float], Optional[float]]] = None
+    axis_limits: tuple[float | None, float | None] | None = None
     gate: Any = None
-    reference_lines: Optional[List[float]] = None
-    options: Optional[dict] = None
+    reference_lines: list[float] | None = None
+    options: dict | None = None
     kind: ClassVar[str] = "box"
     def __post_init__(self) -> None:
         where = f"BoxPlot {self.name!r}"
@@ -398,12 +419,12 @@ _VALID_GRID_RENDER_MODES = {"expand", "grid"}
 class BoxPlotGrid:
 
     name: str
-    channels: Union[str, List[str], Tuple[str, ...]]
+    channels: Union[str, list[str], tuple[str, ...]]
     rows: dict
     cols: dict
     aggregation_mode: str = "per_run"
-    axis_limits: Optional[Tuple[Optional[float], Optional[float]]] = None
-    options: Optional[dict] = None
+    axis_limits: tuple[float | None, float | None] | None = None
+    options: dict | None = None
     render_mode: str = "expand"
     kind: ClassVar[str] = "box_grid"
     def __post_init__(self) -> None:
@@ -435,7 +456,7 @@ class BoxPlotGrid:
             self.channels = list(self.channels)
         else:
             raise TypeError(f"{where}.channels must be a string or list of strings.")
-    def expand(self) -> List["BoxPlot"]:
+    def expand(self) -> list[BoxPlot]:
         plots = []
         for row_label, row_gate in self.rows.items():
             for col_label, col_gate in self.cols.items():
@@ -464,14 +485,14 @@ class HeatmapPlot:
     name: str
     x_channel: str
     y_channel: str
-    z_channel: Optional[str] = None
+    z_channel: str | None = None
     aggregation: str = "mean"
-    bins: Union[int, Tuple[int, int]] = 40
-    axis_limits: Optional[List[Tuple[Optional[float], Optional[float]]]] = None
+    bins: Union[int, tuple[int, int]] = 40
+    axis_limits: list[tuple[float | None, float | None]] | None = None
     cmap: str = "viridis"
-    z_limits: Optional[Tuple[Optional[float], Optional[float]]] = None
+    z_limits: tuple[float | None, float | None] | None = None
     gate: Any = None
-    markers: List[Marker] = field(default_factory=list)
+    markers: list[Marker] = field(default_factory=list)
     min_count: int = 3
     kind: ClassVar[str] = "heatmap"
     def __post_init__(self) -> None:
@@ -497,7 +518,7 @@ class HeatmapPlot:
         _validate_gate(self.gate, f"{where}.gate")
         self.markers = _coerce_markers(self.markers, f"{where}.markers")
 
-PLOT_TYPE_ORDER: Tuple[str, ...] = (
+PLOT_TYPE_ORDER: tuple[str, ...] = (
     "waveform", "scatter", "psd", "histogram", "bar", "box", "heatmap",
 )
 """Canonical group order — used to index ``DataPlotter.PLOT_DEFINITIONS``."""

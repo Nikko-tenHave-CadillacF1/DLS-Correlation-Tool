@@ -1,10 +1,12 @@
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+
 from . import datafunctions
 from .datafunctions import _tqdm
 from .logger import log
+
 
 def _resolve_scatter_style(point_count, base_size, base_alpha):
     if point_count <= 5000:
@@ -617,3 +619,106 @@ class ScatterMixin:
             plt.close(fig)
             if self.verbose:
                 log.debug("Saved: %s", filename)
+    def generate_scatter3d_plots(self, plots=None):
+        self._ensure_preprocessed()
+        if plots is None:
+            plots = list(getattr(self, "debug_scatter3d_plots", []) or [])
+        if not plots:
+            return
+        try:
+            from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+        except ImportError:
+            log.warning("Scatter3D: mpl_toolkits.mplot3d unavailable; skipping.")
+            return
+        can_show = True
+        try:
+            backend = plt.get_backend().lower()
+            if backend in ("agg", "pdf", "svg", "ps", "cairo", "template"):
+                can_show = False
+        except Exception:
+            can_show = False
+        for plot_def in plots:
+            plot_name = plot_def.name
+            x_var = plot_def.x_channel
+            y_var = plot_def.y_channel
+            z_var = plot_def.z_channel
+            gate_spec = plot_def.gate
+            axis_limits = plot_def.axis_limits
+            filename = self._sanitize_plot_filename("scatter3d", plot_name)
+            figsize = self._resolve_plot_figsize(filename, self.scatter_FIGSIZE)
+            fig = plt.figure(figsize=figsize)
+            ax = fig.add_subplot(111, projection="3d")
+            ax.set_xlabel(x_var, fontweight="bold", fontsize=11)
+            ax.set_ylabel(y_var, fontweight="bold", fontsize=11)
+            ax.set_zlabel(z_var, fontweight="bold", fontsize=11)
+            ax.set_title(plot_name, fontweight="bold", fontsize=13)
+            any_plotted = False
+            for run in self.runs:
+                rn = run["name"].lower()
+                if rn not in self.run_data:
+                    continue
+                df = self._get_filtered_run_dataframe(rn, gate_spec)
+                if df is None:
+                    continue
+                missing = [ch for ch in (x_var, y_var, z_var) if ch not in df.columns]
+                if missing:
+                    log.warning(
+                        "Scatter3D '%s': missing %s in run '%s'. Skipping run.",
+                        plot_name, missing, rn,
+                    )
+                    continue
+                xyz = pd.concat(
+                    [
+                        pd.to_numeric(df[x_var], errors="coerce").rename(x_var),
+                        pd.to_numeric(df[y_var], errors="coerce").rename(y_var),
+                        pd.to_numeric(df[z_var], errors="coerce").rename(z_var),
+                    ],
+                    axis=1,
+                ).dropna()
+                if xyz.empty:
+                    log.warning(
+                        "Scatter3D '%s': no valid points in run '%s'. Skipping run.",
+                        plot_name, rn,
+                    )
+                    continue
+                max_points = self.SCATTER_MAX_POINTS
+                if len(xyz) > max_points:
+                    xyz = xyz.sample(n=max_points, random_state=0).sort_index()
+                point_size, point_alpha = _resolve_scatter_style(
+                    len(xyz), self.SCATTER_DOT_SIZE, self.SCATTER_TRANSPARENCY,
+                )
+                ax.scatter(
+                    xyz[x_var].to_numpy(dtype=float),
+                    xyz[y_var].to_numpy(dtype=float),
+                    xyz[z_var].to_numpy(dtype=float),
+                    c=run["color"], s=point_size, alpha=point_alpha,
+                    label=run["name"].upper(), depthshade=True,
+                )
+                any_plotted = True
+            if not any_plotted:
+                plt.close(fig)
+                log.warning("Scatter3D '%s': no runs plotted. Skipping figure.", plot_name)
+                continue
+            if axis_limits is not None:
+                lo_x, hi_x = axis_limits[0]
+                lo_y, hi_y = axis_limits[1]
+                lo_z, hi_z = axis_limits[2]
+                if lo_x is not None or hi_x is not None:
+                    ax.set_xlim(lo_x, hi_x)
+                if lo_y is not None or hi_y is not None:
+                    ax.set_ylim(lo_y, hi_y)
+                if lo_z is not None or hi_z is not None:
+                    ax.set_zlim(lo_z, hi_z)
+            ax.legend(loc="best", fontsize=9)
+            fig.tight_layout()
+            fig.savefig(self.plots_dir / filename, dpi=self.output_dpi, facecolor="white", bbox_inches="tight")
+            if self.verbose:
+                log.debug("Saved: %s", filename)
+            if can_show:
+                try:
+                    plt.show(block=True)
+                except Exception as exc:
+                    log.warning("Scatter3D '%s': interactive show failed (%s).", plot_name, exc)
+                    plt.close(fig)
+            else:
+                plt.close(fig)

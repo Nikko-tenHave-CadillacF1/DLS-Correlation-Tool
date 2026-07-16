@@ -1,0 +1,699 @@
+================================================================================
+DLS-CORRELATION-TOOL — REFACTOR PROMPT PACK
+Generated 2026-07-16
+================================================================================
+
+PURPOSE
+-------
+This file contains 11 focused prompts for a higher-capability model to
+execute the multi-phase refactor plan safely. Each prompt is bounded in
+scope, self-contained, and has explicit STOP CONDITIONS.
+
+HARD PROJECT INVARIANT — READ FIRST
+-----------------------------------
+The Run_*.py files at the repo root (Run_Correlation.py, Run_BoxPlots.py,
+Run_Dampers.py, Run_RideDIL.py, Run_RideReport.py, Run_Vibrations.py,
+Run_OC_Checks.py, Run_Bumpstop.py, Run_Template.py) are the PRIMARY user
+interface. They are user-editable configuration files where engineers
+define RUNS and plot definitions.
+
+They MUST NOT be:
+  - deleted
+  - moved into a package (they stay at repo root)
+  - "converted to a CLI" that replaces them
+  - renamed
+  - reformatted so heavily that a user diff would be unrecognisable
+
+Every prompt below preserves them as-is. The `[project.scripts]` block in
+Prompt 5 adds `dls-correlation` etc. as SHORTCUTS that invoke the same
+Run_*.py files — never as replacements. If any model in this sequence
+suggests moving Run_*.py into engine/ or dls_correlation/cli/, stop and
+reject the change.
+
+================================================================================
+EXECUTION ORDER
+================================================================================
+
+Sequence (recommended calendar spread: 4-8 weeks part-time)
+-----------------------------------------------------------
+
+PHASE 1 — SAFETY NET (do first, everything depends on it)
+  Prompt 1  Golden-output regression harness
+
+PHASE 2 — LOW-RISK POLISH (any order, all independent after Prompt 1)
+  Prompt 2  Ruff-format the codebase
+  Prompt 3  Print-call inventory
+  Prompt 4  Print-to-log migration    (requires Prompt 3)
+
+PHASE 3 — PACKAGING (any order after Phase 1)
+  Prompt 5  Package-script entry points (ADDITIVE — Run_*.py preserved)
+  Prompt 6  Bootstrap advisory downgrade    (requires Prompt 5)
+
+PHASE 4 — STRUCTURAL REFACTOR (STRICTLY SERIAL, wait >=1 day between)
+  Prompt 7  Coverage baseline
+  Prompt 8  Extract three leaf modules       (requires Prompt 7)
+  Prompt 9  Introduce PlotContext + loaders  (requires Prompt 8)
+  Prompt 10 Migrate mixins to context funcs  (requires Prompt 9)
+
+PHASE 5 — DOCUMENTATION (last, so it describes final module layout)
+  Prompt 11 Public-API docstrings   (requires Prompt 10)
+
+Rules
+-----
+- Prompts 1, 2, 3, 5, 7 can run in parallel branches once Prompt 1 is done.
+- Prompts 8, 9, 10 must be strictly serial with a real-use "soak" between
+  each — the golden-hash harness catches structural drift but a week of
+  users running real workflows catches things it can't.
+- Never combine two consecutive prompts into one session. The bounded
+  scope is what makes each safely revertable with `git revert`.
+
+================================================================================
+PREAMBLE (paste at top of EVERY prompt session)
+================================================================================
+
+CONTEXT:
+- Repo: DLS-Correlation-Tool (Windows, PowerShell terminal, Python 3.10+).
+- venv at .venv\; activate with `. .venv\Scripts\Activate.ps1`.
+- Tooling installed: pytest, ruff, pre-commit. CI at .github/workflows/ci.yml.
+- Architectural knowledge lives in /memories/repo/dls-correlation-tool.md
+  (READ THIS FIRST before touching any engine/ file — line numbers there are
+  stale but symbol names are accurate).
+- Deliberate design choices to PRESERVE unless the prompt says otherwise:
+    * Compressed style (no docstrings, collapsed blank lines) in engine/*.py
+    * bootstrap.py auto-venv-reexec pattern
+    * Named logger `dls_correlation` from engine.logger (do NOT use
+      logging.getLogger)
+    * mixin composition of DataPlotter
+    * Run_*.py files at repo root as the primary user-editable interface
+- All ~66 existing pytest tests MUST stay green; `ruff check .` MUST stay
+  clean.
+- If any step in the prompt fails or produces unexpected diffs, STOP and
+  report rather than "fix" by making more changes.
+
+================================================================================
+PROMPT 1 — Golden-output regression harness  (prereq for everything below)
+================================================================================
+
+TASK
+Build a golden-output regression harness so subsequent refactors can be
+verified against pixel/byte-identical output. This is a NEW tool; do NOT
+modify existing engine/ code.
+
+DELIVERABLES
+1. tools/golden_regression.py — CLI script with three subcommands:
+     snapshot <workflow_name>   # runs the workflow, records SHA-256 of
+                                # every PNG under
+                                # Data/outputs/<workflow>/<event>/plots/
+                                # and of the .pptx (if produced) into
+                                # tests/golden/<workflow>.json
+     verify   <workflow_name>   # re-runs the workflow, recomputes hashes,
+                                # diffs against tests/golden/<workflow>.json.
+                                # Exit 0 on match, 1 on any hash change.
+     list                       # print all workflows that have golden
+                                # snapshots
+2. tests/golden/.gitkeep and tests/golden/README.md explaining that:
+     - Hashes are host-independent for PNGs? NO — matplotlib PNGs contain
+       metadata that varies per matplotlib version. Use the pixel array
+       (np.array(Image.open(p))) hashed with hashlib, NOT the raw file
+       bytes.
+     - PPTX bytes ARE compared raw because python-pptx output is
+       deterministic for identical inputs on the same python-pptx version.
+     - Snapshots are committed to git; regenerating them is an explicit
+       human action (`golden_regression.py snapshot ...`) that should
+       appear in a diff for review.
+3. One committed snapshot pair for Run_Correlation covering the current
+   PER FP1 CAR file that already lives in
+   Data/inputs/correlation/26R08SPB/.
+   Set DLS_SKIP_BOOTSTRAP=1 and matplotlib.use("Agg") during runs.
+
+CONSTRAINTS
+- Zero changes to engine/, Run_*.py, or any test file.
+- Zero new runtime dependencies (Pillow is already installed via
+  matplotlib).
+- Golden snapshot for Run_Correlation must be REPRODUCIBLE — running
+  `golden_regression.py snapshot Run_Correlation` twice in a row must
+  produce identical JSON.
+
+VERIFICATION
+- `python tools/golden_regression.py snapshot Run_Correlation` → creates
+  tests/golden/Run_Correlation.json
+- `python tools/golden_regression.py verify Run_Correlation` → exits 0
+- Delete one .png under Data/outputs/..., re-run verify → exits 1 with a
+  clear message naming the missing plot
+- `pytest -q` and `ruff check .` both remain clean
+
+STOP CONDITIONS
+- If matplotlib PNG output is not reproducible on identical inputs (e.g.
+  text rendering varies), report the exact source of non-determinism and
+  stop. Do NOT try to work around it by relaxing the hash comparison.
+
+================================================================================
+PROMPT 2 — Ruff-format the codebase  (compressed-style reversal, phase A)
+================================================================================
+
+TASK
+Apply `ruff format` to the entire codebase as a single, semantically-null
+commit. This ONLY reformats whitespace/quotes; no logic changes.
+
+DELIVERABLES
+1. Run `ruff format .` once. All resulting file changes committed in ONE
+   commit with message:
+     "style: apply ruff format across codebase (no semantic changes)
+
+      This is a whitespace-only reformat that undoes the deliberately
+      compressed style in engine/*.py. See .git-blame-ignore-revs to
+      keep `git blame` useful over this commit."
+2. Create .git-blame-ignore-revs at repo root containing that commit's
+   SHA.
+3. Add to pyproject.toml under [tool.ruff]:
+     format = { quote-style = "double", line-ending = "lf" }
+4. Add a pre-commit hook for `ruff-format` in .pre-commit-config.yaml
+   (mirroring the existing `ruff` hook block).
+
+CONSTRAINTS
+- ZERO source-code changes beyond `ruff format`. If ruff-format tries to
+  change any file that would break tests, revert that file individually
+  and report the file + reason.
+- Do NOT touch Data/, tests/golden/, .venv/, docs/, or any Markdown file.
+- Do NOT add docstrings, comments, blank-line separators between
+  functions, or type annotations. Those are separate phases.
+- Do NOT reformat Run_*.py files unless they're already flagged by ruff
+  format for trivial whitespace fixes — user configuration blocks
+  (RUNS, WAVEFORM_PLOT_DEFINITIONS, etc.) must stay visually stable.
+
+VERIFICATION (all four must pass in one uninterrupted run)
+- `pytest -q` — 66 passed
+- `ruff check .` — All checks passed
+- `ruff format --check .` — 0 files would be reformatted
+- `python tools/golden_regression.py verify Run_Correlation` — exit 0
+
+STOP CONDITIONS
+- Any test failure or any golden-hash mismatch → revert the commit and
+  report which file(s) ruff-format changed that caused the break.
+
+================================================================================
+PROMPT 3 — Print-call inventory  (print-migration, phase A)
+================================================================================
+
+TASK
+Produce a static inventory of every `print(...)` call in engine/, tools/,
+and Run_*.py, categorised so a follow-up prompt can convert only the
+ones that belong on the logger. This is a RESEARCH prompt — no source
+changes.
+
+DELIVERABLES
+1. docs/print_migration_audit.csv with columns:
+     file, line, category, current_code, proposed_replacement, notes
+   where category is one of:
+     - keep       : legitimate stdout user output (CLI --list-*,
+                    --dry-run, --check-only, quality reports). Leave as
+                    `print`.
+     - info       : progress/status messages during workflow.
+                    Replace with `log.info(...)`.
+     - warning    : advisory / non-fatal issue messages.
+                    Replace with `log.warning(...)`.
+     - error      : validation failures / user-facing errors.
+                    Replace with `log.error(...)`.
+     - review     : ambiguous; needs a human decision. Explain in notes.
+2. A one-paragraph summary at the top of the CSV (as a comment row)
+   giving per-category counts.
+
+CONSTRAINTS
+- Read every match by grep first; then read the enclosing function for
+  context before deciding category.
+- If a print is inside a function whose name starts with `_print_` and
+  is called only from a CLI --list-* branch, category is `keep`.
+- If a print prefix is `[ERROR]`, `[WARN]`, or `[WARNING]`, category is
+  error or warning respectively.
+- Do NOT modify any source file.
+- Run_*.py user configuration blocks generally have no prints; if they
+  do (in the __main__ block), they are almost always category `keep`.
+
+VERIFICATION
+- CSV file exists and has one row per `print(` occurrence.
+- Sum of category counts equals the total print-call count reported by
+  `grep -rn "print(" engine/ tools/ Run_*.py | wc -l` (or PowerShell
+  equivalent).
+
+STOP CONDITIONS
+- If any print call cannot be confidently categorised even into `review`,
+  stop and ask.
+
+================================================================================
+PROMPT 4 — Print-to-log migration  (print-migration, phase C, batched)
+================================================================================
+
+TASK
+Convert every `print()` call marked `info`, `warning`, or `error` in
+docs/print_migration_audit.csv (produced by Prompt 3) to the
+corresponding `log.info/warning/error(...)` call. Leave `keep` and
+`review` rows alone.
+
+DELIVERABLES
+1. One PR per source file (engine/plot_runtime.py is the big one;
+   separate PRs for each other file). Each PR contains ONLY these
+   substitutions in that one file plus, if missing,
+   `from .logger import log` at the top.
+2. For every substitution: use %-style logger arguments, NOT f-strings:
+     print(f"[ERROR] {issue}")   -->  log.error("%s", issue)
+     print(f"  X  {issue}")      -->  log.error("  X  %s", issue)
+3. If a print outputs a multi-line block (e.g. followed by `print()`
+   empty line for spacing), collapse to a single `log.info(...)` — do
+   NOT emit blank log lines.
+
+CONSTRAINTS
+- Category `keep` prints stay untouched.
+- Do NOT introduce a helper wrapper (no `cli_out()`, no `log_error()`).
+- Do NOT change log formatting or log levels globally.
+- Do NOT change the CSV — if a category is wrong, stop and report.
+- Do NOT touch any Run_*.py file.
+
+VERIFICATION (per PR)
+- `pytest -q` — 66 passed
+- `ruff check .` — clean
+- Run every affected CLI branch and diff stderr against a pre-change
+  capture:
+     python Run_Correlation.py --list-plots      2> before.log
+     (after change:)                              2> after.log
+     diff must show ONLY expected replacements
+     python Run_Correlation.py --list-channels
+     python Run_Correlation.py --check-only
+     python Run_Correlation.py --dry-run
+- `python tools/golden_regression.py verify Run_Correlation` — exit 0
+
+STOP CONDITIONS
+- Any diff in stdout output (not stderr — stdout is `keep` category).
+- Any test failure or golden-hash regression.
+
+================================================================================
+PROMPT 5 — Package-script entry points  (bootstrap replacement, step 1)
+================================================================================
+
+TASK
+Add proper `[project.scripts]` entry points so users CAN install and run
+the tool via `pipx install -e .` as an alternative invocation path. The
+existing `python Run_Correlation.py` workflow MUST continue to work
+unchanged. This is purely additive.
+
+HARD RULE: Run_*.py files STAY at the repo root as user-editable
+configuration. They are NOT moved, deleted, or renamed. The CLI entry
+points invoke the same files.
+
+DELIVERABLES
+1. For each existing Run_*.py, extract the body of
+   `if __name__ == "__main__":` into a top-level `main()` function
+   ABOVE the guard so it can be called programmatically. The guard
+   becomes:
+       if __name__ == "__main__":
+           main()
+   The rest of the file (RUNS, WAVEFORM_PLOT_DEFINITIONS, etc.) is
+   unchanged.
+2. Add [project.scripts] block to pyproject.toml:
+       [project.scripts]
+       dls-correlation  = "Run_Correlation:main"
+       dls-boxplots     = "Run_BoxPlots:main"
+       dls-dampers      = "Run_Dampers:main"
+       dls-ridedil      = "Run_RideDIL:main"
+       dls-ridereport   = "Run_RideReport:main"
+       dls-vibrations   = "Run_Vibrations:main"
+       dls-oc-checks    = "Run_OC_Checks:main"
+       dls-bumpstop     = "Run_Bumpstop:main"
+3. Update README.md "Setup" section to document the new install path as
+   an ALTERNATIVE, not a replacement:
+       Setup (recommended for engineers):
+           python Run_Correlation.py                  # first run
+                                                      # auto-installs deps
+       Setup (recommended for CI or package installs):
+           pip install -e .
+           dls-correlation
+   Do NOT lead with the pipx path. Do NOT remove the current
+   `python Run_Correlation.py` instructions.
+
+CONSTRAINTS
+- Zero behaviour change when running `python Run_*.py` directly.
+- Do NOT touch bootstrap.py in this prompt.
+- Do NOT change RUNS lists, plot definitions, or the workflow API.
+- Do NOT move Run_*.py into engine/ or into a subpackage.
+- The `main()` function takes no arguments and returns None (or whatever
+  `run_workflow` returns, unchanged).
+
+VERIFICATION
+- `pytest -q` — 66 passed
+- `ruff check .` — clean
+- `pip install -e .` in a fresh venv → `dls-correlation --list-plots`
+  prints the same plot list as `python Run_Correlation.py --list-plots`
+- `python tools/golden_regression.py verify Run_Correlation` — exit 0
+- Every Run_*.py file still runs standalone via `python Run_<name>.py`
+- User's diff on any Run_*.py shows ONLY the main()-extraction pattern
+  (no other changes)
+
+STOP CONDITIONS
+- If any Run_*.py has global top-level code that would break when moved
+  under `main()`, stop and list which files.
+
+================================================================================
+PROMPT 6 — Bootstrap advisory downgrade  (bootstrap replacement, step 2)
+================================================================================
+
+TASK
+Downgrade bootstrap.py's auto-reexec to an advisory-only warning path.
+The `ensure_dependencies()` function keeps its signature but no longer
+creates a venv or re-execs — it prints a one-line install hint and
+returns.
+
+Run_*.py files continue to call `ensure_dependencies()` at the top; the
+call is now a check rather than an installer.
+
+DELIVERABLES
+1. Rewrite bootstrap.py to ~30 LOC:
+     - detect whether required deps are importable (try imports of
+       pandas, numpy, matplotlib, scipy)
+     - if all present → return silently
+     - if any missing → print (to stderr) a single-line message pointing
+       to `pip install -e .` (or `python -m pip install -r
+       requirements.txt`) and raise SystemExit(1)
+     - respect DLS_SKIP_BOOTSTRAP=1 as a no-op override (already used
+       by CI)
+     - respect a new DLS_ENABLE_AUTO_VENV=1 env var to opt IN to the old
+       auto-reexec behaviour (do NOT delete the old code path — move it
+       behind this flag so it can be re-enabled without a revert)
+2. Update README.md to document DLS_ENABLE_AUTO_VENV=1 as the escape
+   hatch for legacy usage, and update the "recommended for engineers"
+   Setup line to reflect that the first run no longer auto-installs
+   unless the env var is set.
+
+CONSTRAINTS
+- Do NOT delete the venv-creation or os.execv logic — move it, gated by
+  DLS_ENABLE_AUTO_VENV. This is a reversible change.
+- Do NOT change any Run_*.py file (they still call
+  `ensure_dependencies()`).
+- Do NOT change requirements.txt or pyproject.toml.
+
+VERIFICATION
+- In a venv where deps ARE installed: `python Run_Correlation.py
+  --list-plots` produces the current plot list with zero extra output
+  on stderr.
+- In a fresh Python without deps installed:
+     python Run_Correlation.py --list-plots
+  exits 1 within a second with a single-line install hint on stderr.
+- With DLS_ENABLE_AUTO_VENV=1 in a fresh Python: old behaviour restored
+  (creates .venv, installs deps, re-execs).
+- `pytest -q` — 66 passed (CI uses DLS_SKIP_BOOTSTRAP=1 so unaffected)
+- `ruff check .` — clean
+
+STOP CONDITIONS
+- If any Run_*.py file relies on side effects other than dep
+  availability (e.g. imports something bootstrap.py monkey-patches),
+  stop and report.
+
+================================================================================
+PROMPT 7 — Coverage baseline  (god-module split, PR A)
+================================================================================
+
+TASK
+Establish a pytest-coverage baseline so subsequent extraction PRs can
+be verified to preserve coverage of engine.dataplotter and
+engine.plot_runtime. No source changes.
+
+DELIVERABLES
+1. Add to pyproject.toml:
+     [project.optional-dependencies].dev  →  add "pytest-cov>=4.0,<7.0"
+     [tool.pytest.ini_options]            →  add
+        "--cov=engine --cov-report=term-missing --cov-report=xml"
+        (append to existing addopts)
+     [tool.coverage.run] source = ["engine"]  branch = true
+     [tool.coverage.report] skip_covered = false  precision = 1
+2. Commit tests/golden/coverage_baseline.xml — the current coverage.xml
+   after running `pytest --cov` once.
+3. Add a new CI job in .github/workflows/ci.yml called `coverage-guard`
+   that fails if any file's line coverage drops by more than 2
+   percentage points below the baseline (compute deltas from the
+   committed baseline XML, not from an arbitrary threshold).
+
+CONSTRAINTS
+- Do NOT write new tests to inflate coverage — the goal is a baseline
+  of what exists today.
+- Do NOT modify any test file, engine file, or Run_*.py.
+- The 2 pp tolerance is deliberate: allows extraction refactors that
+  split a file (which reduces per-file numerator/denominator ratios
+  slightly) without failing.
+
+VERIFICATION
+- `pytest --cov` runs and prints a coverage table with the current
+  numbers.
+- coverage_baseline.xml is committed and human-readable.
+- CI's `coverage-guard` job runs on the current HEAD → passes with 0
+  delta.
+- Manually artificially drop coverage (skip one test) → CI job fails
+  with a clear message naming the file whose coverage dropped.
+
+STOP CONDITIONS
+- If total coverage is below 5 %, stop and report — this plan assumes
+  Prompt 1 shipped and Prompts 2-4 haven't regressed coverage. If the
+  baseline is that low, extraction is premature.
+
+================================================================================
+PROMPT 8 — Extract three leaf modules  (god-module split, PR B)
+================================================================================
+
+TASK
+Extract three PURE, LEAF modules out of engine/dataplotter.py and
+engine/plot_runtime.py into new files. This is the smallest, safest
+first extraction; nothing depends on it structurally.
+
+Files to create (each is a straight cut-and-paste + shim):
+1. engine/plotting/slap_alignment.py — move `_prepare_slap_vcar_series`,
+   `_score_slap_alignment` FROM engine/dataplotter.py.
+2. engine/workflow/color_utils.py — move `_shades_from_cmap`,
+   `_interpolate_two_colors`, and the module-level constants
+   `_TYPE_COLORMAPS`, `_FOLDER_RUN_COLOR_PALETTE` FROM
+   engine/plot_runtime.py.
+3. engine/plotting/corner_layout.py — move `_INFO_CORNER_XY`,
+   `_CORNER_TO_LOC`, `_LOC_TO_CORNER`, and standalone helper
+   `_legend_corner_from_bbox` FROM engine/dataplotter.py.
+
+DELIVERABLES
+- The three new files with the moved code.
+- engine/plotting/__init__.py and engine/workflow/__init__.py empty
+  __init__ files (do NOT re-export anything from them).
+- In each original file, DELETE the moved definitions and replace with:
+     from .plotting.slap_alignment import (
+         _prepare_slap_vcar_series, _score_slap_alignment,
+     )  # noqa: F401  (back-compat re-export)
+  … and equivalents for the other two.
+- The moved code must be BYTE-IDENTICAL to what was removed (no
+  formatting changes, no docstrings added). Copy-paste, don't retype.
+
+CONSTRAINTS
+- Do NOT extract ANY method that reads or writes `self.*` — leaf-pure
+  only.
+- Do NOT move any dataclass, generator, or the DataPlotter class itself.
+- Do NOT change imports in downstream code (tests, Run_*.py) — the shim
+  re-exports mean the old names still work at their old paths.
+
+VERIFICATION
+- `pytest -q` — 66 passed
+- `ruff check .` — clean
+- `python tools/golden_regression.py verify Run_Correlation` — exit 0
+- Coverage-guard CI job passes (no per-file drop > 2 pp).
+- `python -c "from engine.dataplotter import _prepare_slap_vcar_series;
+   from engine.plot_runtime import _shades_from_cmap; print('ok')"`
+  prints ok.
+
+STOP CONDITIONS
+- If any of the three helpers has hidden `self.*` access (e.g. is a
+  method not a module-level function), report and stop — this PR only
+  handles the truly leaf ones.
+- If the moved code is not byte-identical after paste, stop.
+
+================================================================================
+PROMPT 9 — Introduce PlotContext + extract loaders/caches
+            (god-module split, PR C)
+================================================================================
+
+TASK
+Introduce a `PlotContext` dataclass that holds the runtime state
+currently scattered across DataPlotter's `self.*` attributes. Extract
+the CSV/parquet loaders and the PSD/gated-data caches into their own
+modules. Mixins keep working; they now read state via `self.ctx.<field>`
+instead of `self.<field>`.
+
+Prerequisite: Prompt 8 shipped and stable for at least one day of use.
+
+DELIVERABLES
+1. engine/plotting/context.py:
+     @dataclass
+     class PlotContext:
+         run_data:          dict[str, pd.DataFrame]
+         run_units:         dict[str, dict]
+         run_filepaths:     dict[str, Path]
+         run_required_cols: dict
+         run_sample_rates:  dict
+         psd_cache:         dict
+         gated_data_cache:  dict
+         outlier_log:       list
+2. engine/plotting/loaders.py — move `_load_run_data`,
+   `_load_parquet_with_fallback`, `_resolve_required_parquet_columns`,
+   `_normalize_parquet_column_aliases` FROM engine/dataplotter.py.
+   Change signatures so they take explicit args (file_path,
+   columns_to_load, etc.) rather than reading self. They return
+   `(df, columns, units)` as today.
+3. In DataPlotter.__init__:
+     - build `self.ctx = PlotContext(run_data={}, ...)` before load_data
+     - for each of the fields above, add a shim `@property` that returns
+       `self.ctx.<field>` and a `@<field>.setter` that assigns to it
+   This lets every existing `self.run_data` reference keep working
+   unchanged during transition.
+4. Update the mixin loader calls to pass `self.ctx` args into the
+   extracted loader functions.
+
+CONSTRAINTS
+- ZERO changes to public behaviour, plot output, or the DataPlotter
+  public API (__init__ signature, `plot_data()`, `load_data()`,
+  `preprocess_data()`).
+- ZERO changes to any Run_*.py file.
+- Do NOT extract preprocess_data, apply_calculated_channels, mixins, or
+  gate handling — those are separate phases.
+- Do NOT delete the shim properties — the goal is that
+  `plotter.run_data[...]` and `plotter.ctx.run_data[...]` are both
+  valid.
+
+VERIFICATION
+- `pytest -q` — 66 passed
+- `ruff check .` — clean
+- `python tools/golden_regression.py verify Run_Correlation` — exit 0
+- Coverage-guard CI job passes.
+- Manual smoke test: `python Run_Correlation.py --check-only` produces
+  the same output character-for-character as before this PR.
+
+STOP CONDITIONS
+- If any mixin reads a `self.<field>` that is now on the context in a
+  place too deep for a shim property to cover (e.g. inside a nested
+  class), report and stop.
+
+================================================================================
+PROMPT 10 — Migrate mixins to context-passing functions
+             (god-module split, PR D)
+================================================================================
+
+TASK
+Convert the 5 plot-generator mixins from `self.<method>` methods to
+module-level functions that receive `PlotContext` explicitly.
+DataPlotter becomes a thin façade whose `plot_data()` dispatches to
+these functions.
+
+Prerequisite: Prompt 9 shipped and stable for at least a week of use.
+
+DELIVERABLES
+1. For each of the 5 mixin files (waveform, scatter, misc, heatmap,
+   bar_box):
+     - Convert the class methods to module-level functions taking
+       `(ctx: PlotContext, plot_def, *, plots_dir, units_map, ...) ->
+        None`
+     - Keep the private helpers as module-level functions too, but
+       prefix with a single leading underscore to signal internal.
+     - The public entrypoint (e.g. `generate_scatter_plots`) becomes
+       `generate_scatter_plots(ctx: PlotContext, plots:
+        list[ScatterPlot], plots_dir: Path, units_map: dict, runs:
+        list[dict], ...) -> None`
+2. In DataPlotter:
+     - remove the mixin base classes; class now inherits only from
+       `object`
+     - `plot_data()` calls the module-level generator functions, passing
+       `self.ctx` and the correct plot group
+3. Keep the shim properties from Prompt 9 (`self.run_data` still works).
+4. Add a deprecation shim: if anyone did
+   `class MyPlotter(ScatterMixin)` downstream (unlikely but possible),
+   keep the mixin classes as empty shells that emit a DeprecationWarning
+   on __init_subclass__.
+
+CONSTRAINTS
+- ZERO changes to plot output — golden hashes must match exactly.
+- ZERO changes to public DataPlotter API.
+- ZERO changes to any Run_*.py file.
+- Do NOT change the `plot_definitions.py` dataclasses.
+- Do NOT rename any generator function that anything outside `engine/`
+  might import.
+
+VERIFICATION
+- `pytest -q` — 66 passed
+- `ruff check .` — clean
+- `python tools/golden_regression.py verify Run_Correlation` — exit 0
+- Coverage-guard CI job passes.
+- Manual visual check: pick 5 random PNGs from the Run_Correlation
+  output, open them, confirm they look identical to a saved reference
+  set.
+
+STOP CONDITIONS
+- If any generator method has state that isn't clearly on PlotContext
+  (e.g. private lazy-initialised attributes on self), stop and
+  enumerate them before proceeding.
+- If any pytest test relies on `isinstance(plotter, ScatterMixin)`, stop
+  and report.
+
+================================================================================
+PROMPT 11 — Public-API docstrings
+             (compressed-style reversal, phase B)
+================================================================================
+
+TASK
+Add module-level and public-symbol docstrings for every name listed in
+`engine/__init__.__all__`. Private symbols (leading underscore) are OUT
+of scope. This is documentation-only; zero logic changes.
+
+Prerequisite: Prompt 10 shipped (writing docstrings for the new module
+boundaries, not the old ones).
+
+DELIVERABLES
+1. For each name in `engine/__init__.__all__`:
+     - Add a module-level docstring at the top of the file that DEFINES
+       it (one paragraph: what this module is for, when to import it).
+     - Add a class or function docstring for the symbol itself. Format:
+         """One-line summary in the imperative mood.
+
+         Longer paragraph if the behaviour isn't obvious. Reference the
+         relevant section of /memories/repo/dls-correlation-tool.md
+         ONLY if the detail is too long to inline.
+
+         Parameters
+         ----------
+         param : type
+             What it is and what units.
+
+         Returns
+         -------
+         type
+             What it is.
+         """
+2. Add tests/test_public_api_docstrings.py:
+     import engine
+     for name in engine.__all__:
+         obj = getattr(engine, name)
+         assert obj.__doc__ and obj.__doc__.strip(), \
+             f"{name} missing docstring"
+
+CONSTRAINTS
+- Docstrings ONLY for names in engine.__all__ — do NOT add them
+  anywhere else in this prompt.
+- Do NOT add comments, blank lines inside function bodies, type
+  annotations, or refactor anything. Docstrings and only docstrings.
+- Do NOT touch Run_*.py files.
+- Docstrings must be factually correct. If uncertain about the
+  behaviour of a symbol, read the source AND the repo memory before
+  writing.
+- Do NOT copy-paste from /memories/repo/ verbatim — summarise.
+
+VERIFICATION
+- `pytest -q` — 67 passed (66 existing + new docstrings test)
+- `ruff check .` — clean
+- `python -c "import engine; help(engine.ScatterPlot)"` prints a
+  docstring
+- `python tools/golden_regression.py verify Run_Correlation` — exit 0
+
+STOP CONDITIONS
+- If any __all__ entry is not accompanied by a corresponding definition
+  in the expected file, report and stop.
+
+================================================================================
+END OF PROMPT PACK
+================================================================================

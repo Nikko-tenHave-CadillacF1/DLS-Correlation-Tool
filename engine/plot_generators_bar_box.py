@@ -1,12 +1,14 @@
 
-import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import numpy as np
+import pandas as pd
 from matplotlib.lines import Line2D
+
 from . import datafunctions
 from .datafunctions import _tqdm
 from .logger import log
+
 
 class BarBoxMixin:
 
@@ -96,7 +98,7 @@ class BarBoxMixin:
                 all_values.extend([abs(v) for v in values if not np.isnan(v)])
             ax2 = None
             secondary_threshold = None
-            if len(all_values) > 1:
+            if getattr(plot_def, "secondary_axis", True) and len(all_values) > 1:
                 max_abs = max(all_values)
                 candidate_threshold = max_abs / max(1.0, self.BAR_SECONDARY_AXIS_RATIO)
                 lower_group = [v for v in all_values if v < candidate_threshold]

@@ -2,16 +2,16 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import traceback
-import json
-from dataclasses import dataclass
-from pathlib import Path
-from datetime import datetime
-from zipfile import ZipFile
 import xml.etree.ElementTree as ET
-from typing import Optional, Union
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Union
+from zipfile import ZipFile
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(errors="replace")
@@ -19,7 +19,8 @@ if sys.stderr and hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(errors="replace")
 
 from .dataplotter import DataPlotter
-from .logger import log, configure as configure_logging
+from .logger import configure as configure_logging
+from .logger import log
 
 DEFAULT_FIG_SIZE = {
     "waveform": (15.5, 6.4),
@@ -38,25 +39,27 @@ class PlotJobConfig:
     output_dir: Path
     runs: list
     plot_definitions: tuple
-    channel_mappings: Optional[dict] = None
-    channel_transforms: Optional[dict] = None
-    calculated_channels: Optional[dict] = None
-    filters: Optional[dict] = None
-    resample_rate: Optional[float] = None
-    units_map: Optional[dict] = None
-    fig_size: Optional[Union[list, dict]] = None
+    channel_mappings: dict | None = None
+    channel_transforms: dict | None = None
+    calculated_channels: dict | None = None
+    filters: dict | None = None
+    resample_rate: float | None = None
+    units_map: dict | None = None
+    fig_size: Union[list, dict] | None = None
     scatter_max_points: int = 45000
     bar_secondary_axis_ratio: float = 20.0
-    box_plot_settings: Optional[dict] = None
+    box_plot_settings: dict | None = None
     verbose: bool = False
-    powerpoint_template: Optional[Path] = None
-    powerpoint_output: Optional[Path] = None
-    export_map: Optional[list] = None
+    powerpoint_template: Path | None = None
+    powerpoint_output: Path | None = None
+    export_map: list | None = None
     powerpoint_start_slide: int = 1
-    powerpoint_exports: Optional[list] = None  # list of (template, output, export_map[, start_slide]) tuples
+    powerpoint_exports: list | None = None  # list of (template, output, export_map[, start_slide]) tuples
     open_output: bool = True
     output_dpi: int = 300
-    vibrations_fit: Optional[dict] = None
+    vibrations_fit: dict | None = None
+    psd_min_averages_target: int = 200
+    debug_scatter3d_plots: list | None = None
 
 def Slide(layout: str, *plot_refs: str) -> dict:
     images = [_plot_ref_to_filename(ref) for ref in plot_refs]
@@ -82,17 +85,18 @@ def _resolve_export_map(export_map, plot_definitions, start_slide=1):
     offset = max(1, int(start_slide))
     return {i + offset: slide for i, slide in enumerate(export_map)}
 
-_VALID_RUN_TYPES = {"OC", "CAR", "DLS", "DIL"}
+_VALID_RUN_TYPES = {"OC", "CAR", "DLS", "DIL", "FMIOpt"}
 _VALID_RUN_FILETYPES = {".csv", ".parquet", ".txt"}
 _FOLDER_RUN_COLOR_PALETTE = (
     "#FF8000", "#2000BF", "#D70000", "#008CFF",
     "#00CC88", "#CC0066", "#FFD700", "#4C00BF",
 )
 _TYPE_COLORMAPS = {
-    "CAR": "Oranges",
-    "DLS": "Blues",
-    "DIL": "Greens",
-    "OC":  "Purples",
+    "CAR":    "Oranges",
+    "DLS":    "Blues",
+    "DIL":    "Greens",
+    "OC":     "Purples",
+    "FMIOpt": "Reds",
 }
 
 def _shades_from_cmap(
@@ -142,7 +146,7 @@ def _interpolate_two_colors(start: str, end: str, n: int) -> list[str]:
     For ``n == 1`` returns the midpoint; for ``n >= 2`` the first
     colour is ``start`` and the last is ``end``.
     """
-    from matplotlib.colors import to_rgb, to_hex, rgb_to_hsv, hsv_to_rgb
+    from matplotlib.colors import hsv_to_rgb, rgb_to_hsv, to_hex, to_rgb
     rgb1 = to_rgb(start)
     rgb2 = to_rgb(end)
     h1, s1, v1 = rgb_to_hsv(rgb1)
@@ -191,7 +195,7 @@ def _session_sort_key(token: str) -> tuple:
 
 # Preset extractors for `consolidate_by`. Each takes a Path and returns the
 # group key string (or None to exclude the file from any consolidated group).
-def _session_token_from_stem(path: Path) -> Optional[str]:
+def _session_token_from_stem(path: Path) -> str | None:
     """Standard race-data filename convention places the session token at
     position -2 (e.g. ``<event>_<date>_<car>_<driver>_<session>_<run>``).
     Returns e.g. ``"P1"`` / ``"SQ"`` / ``"SR"`` / ``"Q"`` / ``"GP"``.
@@ -232,7 +236,7 @@ def _resolve_consolidate_by(spec):
                 f"consolidate_by regex {spec!r} must contain at least one "
                 "capture group identifying the partition key."
             )
-        def _extract(p: Path, _pat=pattern) -> Optional[str]:
+        def _extract(p: Path, _pat=pattern) -> str | None:
             m = _pat.search(p.stem)
             return m.group(1) if m else None
         return _extract
@@ -246,7 +250,7 @@ def _make_consolidated_entry(
     run: dict,
     ext: str,
     *,
-    group_key: Optional[str] = None,
+    group_key: str | None = None,
 ) -> dict:
     """Build a synthetic 'consolidated' run dict from already-expanded sources.
 
@@ -501,7 +505,7 @@ def validate_config(config: PlotJobConfig) -> list[str]:
         issues.append(f"PowerPoint template not found: {config.powerpoint_template}")
     return issues
 
-def validate_export_map(plot_definitions: tuple, export_map: Optional[dict]) -> list[str]:
+def validate_export_map(plot_definitions: tuple, export_map: dict | None) -> list[str]:
     if not export_map or not plot_definitions:
         return []
     from .plot_definitions import PLOT_TYPE_ORDER as type_prefixes
@@ -547,13 +551,14 @@ def run_workflow(
     bars=None,
     boxes=None,
     heatmaps=None,
+    scatter3d=None,
     powerpoint_template=None,
     powerpoint_output=None,
     export_map=None,
     powerpoint_exports=None,
     vibrations_fit=None,
     fig_size=None,
-    cli_description: Optional[str] = None,
+    cli_description: str | None = None,
     **overrides,
 ):
     plot_definitions = build_plot_groups(
@@ -571,6 +576,7 @@ def run_workflow(
         powerpoint_exports=powerpoint_exports,
         vibrations_fit=vibrations_fit,
         fig_size=fig_size,
+        scatter3d=scatter3d,
         **overrides,
     )
     return run_from_config(config, parse_plot_cli(cli_description or title))
@@ -658,6 +664,8 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
         output_dpi=config.output_dpi,
         resample_rate=config.resample_rate,
         vibrations_fit=config.vibrations_fit,
+        psd_min_averages_target=config.psd_min_averages_target,
+        debug_scatter3d_plots=config.debug_scatter3d_plots,
     )
     if cli_args is not None and getattr(cli_args, "list_channels", False):
         _print_run_channels(plotter.run_data)
@@ -665,7 +673,9 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
     _enforce_channel_typo_check(config.plot_definitions, plotter.run_data)
     if cli_args is not None and getattr(cli_args, "check_only", False):
         from .data_quality_report import (
-            build_quality_sections, write_data_quality_report, print_quality_summary,
+            build_quality_sections,
+            print_quality_summary,
+            write_data_quality_report,
         )
         sections = build_quality_sections(
             runs, plotter.run_data, config.plot_definitions,
@@ -743,8 +753,9 @@ def _print_run_channels(run_data):
 def _enforce_channel_typo_check(plot_definitions, run_data):
     if not run_data:
         return
-    from .dataplotter import collect_referenced_channels
     import difflib
+
+    from .dataplotter import collect_referenced_channels
     referenced = set(collect_referenced_channels(plot_definitions))
     union = set()
     for df in run_data.values():
@@ -753,16 +764,16 @@ def _enforce_channel_typo_check(plot_definitions, run_data):
     if not bogus:
         return
     lower_to_actual = {c.lower(): c for c in union}
-    print("\n[ERROR] Plot definitions reference channels that exist in no loaded run:")
+    print("\n[WARN] Plot definitions reference channels that exist in no loaded run:")
     for ch in bogus:
         cands = difflib.get_close_matches(ch, union, n=3, cutoff=0.6)
         if not cands:
             cands_lower = difflib.get_close_matches(ch.lower(), lower_to_actual.keys(), n=3, cutoff=0.55)
             cands = [lower_to_actual[c] for c in cands_lower]
         hint = f"  did you mean: {', '.join(cands)}?" if cands else ""
-        print(f"  X  '{ch}'{hint}")
-    print("\nRun with --list-channels to see all available channel names.\n")
-    raise SystemExit(1)
+        print(f"  -  '{ch}'{hint}")
+    print("\nAffected plots will render blank (or be skipped) — continuing.")
+    print("Run with --list-channels to see all available channel names.\n")
 
 def _print_plot_list(plot_definitions):
     from .plot_definitions import PLOT_TYPE_ORDER as type_names
@@ -815,7 +826,7 @@ def _print_dry_run(config, runs, export_map):
                     except Exception:
                         cols = set()
             elif file_path.suffix.lower() in (".txt", ".csv"):
-                with open(file_path, "r", encoding="utf-8", errors="ignore") as fh:
+                with open(file_path, encoding="utf-8", errors="ignore") as fh:
                     fh.readline()
                     header_line = fh.readline()
                     if header_line:
@@ -848,7 +859,7 @@ def _print_dry_run(config, runs, export_map):
             print(f"      *  {name}{extra}")
             total += 1
             est_bytes += int(figsize_default[0] * figsize_default[1] * dpi * dpi * 3 / 6)
-    print(f"    ---------")
+    print("    ---------")
     print(f"    total: {total}")
     if total:
         print(f"    estimated on-disk size: ~{est_bytes/1024/1024:.0f} MB")
@@ -910,7 +921,6 @@ def build_plot_groups(
     )
 
 def _expand_box_grids(boxes):
-    from .plot_definitions import BoxPlotGrid
     expanded = []
     for item in boxes:
         if isinstance(item, BoxPlotGrid) and item.render_mode == "expand":
@@ -931,39 +941,38 @@ def workflow_config(
     powerpoint_exports=None,
     vibrations_fit=None,
     fig_size=None,
+    scatter3d=None,
     **overrides,
 ) -> PlotJobConfig:
     from channel_config import (
-        CHANNEL_MAPPINGS, UNITS_MAP, CHANNEL_TRANSFORMS,
-        SCATTER_MAX_POINTS, BAR_SECONDARY_AXIS_RATIO, BOX_PLOT_SETTINGS,
+        BAR_SECONDARY_AXIS_RATIO,
+        BOX_PLOT_SETTINGS,
+        CHANNEL_MAPPINGS,
+        CHANNEL_TRANSFORMS,
+        SCATTER_MAX_POINTS,
+        UNITS_MAP,
     )
     _WORKFLOW_MAP = {
-        "correlation": ("CORRELATION_INPUT_DIR", "CORRELATION_OUTPUT_DIR",
-                        "CORRELATION_CALCULATED", "CORRELATION_FILTERS"),
-        "boxplots":    ("BOXPLOT_INPUT_DIR",     "BOXPLOT_OUTPUT_DIR",
-                        "BOXPLOT_CALCULATED",    "BOXPLOT_FILTERS"),
-        "dampers":     ("DAMPER_INPUT_DIR",      "DAMPER_OUTPUT_DIR",
-                        "DAMPER_CALCULATED",     "DAMPER_FILTERS"),
-        "ride_dil":    ("RIDE_DIL_INPUT_DIR",    "RIDE_DIL_OUTPUT_DIR",
-                        "RIDE_DIL_CALCULATED",   "RIDE_DIL_FILTERS"),
+        "correlation": ("CORRELATION_INPUT_DIR", "CORRELATION_OUTPUT_DIR"),
+        "boxplots":    ("BOXPLOT_INPUT_DIR",     "BOXPLOT_OUTPUT_DIR"),
+        "dampers":     ("DAMPER_INPUT_DIR",      "DAMPER_OUTPUT_DIR"),
+        "ride_dil":    ("RIDE_DIL_INPUT_DIR",    "RIDE_DIL_OUTPUT_DIR"),
     }
     import channel_config as _cc
     explicit_root = overrides.pop("root_folder", None)
     explicit_out = overrides.pop("output_dir", None)
     resample_rate = overrides.pop("resample_rate", getattr(_cc, "RESAMPLE_RATE", None))
     if workflow in _WORKFLOW_MAP:
-        input_dir, output_dir, calc_attr, filt_attr = _WORKFLOW_MAP[workflow]
+        input_dir, output_dir = _WORKFLOW_MAP[workflow]
         root_folder = explicit_root or getattr(_cc, input_dir)
         out_folder = explicit_out or getattr(_cc, output_dir)
-        calculated = overrides.pop("calculated_channels", getattr(_cc, calc_attr))
-        filters = overrides.pop("filters", getattr(_cc, filt_attr))
     else:
         from channel_config import get_workflow_dirs
         _root, _out = get_workflow_dirs(workflow)
         root_folder = explicit_root or _root
         out_folder = explicit_out or _out
-        calculated = overrides.pop("calculated_channels", getattr(_cc, "CALCULATED_CHANNELS", {}))
-        filters = overrides.pop("filters", getattr(_cc, "DEFAULT_FILTERS", {}))
+    calculated = overrides.pop("calculated_channels", getattr(_cc, "CALCULATED_CHANNELS", {}))
+    filters = overrides.pop("filters", getattr(_cc, "FILTERS", {}))
     return PlotJobConfig(
         title=title,
         root_folder=root_folder,
@@ -985,6 +994,8 @@ def workflow_config(
         export_map=export_map,
         powerpoint_exports=powerpoint_exports,
         vibrations_fit=vibrations_fit,
+        psd_min_averages_target=overrides.pop("psd_min_averages_target", 200),
+        debug_scatter3d_plots=scatter3d,
         **overrides,
     )
 
@@ -1005,7 +1016,9 @@ def run_plot_job(
     print(f"{title:^80}")
     print("=" * 80 + "\n")
     from .data_quality_report import (
-        build_quality_sections, write_data_quality_report, print_quality_summary,
+        build_quality_sections,
+        print_quality_summary,
+        write_data_quality_report,
     )
     sections = build_quality_sections(
         plotter.runs, plotter.run_data, plotter.PLOT_DEFINITIONS,
@@ -1072,16 +1085,16 @@ def run_plot_job(
     print(f"{'PROCESSING COMPLETE':^80}")
     print("=" * 80 + "\n")
 
-from .plot_definitions import (  # noqa: E402
-    Marker,
-    WaveformPlot,
-    ScatterPlot,
-    PsdPlot,
-    HistogramPlot,
+from .plot_definitions import (  # noqa: E402, F401
     BarPlot,
     BoxPlot,
     BoxPlotGrid,
     HeatmapPlot,
+    HistogramPlot,
+    Marker,
+    PsdPlot,
+    ScatterPlot,
+    WaveformPlot,
 )
 
 MAIN_PLOT_BOX = {
@@ -1253,9 +1266,9 @@ def get_template_plot_aspect_ratios(template_path, export_map):
     return aspect_ratios
 
 def _export_via_pptx(template_path, output_path, plots_dir, export_map):
+    from PIL import Image as _PILImage
     from pptx import Presentation
     from pptx.util import Emu
-    from PIL import Image as _PILImage
     prs = Presentation(str(template_path))
     slide_width = int(prs.slide_width)
     slide_height = int(prs.slide_height)
@@ -1365,8 +1378,8 @@ def export_report_to_powerpoint(template_path, output_path, plots_dir, export_ma
     if not template_path.exists():
         raise FileNotFoundError(f"PowerPoint template not found: {template_path}")
     try:
-        import pptx  # noqa: F401
         import PIL  # noqa: F401
+        import pptx  # noqa: F401
         _export_via_pptx(template_path, output_path, plots_dir, export_map)
         log.info("PowerPoint exported via python-pptx: %s", output_path)
         return

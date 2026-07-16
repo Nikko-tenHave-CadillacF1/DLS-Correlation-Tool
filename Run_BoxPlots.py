@@ -1,10 +1,11 @@
 """Box plot workflow — edit RUNS and BOX_PLOT_DEFINITIONS to configure your analysis."""
 
 from bootstrap import ensure_dependencies
+
 ensure_dependencies()
 
 from channel_config import get_workflow_dirs
-from engine import run_workflow, BoxPlotGrid, WaveformPlot
+from engine import BoxPlotGrid, WaveformPlot, run_workflow
 
 WORKFLOW_NAME = "boxplots"
 EVENT = "26R05MTL"

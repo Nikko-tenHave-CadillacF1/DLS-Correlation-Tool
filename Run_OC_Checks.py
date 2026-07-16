@@ -1,12 +1,16 @@
 """Correlation workflow — edit RUNS and plot definitions to configure your analysis."""
 
 from bootstrap import ensure_dependencies
+
 ensure_dependencies()
 
 from channel_config import get_workflow_dirs, resolve_template_path
 from engine import (
-    run_workflow, Slide,
-    WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot, BarPlot,
+    BarPlot,
+    ScatterPlot,
+    Slide,
+    WaveformPlot,
+    run_workflow,
 )
 
 WORKFLOW_NAME = "tests"
@@ -87,12 +91,12 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("Rear Heave",              "xHubVertR_Avg",   "FzTyreR_Avg",
                  best_fit=[('y', None, 5000), ('y', 5000, None)]),
     ScatterPlot("Rear Roll",               "xHubVertR_Delta", "FzTyreR_Delta",          best_fit=[('x', None, None)]),
-    
+
     ScatterPlot("Roll angle gLat",         "gLat",          "aRoll",                best_fit=[('x', None, None)]),
-    ScatterPlot("Front Ride vCar",         "vCar",          "hRideF",  best_fit=[('SM', 0, 0.5)],             
+    ScatterPlot("Front Ride vCar",         "vCar",          "hRideF",  best_fit=[('SM', 0, 0.5)],
                 axis_limits=[(None, None), (None, 40)],
                 annotate_fit_at=(100,200,300)),
-    ScatterPlot("Rear Ride vCar",          "vCar",          "hRideR",  best_fit=[('SM', 0, 0.5)],            
+    ScatterPlot("Rear Ride vCar",          "vCar",          "hRideR",  best_fit=[('SM', 0, 0.5)],
                 axis_limits=[(None, None), (None, 75)],
                 annotate_fit_at=(100,200,300)),
     ScatterPlot("Ride Height Compare",         "hRideF",    "hRideR"),

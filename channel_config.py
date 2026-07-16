@@ -7,10 +7,11 @@ Edit here to configure:
 """
 
 from pathlib import Path
+
 import numpy as np
 from scipy.integrate import cumulative_trapezoid
-from engine.datafunctions import calc_channel, calculate_cplv
 
+from engine.datafunctions import calc_channel, calculate_cplv
 
 # ─── PATHS ────────────────────────────────────────────────────────────────────
 # All paths are resolved relative to this file's location (the project root).
@@ -90,6 +91,22 @@ CHANNEL_MAPPINGS = {
         "sLapCan": "sLap",
     },
     "DLS": {
+        "aRollCarTrack": "aRoll",
+        "aUndersteer_aSlip": "aUndersteerFromSlip",
+        "BAeroModeXDriver": "SM",
+        "rThrottlePedal": "rThrottle",
+        "EPlankLTS_Lap": "EPlankF",
+        "PPlankWearF": "PPlankF",
+        "zWheelCentreChassisFL": "xHubVertFL",
+        "zWheelCentreChassisFR": "xHubVertFR",
+        "zWheelCentreChassisRL": "xHubVertRL",
+        "zWheelCentreChassisRR": "xHubVertRR",
+        "vAero": "vAir",
+    },
+    "FMIOpt": {
+        # Lap-sim (FMIOpt) parquet — behaves like DLS with a smaller channel
+        # set. Any target that is not present in the source parquet is silently
+        # skipped by apply_channel_mappings.
         "aRollCarTrack": "aRoll",
         "aUndersteer_aSlip": "aUndersteerFromSlip",
         "BAeroModeXDriver": "SM",
@@ -199,10 +216,10 @@ CHANNEL_TRANSFORMS = {
         # "FPRodRR": lambda x: -x,
         "aRoll":   lambda x: -x,
         "gVert":   lambda x: x - 1,
-        "FPushrodFL": lambda x: abs(x),
-        "FPushrodFR": lambda x: abs(x),
-        "FPushrodRL": lambda x: abs(x),
-        "FPushrodRR": lambda x: abs(x),
+        "FPushrodFL": lambda x: -x,  # raw: tension-negative → flip to compression-positive
+        "FPushrodFR": lambda x: -x,
+        "FPushrodRL": lambda x: x,   # raw: already compression-positive
+        "FPushrodRR": lambda x: x,
     },
     "CAR": {
         #"sLap":  lambda x: x - 10,     # GPS alignment shift
@@ -210,23 +227,28 @@ CHANNEL_TRANSFORMS = {
         "PBrakeFR": lambda x: -x,
         "PBrakeRL": lambda x: -x,
         "PBrakeRR": lambda x: -x,
-        "FPushrodFL": lambda x: abs(x),
-        "FPushrodFR": lambda x: abs(x),
-        "FPushrodRL": lambda x: abs(x),
-        "FPushrodRR": lambda x: abs(x),
+        "FPushrodFL": lambda x: -x,  # raw: tension-negative → flip to compression-positive
+        "FPushrodFR": lambda x: -x,
+        "FPushrodRL": lambda x: x,   # raw: already compression-positive
+        "FPushrodRR": lambda x: x,
     },
     "DIL": {
         "PBrakeFL": lambda x: -x,
         "PBrakeFR": lambda x: -x,
         "PBrakeRL": lambda x: -x,
         "PBrakeRR": lambda x: -x,
-        "FPushrodFL": lambda x: abs(x),
-        "FPushrodFR": lambda x: abs(x),
-        "FPushrodRL": lambda x: abs(x),
-        "FPushrodRR": lambda x: abs(x),
+        "FPushrodFL": lambda x: -x,  # raw: all tension-negative → flip to compression-positive
+        "FPushrodFR": lambda x: -x,
+        "FPushrodRL": lambda x: -x,
+        "FPushrodRR": lambda x: -x,
     },
     "OC": {
         # "rBrakeBias": lambda x: x/100 ,  # Convert from % to 0-1
+    },
+    "FMIOpt": {
+        # Lap-sim (FMIOpt): mirror DLS sign conventions. Missing channels
+        # are silently skipped by apply_transformations.
+        "aRoll":   lambda x: -x,
     },
 }
 
@@ -283,10 +305,10 @@ CALCULATED_CHANNELS = {
     "FProdVarFR":         lambda df: abs(df["FPushrodFR"] - df["FPushrodFR"].rolling(window=32, min_periods=1, center=True).mean()),
     "FProdVarRL":         lambda df: abs(df["FPushrodRL"] - df["FPushrodRL"].rolling(window=32, min_periods=1, center=True).mean()),
     "FProdVarRR":         lambda df: abs(df["FPushrodRR"] - df["FPushrodRR"].rolling(window=32, min_periods=1, center=True).mean()),
-    "FProdFL_High":      lambda df: df["FPushrodFL"],
-    "FProdFR_High":      lambda df: df["FPushrodFR"],
-    "FProdRL_High":      lambda df: df["FPushrodRL"],
-    "FProdRR_High":      lambda df: df["FPushrodRR"],
+    "FPushrodFL_High":   lambda df: df["FPushrodFL"],
+    "FPushrodFR_High":   lambda df: df["FPushrodFR"],
+    "FPushrodRL_High":   lambda df: df["FPushrodRL"],
+    "FPushrodRR_High":   lambda df: df["FPushrodRR"],
     # ── Damper travel ────────────────────────────────────────────────────────
     "xDamperDeltaF":      lambda df: df["xDamperFL"] - df["xDamperFR"],
     "xDamperDeltaR":      lambda df: df["xDamperRL"] - df["xDamperRR"],
@@ -310,10 +332,24 @@ CALCULATED_CHANNELS = {
     "gLong (raw)":        lambda df: df["gLong"],
     "CosPhi_Calc":        lambda df: df["gLong"] / np.sqrt(df["gLat"] ** 2 + df["gLong"] ** 2),
     # ── Ride height (unfiltered / high-pass copies) ──────────────────────────
+    # Corner-average fallbacks — used only when the source lacks a native
+    # axle-level hRideF/hRideR (e.g. FMIOpt lap-sim, which reports the four
+    # corners hRideFL/FR/RL/RR only). Sources that already provide hRideF /
+    # hRideR keep their native calibration.
+    "hRideF":             calc_channel("hRideF", "hRideFL", "hRideFR")(lambda df: df["hRideF"] if "hRideF" in df.columns else (df["hRideFL"] + df["hRideFR"]) / 2),
+    "hRideR":             calc_channel("hRideR", "hRideRL", "hRideRR")(lambda df: df["hRideR"] if "hRideR" in df.columns else (df["hRideRL"] + df["hRideRR"]) / 2),
     "hRideF (raw)":       lambda df: df["hRideF"],
     "hRideR (raw)":       lambda df: df["hRideR"],
     "hRideF (high)":      lambda df: df["hRideF"],
     "hRideR (high)":      lambda df: df["hRideR"],
+    # ── Kinematic camber fallbacks ───────────────────────────────────────────
+    # FMIOpt lap-sim outputs plain aCamberFL/FR/RL/RR (rigid-suspension model,
+    # so kinematic == total). Sources that already carry an explicit
+    # ...Kinematic channel are preserved.
+    "aCamberFLKinematic": calc_channel("aCamberFLKinematic", "aCamberFL")(lambda df: df["aCamberFLKinematic"] if "aCamberFLKinematic" in df.columns else df["aCamberFL"]),
+    "aCamberFRKinematic": calc_channel("aCamberFRKinematic", "aCamberFR")(lambda df: df["aCamberFRKinematic"] if "aCamberFRKinematic" in df.columns else df["aCamberFR"]),
+    "aCamberRLKinematic": calc_channel("aCamberRLKinematic", "aCamberRL")(lambda df: df["aCamberRLKinematic"] if "aCamberRLKinematic" in df.columns else df["aCamberRL"]),
+    "aCamberRRKinematic": calc_channel("aCamberRRKinematic", "aCamberRR")(lambda df: df["aCamberRRKinematic"] if "aCamberRRKinematic" in df.columns else df["aCamberRR"]),
     # ── Power unit ───────────────────────────────────────────────────────────
     "PPUTotal":           lambda df: df["PMGUK"] + df["PEngine"],
     "nWheelAvg_R":        lambda df: (df["nWheelRL"] + df["nWheelRR"]) / 2,
@@ -343,10 +379,10 @@ CALCULATED_CHANNELS = {
     # ── Brake Powers ─────────────────────────
     "PBrakeF_Avg":       lambda df: (df["PBrakeFL"] + df["PBrakeFR"]) / 2,
     "PBrakeR_Avg":       lambda df: (df["PBrakeRL"] + df["PBrakeRR"]) / 2,
-    "EBrakeFL":        lambda df: cumulative_trapezoid(abs((df["PBrakeFL"] / 1000)), dx=0.01, initial=0),
-    "EBrakeFR":        lambda df: cumulative_trapezoid(abs((df["PBrakeFR"] / 1000)), dx=0.01, initial=0),
-    "EBrakeRL":        lambda df: cumulative_trapezoid(abs((df["PBrakeRL"] / 1000)), dx=0.01, initial=0),
-    "EBrakeRR":        lambda df: cumulative_trapezoid(abs((df["PBrakeRR"] / 1000)), dx=0.01, initial=0),
+    "EBrakeFL":        lambda df: cumulative_trapezoid(abs(df["PBrakeFL"] / 1000), dx=0.01, initial=0),
+    "EBrakeFR":        lambda df: cumulative_trapezoid(abs(df["PBrakeFR"] / 1000), dx=0.01, initial=0),
+    "EBrakeRL":        lambda df: cumulative_trapezoid(abs(df["PBrakeRL"] / 1000), dx=0.01, initial=0),
+    "EBrakeRR":        lambda df: cumulative_trapezoid(abs(df["PBrakeRR"] / 1000), dx=0.01, initial=0),
     # ─── SM Metrics ─────────────────────────
     "time_in_SM_100":       lambda df: cumulative_trapezoid((df["SM"] >= 0.999).astype(float), dx=0.01, initial=0),
     "time_in_SM_90":        lambda df: cumulative_trapezoid((df["SM"] >= 0.9).astype(float), dx=0.01, initial=0),
@@ -355,14 +391,6 @@ CALCULATED_CHANNELS = {
     "ratio_time_in_SM_90":  lambda df: cumulative_trapezoid((df["SM"] >= 0.9).astype(float), dx=0.01, initial=0) / (cumulative_trapezoid(np.ones_like(df["SM"]), dx=0.01, initial=0) + 1e-6),
     "ratio_time_in_SM_80":  lambda df: cumulative_trapezoid((df["SM"] >= 0.8).astype(float), dx=0.01, initial=0) / (cumulative_trapezoid(np.ones_like(df["SM"]), dx=0.01, initial=0) + 1e-6),
 }
-
-# Per-workflow calculated channels. Override individually if a workflow needs
-# extra or fewer channels; by default all share the same definitions.
-CORRELATION_CALCULATED = dict(CALCULATED_CHANNELS)
-BOXPLOT_CALCULATED     = dict(CALCULATED_CHANNELS)
-DAMPER_CALCULATED      = dict(CALCULATED_CHANNELS)
-RIDE_DIL_CALCULATED    = dict(CALCULATED_CHANNELS)
-
 
 # ─── RESAMPLING ───────────────────────────────────────────────────────────────
 # All input channels are resampled to this uniform rate (Hz) BEFORE any
@@ -373,122 +401,123 @@ RESAMPLE_RATE = None
 
 
 # ─── FILTERS ──────────────────────────────────────────────────────────────────
-# cutoff=0 disables filtering for that channel.
-# "all" is a fallback applied to any channel not explicitly listed.
-# Optional "type" key: "low" (default), "high", or "bandpass".
-# For bandpass, cutoff is a two-element list [low_hz, high_hz].
-# Filters are applied AFTER resampling — see RESAMPLE_RATE above.
+# Single filter dict used by ALL workflows. Channels not present in a given run
+# are silently ignored — safe to include everything here.
+#
+# Format per entry:  "ChannelName": {"cutoff": Hz, "order": N, "type": "low"|"high"|"bandpass"}
+#   - cutoff = 0  → no filtering (preserves raw signal)
+#   - type defaults to "low" if omitted
+#   - For bandpass, cutoff is a two-element list [low_hz, high_hz]
+#   - "all" is the fallback applied to any channel NOT explicitly listed
+#
+# To override for a specific workflow, pass `filters={...}` to run_workflow().
 
-# Channels that should NEVER be filtered (discrete/categorical/integral signals).
-_NO_FILTER = {"cutoff": 0, "order": 2}
+FILTERS = {
+    # ── Unfiltered channels (discrete / categorical / integral signals) ───────
+    "SM":            {"cutoff": 0, "order": 2},
+    "NGear":         {"cutoff": 0, "order": 2},
+    "vCar":          {"cutoff": 0, "order": 2},
+    "nEngine":       {"cutoff": 0, "order": 2},
+    "rThrottle":     {"cutoff": 0, "order": 2},
+    "PMGUK":         {"cutoff": 0, "order": 2},
+    "PPUTotal":      {"cutoff": 0, "order": 2},
+    "dmInjector":    {"cutoff": 0, "order": 2},
 
-_UNFILTERED_CHANNELS = {
-    "gVertF":        _NO_FILTER,
-    "gVertR":        _NO_FILTER,
-    "gVert":         _NO_FILTER,
-    "PMGUK":         _NO_FILTER,
-    "SM":            _NO_FILTER,
-    "NGear":         _NO_FILTER,
-    "nEngine":       _NO_FILTER,
-    "rThrottle":     _NO_FILTER,
-    "vCar":          _NO_FILTER,
-    "dmInjector":    _NO_FILTER,
-    "FzPlankF":      _NO_FILTER,
-    "nWheelAvg_R":   _NO_FILTER,
-    "EPlank_F":      _NO_FILTER,
-    "PPlank_F":      _NO_FILTER,
-    "gLong (raw)":   _NO_FILTER,
-    "hRideF (raw)":  _NO_FILTER,
-    "hRideR (raw)":  _NO_FILTER,
-    "PPUTotal":      _NO_FILTER,
-    "gHubVertFL":    _NO_FILTER,
-    "gHubVertFR":    _NO_FILTER,
-    "gHubVertRL":    _NO_FILTER,
-    "gHubVertRR":    _NO_FILTER,
-    "FPushrodFL":    _NO_FILTER,
-    "FPushrodFR":    _NO_FILTER,
-    "FPushrodRL":    _NO_FILTER,
-    "FPushrodRR":    _NO_FILTER,
-    "FPRodHeave":    {"cutoff": 1, "order": 4, "type": "high"},
-    "FPRodPitch":    {"cutoff": 1, "order": 4, "type": "high"},
-    "FPRodRoll":     {"cutoff": 1, "order": 4, "type": "high"},
-    "FPRodWarp":     {"cutoff": 1, "order": 4, "type": "high"},
-    "CPLV_Front":    _NO_FILTER,
-    "CPLV_Rear":     _NO_FILTER,
-    "tDiff":         _NO_FILTER,
-    "PBrakeFL":     _NO_FILTER,
-    "PBrakeFR":     _NO_FILTER,
-    "PBrakeRL":     _NO_FILTER,
-    "PBrakeRR":     _NO_FILTER,
-    "dtLap_dhCoGStatic": _NO_FILTER,
-    "dtLap_dxCoGStatic": _NO_FILTER,
-    "dtLap_dCDragTotal": _NO_FILTER,
-    "dtLap_dCLiftTotal": _NO_FILTER,
-    "dtLap_dhCoGStatic_Integral": _NO_FILTER,
-    "dtLap_dxCoGStatic_Integral": _NO_FILTER,
-    "dtLap_dCDragTotal_Integral": _NO_FILTER,
-    "dtLap_dCLiftTotal_Integral": _NO_FILTER,
-    
-}
+    # ── Vertical accelerations (raw for PSD, unfiltered) ──────────────────────
+    "gVert":         {"cutoff": 0, "order": 2},
+    "gVertF":        {"cutoff": 0, "order": 2},
+    "gVertR":        {"cutoff": 0, "order": 2},
+    "gHubVertFL":    {"cutoff": 0, "order": 2},
+    "gHubVertFR":    {"cutoff": 0, "order": 2},
+    "gHubVertRL":    {"cutoff": 0, "order": 2},
+    "gHubVertRR":    {"cutoff": 0, "order": 2},
 
-# Default filter set used by all workflows (and custom workflows).
-# Includes a sensible "all" fallback. Override per-workflow below.
-DEFAULT_FILTERS = {
-    **_UNFILTERED_CHANNELS,
+    # ── Pushrod forces (raw for PSD) ──────────────────────────────────────────
+    "FPushrodFL":    {"cutoff": 0, "order": 2},
+    "FPushrodFR":    {"cutoff": 0, "order": 2},
+    "FPushrodRL":    {"cutoff": 0, "order": 2},
+    "FPushrodRR":    {"cutoff": 0, "order": 2},
+
+    # ── Ride modes (high-pass to remove static offset) ────────────────────────
+    "FPRodHeave":    {"cutoff": (1.5, 15), "order": 4, "type": "bandpass"},
+    "FPRodPitch":    {"cutoff": (1.5, 15), "order": 4, "type": "bandpass"},
+    "FPRodRoll":     {"cutoff": (1.5, 15), "order": 4, "type": "bandpass"},
+    "FPRodWarp":     {"cutoff": (1.5, 15), "order": 4, "type": "bandpass"},
+
+    # ── Ride heights ──────────────────────────────────────────────────────────
+    "hRideF (raw)":  {"cutoff": 0, "order": 2},
+    "hRideR (raw)":  {"cutoff": 0, "order": 2},
     "hRideF (high)": {"cutoff": 0.5, "order": 4, "type": "high"},
     "hRideR (high)": {"cutoff": 0.5, "order": 4, "type": "high"},
+
+    # ── Brakes ────────────────────────────────────────────────────────────────
+    "PBrakeFL":      {"cutoff": 0, "order": 2},
+    "PBrakeFR":      {"cutoff": 0, "order": 2},
+    "PBrakeRL":      {"cutoff": 0, "order": 2},
+    "PBrakeRR":      {"cutoff": 0, "order": 2},
+
+    # ── Plank / energy channels ───────────────────────────────────────────────
+    "FzPlankF":      {"cutoff": 0, "order": 2},
+    "EPlank_F":      {"cutoff": 0, "order": 2},
+    "PPlank_F":      {"cutoff": 0, "order": 2},
+    "nWheelAvg_R":   {"cutoff": 0, "order": 2},
+
+    # ── Misc unfiltered ───────────────────────────────────────────────────────
+    "gLong (raw)":   {"cutoff": 0, "order": 2},
+    "CPLV_Front":    {"cutoff": 0, "order": 2},
+    "CPLV_Rear":     {"cutoff": 0, "order": 2},
+    "tDiff":         {"cutoff": 0, "order": 2},
+    "dtLap_dhCoGStatic":          {"cutoff": 0, "order": 2},
+    "dtLap_dxCoGStatic":          {"cutoff": 0, "order": 2},
+    "dtLap_dCDragTotal":          {"cutoff": 0, "order": 2},
+    "dtLap_dCLiftTotal":          {"cutoff": 0, "order": 2},
+    "dtLap_dhCoGStatic_Integral": {"cutoff": 0, "order": 2},
+    "dtLap_dxCoGStatic_Integral": {"cutoff": 0, "order": 2},
+    "dtLap_dCDragTotal_Integral": {"cutoff": 0, "order": 2},
+    "dtLap_dCLiftTotal_Integral": {"cutoff": 0, "order": 2},
+
+    # ── Damper velocities (no filter — derivative already limits bandwidth) ───
     "vDamperDeltaF": {"cutoff": 0, "order": 2},
     "vDamperDeltaR": {"cutoff": 0, "order": 2},
     "vDamperAvgF":   {"cutoff": 0, "order": 2},
     "vDamperAvgR":   {"cutoff": 0, "order": 2},
+
+    # ── Damper / force variation channels (low-pass envelope) ─────────────────
+    "xDamperVarFL":  {"cutoff": 2, "order": 2},
+    "xDamperVarFR":  {"cutoff": 2, "order": 2},
+    "xDamperVarRL":  {"cutoff": 2, "order": 2},
+    "xDamperVarRR":  {"cutoff": 2, "order": 2},
+    "FProdVarFL":    {"cutoff": 2, "order": 2},
+    "FProdVarFR":    {"cutoff": 2, "order": 2},
+    "FProdVarRL":    {"cutoff": 2, "order": 2},
+    "FProdVarRR":    {"cutoff": 2, "order": 2},
+
+    # ── High-pass copies (for PSD of AC content only) ─────────────────────────
+    "FPushrodFL_High":      {"cutoff": 2, "order": 2, "type": "high"},
+    "FPushrodFR_High":      {"cutoff": 2, "order": 2, "type": "high"},
+    "FPushrodRL_High":      {"cutoff": 2, "order": 2, "type": "high"},
+    "FPushrodRR_High":      {"cutoff": 2, "order": 2, "type": "high"},
+    "xDamperFL_High":    {"cutoff": 2, "order": 2, "type": "high"},
+    "xDamperFR_High":    {"cutoff": 2, "order": 2, "type": "high"},
+    "xDamperRL_High":    {"cutoff": 2, "order": 2, "type": "high"},
+    "xDamperRR_High":    {"cutoff": 2, "order": 2, "type": "high"},
+    "FPRodHeave_Shape":  {"cutoff": 0, "order": 4},
+    "FPRodPitch_Shape":  {"cutoff": 0, "order": 4},
+
+    # ── Suspension / dynamics ─────────────────────────────────────────────────
     "rLLTD":         {"cutoff": 1, "order": 4},
+    "CosPhi":        {"cutoff": 3, "order": 3},
+
+    # ── Fallback for any channel not listed above ─────────────────────────────
     "all":           {"cutoff": 5, "order": 2},
 }
 
-# ── Workflow-specific overrides (only specify what differs from DEFAULT) ──────
-
-CORRELATION_FILTERS = {
-    **DEFAULT_FILTERS,
-    # Uses default "all" = 5 Hz lowpass
-}
-
-BOXPLOT_FILTERS = {
-    **DEFAULT_FILTERS,
-    "all":         {"cutoff": 4, "order": 2},
-}
-
-DAMPER_FILTERS = {
-    **DEFAULT_FILTERS,
-    "CosPhi":  {"cutoff": 3,  "order": 3},
-    "rLLTD":   {"cutoff": 10, "order": 2},
-    "gVert":   {"cutoff": 30, "order": 2},
-    "gVertF":  {"cutoff": 30, "order": 2},
-    "gVertR":  {"cutoff": 30, "order": 2},
-    "all":     {"cutoff": 10, "order": 3},
-}
-
-RIDE_DIL_FILTERS = {
-    "xDamperVarFL": {"cutoff": 2, "order": 2},
-    "xDamperVarFR": {"cutoff": 2, "order": 2},
-    "xDamperVarRL": {"cutoff": 2, "order": 2},
-    "xDamperVarRR": {"cutoff": 2, "order": 2},
-    "FProdVarFL":   {"cutoff": 2, "order": 2},
-    "FProdVarFR":   {"cutoff": 2, "order": 2},
-    "FProdVarRL":   {"cutoff": 2, "order": 2},
-    "FProdVarRR":   {"cutoff": 2, "order": 2},
-    "FProdFL_High":  {"cutoff": 1, "order": 4, "type": "high"},
-    "FProdFR_High":  {"cutoff": 1, "order": 4, "type": "high"},
-    "FProdRL_High":  {"cutoff": 1, "order": 4, "type": "high"},
-    "FProdRR_High":  {"cutoff": 1, "order": 4, "type": "high"},
-    "FPRodHeave_Shape": {"cutoff": 0, "order": 4},
-    "FPRodPitch_Shape": {"cutoff": 0, "order": 4},
-    "xDamperFL_High": {"cutoff": 1, "order": 4, "type": "high"},
-    "xDamperFR_High": {"cutoff": 1, "order": 4, "type": "high"},
-    "xDamperRL_High": {"cutoff": 1, "order": 4, "type": "high"},
-    "xDamperRR_High": {"cutoff": 1, "order": 4, "type": "high"},
-    **DEFAULT_FILTERS,
-    # No "all" fallback — only filter channels explicitly listed above
-}
+# Backward-compatible aliases (referenced by legacy workflow names in plot_runtime).
+DEFAULT_FILTERS      = FILTERS
+CORRELATION_FILTERS  = FILTERS
+BOXPLOT_FILTERS      = FILTERS
+DAMPER_FILTERS       = FILTERS
+RIDE_DIL_FILTERS     = FILTERS
 
 
 TRACK_LENGTHS = {

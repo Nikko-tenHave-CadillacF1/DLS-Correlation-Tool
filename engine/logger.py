@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Optional
 
 _LOG_NAME = "dls_correlation"
 log = logging.getLogger(_LOG_NAME)
@@ -25,7 +24,7 @@ log.addHandler(_handler)
 log.setLevel(logging.INFO)
 log.propagate = False
 
-def configure(*, verbose: bool = False, log_file: Optional[str] = None) -> None:
+def configure(*, verbose: bool = False, log_file: str | None = None) -> None:
     log.setLevel(logging.DEBUG if verbose else logging.INFO)
     _handler.setLevel(logging.DEBUG if verbose else logging.INFO)
     if log_file:

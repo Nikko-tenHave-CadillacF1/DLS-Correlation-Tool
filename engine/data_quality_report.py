@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Iterable
 
 import pandas as pd
 
 REPORT_FILENAME = "data_quality_report.md"
 
-def _md_table(headers: List[str], rows: List[List[str]]) -> str:
+def _md_table(headers: list[str], rows: list[list[str]]) -> str:
     if not rows:
         return "_None_\n"
     out = ["| " + " | ".join(headers) + " |",
@@ -18,19 +18,19 @@ def _md_table(headers: List[str], rows: List[List[str]]) -> str:
     return "\n".join(out) + "\n"
 
 def build_quality_sections(
-    runs: List[Dict[str, Any]],
-    run_data: Dict[str, pd.DataFrame],
+    runs: list[dict[str, Any]],
+    run_data: dict[str, pd.DataFrame],
     plot_definitions: Iterable[Iterable[Any]],
-    run_sample_rates: Optional[Dict[str, Tuple[float, str]]] = None,
-    outlier_log: Optional[List[Dict[str, Any]]] = None,
-) -> List[Tuple[str, List[Any]]]:
+    run_sample_rates: dict[str, tuple[float, str]] | None = None,
+    outlier_log: list[dict[str, Any]] | None = None,
+) -> list[tuple[str, list[Any]]]:
     from .dataplotter import collect_referenced_channels, estimate_slap_alignment
     referenced = collect_referenced_channels(plot_definitions)
-    summary_rows: List[List[str]] = []
-    missing_rows: List[List[str]] = []
-    high_nan_rows: List[List[str]] = []
-    flatlined_rows: List[List[str]] = []
-    slap_reset_rows: List[List[str]] = []
+    summary_rows: list[list[str]] = []
+    missing_rows: list[list[str]] = []
+    high_nan_rows: list[list[str]] = []
+    flatlined_rows: list[list[str]] = []
+    slap_reset_rows: list[list[str]] = []
     for run in runs:
         run_name = run["name"].lower()
         if run_name not in run_data:
@@ -77,12 +77,12 @@ def build_quality_sections(
             str(flat_count),
             str(resets),
         ])
-    sr_rows: List[List[str]] = []
+    sr_rows: list[list[str]] = []
     if run_sample_rates:
         for run_name, (rate, source) in run_sample_rates.items():
             sr_rows.append([run_name.upper(), f"{rate:.1f} Hz", source])
     align_lines = estimate_slap_alignment(runs, run_data)
-    outlier_rows: List[List[str]] = []
+    outlier_rows: list[list[str]] = []
     if outlier_log:
         for entry in outlier_log:
             outlier_rows.append([
@@ -91,7 +91,7 @@ def build_quality_sections(
                 f"{entry.get('n_outliers', 0)} / {entry.get('n_total', 0)}",
                 f"{entry.get('pseudo_r2', 0.0):.3f}",
             ])
-    sections: List[Tuple[str, List[Any]]] = [
+    sections: list[tuple[str, list[Any]]] = [
         ("Summary", [{
             "_table": True,
             "headers": ["Run", "Rows", "Cols", "Missing", "High-NaN", "Flatlined", "sLap Resets"],

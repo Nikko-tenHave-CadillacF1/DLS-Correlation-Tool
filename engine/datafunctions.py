@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import difflib
 
-import pandas as pd
 import numpy as np
-from scipy.stats import linregress, theilslopes
-from scipy.signal import butter, filtfilt, welch, resample_poly
+import pandas as pd
 from matplotlib import patheffects as pe
+from scipy.signal import butter, filtfilt, resample_poly, welch
+from scipy.stats import linregress, theilslopes
 
 from .logger import log
+
 
 def calc_channel(*deps):
     def _wrap(fn):
@@ -20,7 +21,7 @@ def calc_channel(*deps):
         return fn
     return _wrap
 
-_np_trapezoid = getattr(np, "trapezoid", None) or getattr(np, "trapz")
+_np_trapezoid = getattr(np, "trapezoid", None) or np.trapz
 
 try:
     from tqdm import tqdm as _tqdm_raw
@@ -67,7 +68,9 @@ def convert_yes_no_to_binary(df: pd.DataFrame) -> pd.DataFrame:
                 continue
             str_values = [str(x).upper() for x in non_nan if isinstance(x, str)]
             if any(v in ["YES", "NO"] for v in str_values):
-                df[col] = df[col].astype(str).str.upper().replace({"YES": 1, "NO": 0}).infer_objects(copy=False)
+                # `copy=` kwarg to `infer_objects` is removed in pandas 3.0
+                # (Copy-on-Write handles this automatically). Rely on default.
+                df[col] = df[col].astype(str).str.upper().replace({"YES": 1, "NO": 0}).infer_objects()
                 df[col] = pd.to_numeric(df[col], errors="coerce")
                 columns_converted.append(col)
     if columns_converted:
@@ -136,7 +139,8 @@ def apply_calculated_channels(df: pd.DataFrame, source_type: str, calculated_cha
         target_names = {n for n in required_channels if n in calc_set}
         if target_names:
             try:
-                import inspect as _inspect, re as _re
+                import inspect as _inspect
+                import re as _re
                 changed = True
                 while changed:
                     changed = False

@@ -2,11 +2,13 @@
 to FPushrod (or damperpot) PSDs across one or more runs."""
 
 import os
+
 from bootstrap import ensure_dependencies
+
 ensure_dependencies()
 
 from channel_config import get_workflow_dirs
-from engine.vibrations_io import run_fit, plot_comparison, expand_runs
+from engine.vibrations_io import expand_runs, plot_comparison, run_fit
 
 WORKFLOW_NAME = "ride_dil"
 EVENT = "26R07BCN"
