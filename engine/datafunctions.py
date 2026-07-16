@@ -759,9 +759,9 @@ def plot_scatter_with_multi_fit(
                 max_points=max_points,
             )
         if fit_mask_info["status"] == "missing_condition_channel":
-            print(
-                f"[WARNING][datafunctions] No fit condition channel '{fit_mask_info['axis_name']}' "
-                f"for run '{label}'. Segment skipped."
+            log.warning(
+                "No fit condition channel %r for run %r. Segment skipped.",
+                fit_mask_info["axis_name"], label,
             )
             slopes_list.append(None)
             intercepts_list.append(None)
@@ -780,9 +780,9 @@ def plot_scatter_with_multi_fit(
         if robust:
             info = fit_robust_theilsen(xb, yb, outlier_k=robust_threshold)
             if info is None:
-                print(
-                    f"[WARNING][datafunctions] Robust fit segment {idx + 1} failed for "
-                    f"'{label}' ({x_var} vs {y_var}). Skipping segment."
+                log.warning(
+                    "Robust fit segment %d failed for %r (%s vs %s). Skipping segment.",
+                    idx + 1, label, x_var, y_var,
                 )
                 slopes_list.append(None)
                 intercepts_list.append(None)
@@ -807,9 +807,9 @@ def plot_scatter_with_multi_fit(
             try:
                 slope, interc, _, _, _ = linregress(xb, yb)
             except ValueError:
-                print(
-                    f"[WARNING][datafunctions] Not enough data for fit segment {idx + 1} "
-                    f"of '{label}' ({x_var} vs {y_var}). Skipping segment."
+                log.warning(
+                    "Not enough data for fit segment %d of %r (%s vs %s). Skipping segment.",
+                    idx + 1, label, x_var, y_var,
                 )
                 slopes_list.append(None)
                 intercepts_list.append(None)
@@ -874,9 +874,9 @@ def build_fit_condition_data(df, index, fit_defs, plot_name="", run_name=""):
     data = {}
     for channel in condition_channels:
         if channel not in df.columns:
-            print(
-                f"[WARNING][datafunctions] Scatter plot '{plot_name}': "
-                f"fit condition channel '{channel}' missing in run '{run_name}'."
+            log.warning(
+                "Scatter plot %r: fit condition channel %r missing in run %r.",
+                plot_name, channel, run_name,
             )
             continue
         series = pd.to_numeric(df[channel], errors="coerce").reindex(index)

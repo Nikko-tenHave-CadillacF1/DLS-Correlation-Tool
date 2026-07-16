@@ -637,20 +637,19 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
         runs = [r for r in runs if r["name"].lower() in requested]
         if not runs:
             log.error("No runs matched: %s", cli_args.runs)
-            print(f"  Available: {[r['name'] for r in config.runs]}")
+            log.error("  Available: %s", [r["name"] for r in config.runs])
             raise SystemExit(1)
     issues = validate_config(config)
     if issues:
-        print("\n[ERROR] Configuration validation failed:")
+        log.error("Configuration validation failed:")
         for issue in issues:
-            print(f"  X  {issue}")
+            log.error("  X  %s", issue)
         raise SystemExit(1)
     if resolved_export_map:
         orphan_warnings = validate_export_map(config.plot_definitions, resolved_export_map)
         if orphan_warnings:
             for line in orphan_warnings:
-                print(line)
-            print()
+                log.warning("%s", line)
     if cli_args is not None and getattr(cli_args, "dry_run", False):
         _print_dry_run(config, runs, resolved_export_map)
         return
@@ -812,16 +811,16 @@ def _enforce_channel_typo_check(plot_definitions, run_data):
     if not bogus:
         return
     lower_to_actual = {c.lower(): c for c in union}
-    print("\n[WARN] Plot definitions reference channels that exist in no loaded run:")
+    log.warning("Plot definitions reference channels that exist in no loaded run:")
     for ch in bogus:
         cands = difflib.get_close_matches(ch, union, n=3, cutoff=0.6)
         if not cands:
             cands_lower = difflib.get_close_matches(ch.lower(), lower_to_actual.keys(), n=3, cutoff=0.55)
             cands = [lower_to_actual[c] for c in cands_lower]
         hint = f"  did you mean: {', '.join(cands)}?" if cands else ""
-        print(f"  -  '{ch}'{hint}")
-    print("\nAffected plots will render blank (or be skipped) — continuing.")
-    print("Run with --list-channels to see all available channel names.\n")
+        log.warning("  -  '%s'%s", ch, hint)
+    log.warning("Affected plots will render blank (or be skipped) — continuing.")
+    log.warning("Run with --list-channels to see all available channel names.")
 
 
 def _print_plot_list(plot_definitions):
@@ -1076,9 +1075,7 @@ def run_plot_job(
 ):
     import time as _time
 
-    print("\n" + "=" * 80)
-    print(f"{title:^80}")
-    print("=" * 80 + "\n")
+    log.info("\n%s\n%s\n%s", "=" * 80, title.center(80), "=" * 80)
     from .data_quality_report import (
         build_quality_sections,
         print_quality_summary,
@@ -1099,13 +1096,13 @@ def run_plot_job(
         print(f"  Full report: {report_path}\n")
     pre_mtimes = {p: p.stat().st_mtime for p in plotter.plots_dir.rglob("*.png")}
     t0 = _time.perf_counter()
-    print("\nGenerating plots...")
+    log.info("Generating plots...")
     plotter.plot_data(plot_types=plot_types, plot_names=plot_names)
     elapsed = _time.perf_counter() - t0
     plot_count = sum(
         1 for p in plotter.plots_dir.rglob("*.png") if p not in pre_mtimes or p.stat().st_mtime > pre_mtimes[p]
     )
-    print(f"\nGenerated {plot_count} plot(s) in {elapsed:.1f}s -> {plotter.plots_dir}")
+    log.info("Generated %d plot(s) in %.1fs -> %s", plot_count, elapsed, plotter.plots_dir)
     exports: list = []
     if powerpoint_exports:
         exports.extend(powerpoint_exports)
@@ -1122,7 +1119,7 @@ def run_plot_job(
         if not (tpl and out and exp_map):
             continue
         label = Path(out).name
-        print(f"\nExporting to PowerPoint [{i + 1}/{len(exports)}]: {label}")
+        log.info("Exporting to PowerPoint [%d/%d]: %s", i + 1, len(exports), label)
         try:
             Path(out).parent.mkdir(parents=True, exist_ok=True)
             export_report_to_powerpoint(
@@ -1136,7 +1133,7 @@ def run_plot_job(
                 os.startfile(out)
             except Exception as open_err:
                 log.warning("Could not auto-open PowerPoint file: %s", open_err)
-                print(f"File saved to: {out}")
+                log.info("File saved to: %s", out)
         except Exception as export_err:
             log.error("PowerPoint export failed (%s): %s", label, export_err)
             traceback.print_exc()
@@ -1145,9 +1142,7 @@ def run_plot_job(
             os.startfile(plotter.plots_dir)
         except Exception:
             pass
-    print("\n" + "=" * 80)
-    print(f"{'PROCESSING COMPLETE':^80}")
-    print("=" * 80 + "\n")
+    log.info("\n%s\n%s\n%s", "=" * 80, "PROCESSING COMPLETE".center(80), "=" * 80)
 
 
 from .plot_definitions import (  # noqa: E402, F401
@@ -1536,10 +1531,10 @@ def export_report_to_powerpoint(template_path, output_path, plots_dir, export_ma
         except Exception as exc:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             fallback = output_path.with_name(f"{output_path.stem}_{ts}{output_path.suffix}")
-            print(f"[WARNING][powerpointexporter] Could not save to {output_path} ({exc}). Using fallback: {fallback}")
+            log.warning("Could not save to %s (%s). Using fallback: %s", output_path, exc, fallback)
             pres.SaveAs(str(fallback))
             final = fallback
-        print(f"PowerPoint report saved to: {final}")
+        log.info("PowerPoint report saved to: %s", final)
     except Exception as exc:
         log.error("PowerPoint export failed: %s", exc)
     finally:
