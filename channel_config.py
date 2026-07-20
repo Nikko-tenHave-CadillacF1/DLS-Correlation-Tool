@@ -326,6 +326,8 @@ CALCULATED_CHANNELS = {
     "FPushrodFR_High": lambda df: df["FPushrodFR"],
     "FPushrodRL_High": lambda df: df["FPushrodRL"],
     "FPushrodRR_High": lambda df: df["FPushrodRR"],
+    "FPRodAvgF_High": lambda df: (df["FPushrodFL"] + df["FPushrodFR"]) / 2,
+    "FPRodAvgR_High": lambda df: (df["FPushrodRL"] + df["FPushrodRR"]) / 2,
     # ── Damper travel ────────────────────────────────────────────────────────
     "xDamperDeltaF": lambda df: df["xDamperFL"] - df["xDamperFR"],
     "xDamperDeltaR": lambda df: df["xDamperRL"] - df["xDamperRR"],
@@ -447,7 +449,7 @@ CALCULATED_CHANNELS = {
 # filtering is applied. This guarantees filter cutoffs are consistent
 # channel-to-channel and run-to-run regardless of the source logging rate.
 # Set to 0 (or None) to disable resampling and use the native sample rate.
-RESAMPLE_RATE = None
+RESAMPLE_RATE = 100
 
 
 # ─── FILTERS ──────────────────────────────────────────────────────────────────
@@ -490,6 +492,8 @@ FILTERS = {
     "FPRodPitch": {"cutoff": (1.5, 15), "order": 4, "type": "bandpass"},
     "FPRodRoll": {"cutoff": (1.5, 15), "order": 4, "type": "bandpass"},
     "FPRodWarp": {"cutoff": (1.5, 15), "order": 4, "type": "bandpass"},
+    "FPRodAvgF_High": {"cutoff": (1.5, 15), "order": 4, "type": "bandpass"},
+    "FPRodAvgR_High": {"cutoff": (1.5, 15), "order": 4, "type": "bandpass"},
     # ── Ride heights ──────────────────────────────────────────────────────────
     "hRideF (raw)": {"cutoff": 0, "order": 2},
     "hRideR (raw)": {"cutoff": 0, "order": 2},

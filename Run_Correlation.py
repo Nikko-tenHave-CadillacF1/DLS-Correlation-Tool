@@ -17,7 +17,7 @@ from engine import (
 from engine.plot_definitions import Scatter3DPlot
 
 WORKFLOW_NAME = "correlation"
-EVENT = "26R08SPB"
+EVENT = "26R10SPA"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
@@ -26,11 +26,25 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 # channel set — see CHANNEL_MAPPINGS["FMIOpt"] in channel_config.py.)
 
 RUNS = [
+    # {
+    #     "name": "CAR",
+    #     "file": r"26R10SPA_260717_MAC26-01_BOT_P1_R02_1.txt",
+    #     "color": "#E76400",
+    #     "type": "CAR",
+    # },
     {
-        "name": "CAR - PER FP1",
-        "file": r"26R08SPB_260626_MAC26-02_PER_P1_R02PARTIAL.txt",
-        "color": "#C82000",
-        "type": "CAR",
+        "name": "DLS",
+        "file": r"26R10SPA  77  Q  Run 2 Q1R2 NC4  Stint 1 Q1R2 NC4_DLS.parquet",
+        "color": "#0017C8",
+        "nlap": 1,
+        "type": "DLS",
+    },
+    {
+        "name": "OC",
+        "file": r"20260707-OC-XPG - 26R10SPA - v1 Corr - v1-SPA.parquet",
+        "color": "#00C807",
+        "nrun": 1,
+        "type": "OC",
     },
 ]
 
@@ -218,20 +232,20 @@ SCATTER_PLOT_DEFINITIONS = [
 
 # ─── PSD PLOTS ────────────────────────────────────────────────────────────────
 PSD_PLOT_DEFINITIONS = [
-    PsdPlot("Front Vertical Acceleration PSD", "gVertF",       axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(6, 12)),
-    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR",       axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 8)),
-    PsdPlot("Front Ride PSD",                  "hRideF (raw)", axis_limits=[(0, 20), (1e-4, None)]),
-    PsdPlot("Rear Ride PSD",                   "hRideR (raw)", axis_limits=[(0, 20), (1e-4, None)]),
+    PsdPlot("Front Vertical Acceleration PSD", "gVertF",       axis_limits=[(0, 20), (1e-4, None)], nperseg=320),
+    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR",       axis_limits=[(0, 20), (1e-4, None)], nperseg=320),
+    PsdPlot("Front Ride PSD",                  "hRideF (raw)", axis_limits=[(0, 20), (1e-4, None)], nperseg=320),
+    PsdPlot("Rear Ride PSD",                   "hRideR (raw)", axis_limits=[(0, 20), (1e-4, None)], nperseg=320),
     # PsdPlot("Front Heave PSD",                 ["FPRodAvgF", "FPRodAvgR"],    axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 7)),
     # PsdPlot("Front Roll PSD",                  ["FPRodDeltaF", "FPRodDeltaR"],  axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 7)),
     # PsdPlot("FL gHub PSD",                  "gHubVertFL",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
     # PsdPlot("FR gHub PSD",                  "gHubVertFR",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
     # PsdPlot("RL gHub PSD",                  "gHubVertRL",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
     # PsdPlot("RR gHub PSD",                  "gHubVertRR",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
-    PsdPlot("Heave Mode PSD",  "FPRodHeave", axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(3, 7)),
-    PsdPlot("Pitch Mode PSD",  "FPRodPitch", axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(5, 10)),
-    PsdPlot("Roll Mode PSD",   "FPRodRoll",  axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(3, 7)),
-    PsdPlot("Warp Mode PSD",   "FPRodWarp",  axis_limits=[(0, 30), (1e4, None)], lorentz_fit=(10, 15)),
+    PsdPlot("Heave Mode PSD",  "FPRodHeave", axis_limits=[(0, 30), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(3, 7)),
+    PsdPlot("Pitch Mode PSD",  "FPRodPitch", axis_limits=[(0, 30), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(5, 10)),
+    PsdPlot("Roll Mode PSD",   "FPRodRoll",  axis_limits=[(0, 30), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(3, 7)),
+    PsdPlot("Warp Mode PSD",   "FPRodWarp",  axis_limits=[(0, 30), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(10, 15)),
 
 ]
 
@@ -301,7 +315,7 @@ POWERPOINT_EXPORT_MAP = [
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+def main() -> None:
     plotter = run_workflow(
         WORKFLOW_NAME,
         title=f"{WORKFLOW_NAME.upper()} PLOT GENERATION",
@@ -326,3 +340,7 @@ if __name__ == "__main__":
         except Exception:
             pass
         plotter.plot_data(plot_types=["scatter3d"])
+
+
+if __name__ == "__main__":
+    main()

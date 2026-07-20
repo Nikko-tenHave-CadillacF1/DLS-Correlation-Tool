@@ -77,7 +77,7 @@ PSD_PLOT_DEFINITIONS = [
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+def main() -> None:
     run_workflow(
         WORKFLOW_NAME,
         title=f"{WORKFLOW_NAME.upper()} PLOT GENERATION",
@@ -89,3 +89,7 @@ if __name__ == "__main__":
         psds=PSD_PLOT_DEFINITIONS,
         fig_size={"waveform": (9.5, 8)},
     )
+
+
+if __name__ == "__main__":
+    main()

@@ -723,7 +723,7 @@ POWERPOINT_EXPORT_MAP = [
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+def main() -> None:
     run_workflow(
         WORKFLOW_NAME,
         title=f"{WORKFLOW_NAME.upper()} PLOT GENERATION",
@@ -750,3 +750,7 @@ if __name__ == "__main__":
         # calculated_channels=MY_EXTRA_CHANNELS,  # override shared CALCULATED_CHANNELS
         # filters=MY_FILTERS,       # override shared DEFAULT_FILTERS
     )
+
+
+if __name__ == "__main__":
+    main()

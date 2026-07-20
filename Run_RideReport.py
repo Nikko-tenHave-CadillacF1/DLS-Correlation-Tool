@@ -45,7 +45,7 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME)
 # Single source of truth for Welch window length. 512 samples @ 100 Hz gives
 # ?f ~0.2 Hz and many averages — better confidence on modal peaks than the
 # default auto-sizing which favours frequency resolution over averaging.
-NPERSEG = 512
+NPERSEG = 400
 
 # Minimum number of Welch segment averages targeted by the auto-nperseg
 # algorithm. Higher values shrink the window (coarser Δf) to guarantee more
@@ -79,31 +79,37 @@ PSD_MIN_AVERAGES = 120
 # split the modal-evolution series — `plot_modal_evolution(group_by="group")`.
 
 RUNS = [
-    # ── Monaco (26R06MCO) ────────────────────────────────────────────────────
-    # RED has two GP stints (R02+R03) → consolidated for better PSD statistics.
-    {"folder": "26R06MCO/RED",  "filetype": ".txt", "type": "CAR", "contains": "GP",
-     "consolidate": "only", "consolidated_name": "26R06MCO RED",
+    # # ── Monaco (26R06MCO) ────────────────────────────────────────────────────
+    # # RED has two GP stints (R02+R03) → consolidated for better PSD statistics.
+    # {"folder": "26R06MCO/RED",  "filetype": ".txt", "type": "CAR", "contains": "GP",
+    #  "consolidate": "only", "consolidated_name": "26R06MCO RED",
+    #  "color": "#D62728", "group": "RED"},
+    # {"folder": "26R06MCO/BLUE", "filetype": ".txt", "type": "CAR", "contains": "GP",
+    #  "consolidate": "only", "consolidated_name": "26R06MCO BLUE",
+    #  "color": "#FF7F0E", "group": "BLUE"},
+
+    # # ── Barcelona (26R07BCN) ─────────────────────────────────────────────────
+    # {"folder": "26R07BCN/RED",  "filetype": ".txt", "type": "CAR", "contains": "GP",
+    #  "consolidate": "only", "consolidated_name": "26R07BCN RED",
+    #  "color": "#1F77B4", "group": "RED"},
+    # {"folder": "26R07BCN/BLUE", "filetype": ".txt", "type": "CAR", "contains": "GP",
+    #  "consolidate": "only", "consolidated_name": "26R07BCN BLUE",
+    #  "color": "#9467BD", "group": "BLUE"},
+
+    # # ── Silverstone (26R09SIL) ───────────────────────────────────────────────
+    # # 26R08SPB excluded — no GP file available.
+    # {"folder": "26R09SIL/RED",  "filetype": ".txt", "type": "CAR", "contains": "GP",
+    #  "consolidate": "only", "consolidated_name": "26R09SIL RED",
+    #  "color": "#2CA02C", "group": "RED"},
+    # {"folder": "26R09SIL/BLUE", "filetype": ".txt", "type": "CAR", "contains": "GP",
+    #  "consolidate": "only", "consolidated_name": "26R09SIL BLUE",
+    #  "color": "#17BECF", "group": "BLUE"},
+    {"folder": "26R10SPA/RED", "filetype": ".txt", "type": "CAR",
+     "consolidate": "only", "consolidate_by": "session", "consolidated_name": "RED_{group}",
      "color": "#D62728", "group": "RED"},
-    {"folder": "26R06MCO/BLUE", "filetype": ".txt", "type": "CAR", "contains": "GP",
-     "consolidate": "only", "consolidated_name": "26R06MCO BLUE",
-     "color": "#FF7F0E", "group": "BLUE"},
-
-    # ── Barcelona (26R07BCN) ─────────────────────────────────────────────────
-    {"folder": "26R07BCN/RED",  "filetype": ".txt", "type": "CAR", "contains": "GP",
-     "consolidate": "only", "consolidated_name": "26R07BCN RED",
-     "color": "#1F77B4", "group": "RED"},
-    {"folder": "26R07BCN/BLUE", "filetype": ".txt", "type": "CAR", "contains": "GP",
-     "consolidate": "only", "consolidated_name": "26R07BCN BLUE",
-     "color": "#9467BD", "group": "BLUE"},
-
-    # ── Silverstone (26R09SIL) ───────────────────────────────────────────────
-    # 26R08SPB excluded — no GP file available.
-    {"folder": "26R09SIL/RED",  "filetype": ".txt", "type": "CAR", "contains": "GP",
-     "consolidate": "only", "consolidated_name": "26R09SIL RED",
-     "color": "#2CA02C", "group": "RED"},
-    {"folder": "26R09SIL/BLUE", "filetype": ".txt", "type": "CAR", "contains": "GP",
-     "consolidate": "only", "consolidated_name": "26R09SIL BLUE",
-     "color": "#17BECF", "group": "BLUE"},
+    {"folder": "26R10SPA/BLUE", "filetype": ".txt", "type": "CAR",
+     "consolidate": "only", "consolidate_by": "session", "consolidated_name": "BLUE_{group}",
+     "color": "#1F77B4", "group": "BLUE"},
 ]
 
 # ─── VIBRATIONS FIT ─────────────────
@@ -365,7 +371,7 @@ GROUP_BY = "group"
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+def main() -> None:
     plotter = run_workflow(
         WORKFLOW_NAME,
         title=f"{WORKFLOW_NAME.upper()} PLOT GENERATION",
@@ -396,4 +402,8 @@ if __name__ == "__main__":
                 line_ci=True,
                 bars=True,
             )
+
+
+if __name__ == "__main__":
+    main()
 

@@ -1,28 +1,32 @@
 # DLS Correlation Tool
 
 Generate engineering plots from multiple telemetry runs and optionally export
-a PowerPoint report. Each runner script is **plug-and-play**: it auto-creates
-its own virtualenv, installs dependencies, and runs.
+a PowerPoint report.
 
 ## Setup
 
-```powershell
-python Run_Correlation.py        # first run: creates .venv, installs deps, then runs
-```
-
-To set things up explicitly instead:
+Recommended for engineers — set up the environment once, then run any
+`Run_*.py`. The runners no longer auto-install on first run; they check that
+dependencies are importable and print an install hint if not.
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -e .            # or: pip install -r requirements.txt
+python Run_Correlation.py
 ```
 
 Parquet input files require at least one of: `pyarrow`, `fastparquet` (both
 included in `requirements.txt`).
 
-Set `DLS_SKIP_BOOTSTRAP=1` in your environment to disable the auto-installer
-(useful in CI or shared/managed Python environments).
+### Environment overrides
+
+- `DLS_SKIP_BOOTSTRAP=1` — skip the dependency check entirely (used by CI
+  where the environment is already provisioned).
+- `DLS_ENABLE_AUTO_VENV=1` — opt IN to the legacy auto-venv escape hatch:
+  the first run auto-creates `.venv`, `pip install`s `requirements.txt`, and
+  re-execs into the venv Python. Useful for double-click / hand-off scenarios
+  where the user does not have a preconfigured environment.
 
 ---
 

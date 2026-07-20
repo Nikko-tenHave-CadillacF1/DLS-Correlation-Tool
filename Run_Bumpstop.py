@@ -92,7 +92,7 @@ POWERPOINT_EXPORT_MAP = [
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+def main() -> None:
     run_workflow(
         WORKFLOW_NAME,
         title=f"{WORKFLOW_NAME.upper()} PLOT GENERATION",
@@ -108,3 +108,7 @@ if __name__ == "__main__":
         powerpoint_start_slide=POWERPOINT_START_SLIDE,
         fig_size={"waveform": (20, 10), "default": (10, 8)},
     )
+
+
+if __name__ == "__main__":
+    main()

@@ -85,7 +85,7 @@ BOX_PLOT_DEFINITIONS = [
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+def main() -> None:
     run_workflow(
         WORKFLOW_NAME,
         title=f"{WORKFLOW_NAME.upper()} PLOT GENERATION",
@@ -96,3 +96,7 @@ if __name__ == "__main__":
         boxes=BOX_PLOT_DEFINITIONS,
         box_plot_settings=BOX_PLOT_SETTINGS,
     )
+
+
+if __name__ == "__main__":
+    main()

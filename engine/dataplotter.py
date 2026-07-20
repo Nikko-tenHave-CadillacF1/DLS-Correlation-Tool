@@ -755,6 +755,13 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
                 calc_set = calc_set.get(source_type) or calc_set
             if isinstance(calc_set, dict) and channel in calc_set:
                 deps = _extract_calculated_dependencies(calc_set[channel])
+                # Self-referential guard pattern (e.g. hRideF calc uses
+                # df["hRideF"] if present, else falls back to corner-avg):
+                # the channel name appearing in its own deps means the calc
+                # can consume the native source column, so it must be kept
+                # in the projected source-column set.
+                if channel in deps:
+                    resolved_channels.add(channel)
                 for dep in deps:
                     if dep not in processed:
                         to_process.append(dep)

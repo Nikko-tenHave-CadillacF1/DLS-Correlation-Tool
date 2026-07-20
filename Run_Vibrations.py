@@ -60,7 +60,7 @@ METHOD = "lorentzian_combined"
 OPEN_OUTPUT_FOLDER = True   # auto-open the plots folder in Explorer when done
 
 # ─── RUN ──────────────────────────────────────────────────────────────────────
-if __name__ == "__main__":
+def main() -> None:
     runs = expand_runs(RUNS, _INPUT_DIR)
     results = []
     for run in runs:
@@ -91,3 +91,7 @@ if __name__ == "__main__":
             os.startfile(plots_dir)
         except Exception:
             pass
+
+
+if __name__ == "__main__":
+    main()

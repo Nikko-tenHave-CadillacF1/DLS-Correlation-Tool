@@ -180,8 +180,26 @@ def apply_calculated_channels(
     def _flush(target, pending):
         if not pending:
             return target, {}
+        # Overwrite semantics: a calc channel that matches a native source
+        # column name (guarded fallback pattern, e.g. hRideF = df["hRideF"]
+        # if present else corner-avg) must REPLACE the native column, not
+        # produce a duplicate. `pd.concat([...], axis=1)` on duplicated names
+        # yields a DataFrame with duplicate columns and any downstream
+        # `df[name]` selection returns a DataFrame instead of a Series,
+        # breaking `_to_numeric_safe` / filter application.
+        overlap = [c for c in pending if c in target.columns]
+        if overlap:
+            target = target.drop(columns=overlap)
         extra = pd.DataFrame(pending, index=target.index)
         return pd.concat([target, extra], axis=1), {}
+
+    def _build_working(base, pending):
+        if not pending:
+            return base
+        overlap = [c for c in pending if c in base.columns]
+        base_view = base.drop(columns=overlap) if overlap else base
+        extra = pd.DataFrame(pending, index=base.index)
+        return pd.concat([base_view, extra], axis=1, copy=False)
 
     for channel_name, func in calc_set.items():
         is_required = (target_names is None) or (channel_name in target_names)
@@ -189,7 +207,7 @@ def apply_calculated_channels(
             new_cols[channel_name] = _to_numeric_safe(func(working))
             calculated_channels_done.append(channel_name)
             # Rebuild lightweight view so subsequent calcs see prior new cols.
-            working = pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1, copy=False)
+            working = _build_working(df, new_cols)
             if len(new_cols) >= BATCH:
                 df, new_cols = _flush(df, new_cols)
                 working = df

@@ -14,7 +14,7 @@ from engine import (
 )
 
 WORKFLOW_NAME = "ride_dil"
-EVENT = "26R09SIL"
+EVENT = "26R10SPA"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
@@ -23,22 +23,20 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 RUNS = [
     {
         "name": "CAR",
-        "file": r"26R09SIL_260703_MAC26-02_PER_SQ_R02.txt",
-        "color": "#E45000",
-        # "nrun": 1,
+        "file": r"26R10SPA_260717_MAC26-01_BOT_P1_R03.txt",
+        "color": "#E71B00",
         "type": "CAR",
     },
     {
         "name": "DIL",
-        "file": r"Silverstone_260703_GMDiL-08_BAM_R21PARTIAL.txt",
-        "color": "#0300BF",
-        #"nlap": 1,
+        "file": r"Spa_260717_GMDiL-08_PAG_R19PARTIAL.txt",
+        "color": "#0004E7",
         "type": "DIL",
     },
 ]
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
-NPERSEG = 200  # PSD segment length (samples) for Welch method. See PSD_PLOT_DEFINITIONS.
+NPERSEG = 300  # PSD segment length (samples) for Welch method. See PSD_PLOT_DEFINITIONS.
 EXPORT_TO_POWERPOINT  = False
 POWERPOINT_TEMPLATE   = resolve_template_path("template.pptx")
 POWERPOINT_OUTPUT     = _OUTPUT_DIR / "DIL_Ride_Report.pptx"
@@ -120,10 +118,10 @@ PSD_PLOT_DEFINITIONS = [
     PsdPlot("Roll Mode PSD - abs",   "FPRodRoll",  axis_limits=[(0, 20), (1e4, None)],       log_scale=False, nperseg=NPERSEG), # lorentz_fit=[(4, 7), (9, 12)],
     PsdPlot("Warp Mode PSD - abs",   "FPRodWarp",  axis_limits=[(0, 20), (1e4, None)],               log_scale=False, nperseg=NPERSEG),
 
-    PsdPlot("Heave Mode PSD - gated",  "FPRodHeave", axis_limits=[(0, 20), (1e4, None)],                 log_scale=False, nperseg=NPERSEG,         gate=[('rThrottle', '<', 95), ('gLat', '>', 1)],), # lorentz_fit=(4, 7)
-    PsdPlot("Pitch Mode PSD - gated",  "FPRodPitch", axis_limits=[(0, 20), (1e4, None)],                 log_scale=False, nperseg=NPERSEG, gate = [('rThrottle', '<', 95), ('gLat', '>', 1)]), # lorentz_fit=(4, 7)
-    PsdPlot("Roll Mode PSD - gated",   "FPRodRoll",  axis_limits=[(0, 20), (1e4, None)],       log_scale=False, nperseg=NPERSEG, gate = [('rThrottle', '<', 95), ('gLat', '>', 1)]), # lorentz_fit=[(4, 7), (9, 12)],
-    PsdPlot("Warp Mode PSD - gated",   "FPRodWarp",  axis_limits=[(0, 20), (1e4, None)],               log_scale=False, nperseg=NPERSEG, gate = [('rThrottle', '<', 95), ('gLat', '>', 1)]),
+    PsdPlot("Heave Mode PSD - gated",  "FPRodHeave", axis_limits=[(0, 20), (1e4, None)],                 log_scale=False, nperseg=NPERSEG,         gate=[('rThrottle', '<', 95)],), # lorentz_fit=(4, 7)
+    PsdPlot("Pitch Mode PSD - gated",  "FPRodPitch", axis_limits=[(0, 20), (1e4, None)],                 log_scale=False, nperseg=NPERSEG, gate = [('rThrottle', '<', 95)]), # lorentz_fit=(4, 7)
+    PsdPlot("Roll Mode PSD - gated",   "FPRodRoll",  axis_limits=[(0, 20), (1e4, None)],       log_scale=False, nperseg=NPERSEG, gate = [('rThrottle', '<', 95)]), # lorentz_fit=[(4, 7), (9, 12)],
+    PsdPlot("Warp Mode PSD - gated",   "FPRodWarp",  axis_limits=[(0, 20), (1e4, None)],               log_scale=False, nperseg=NPERSEG, gate = [('rThrottle', '<', 95)]),
 
 
     # PsdPlot("FPushrod FL PSD - ungated",  "FPushrodFL", axis_limits=[(0, 20), (1e4, None)], annotate_at=(4, 9), log_scale=False, nperseg=NPERSEG),
@@ -152,6 +150,8 @@ PSD_PLOT_DEFINITIONS = [
     # PsdPlot("FPushrodFR PSD", "FPushrodFR_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
     # PsdPlot("FPushrodRL PSD", "FPushrodRL_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
     # PsdPlot("FPushrodRR PSD", "FPushrodRR_High",  axis_limits=[(0, 20), (1e4, None)], log_scale=False),
+    PsdPlot("FPRodAvgF - PSD", "FPRodAvgF_High", axis_limits=[(0, 20), (1e4, None)], log_scale=False, nperseg=NPERSEG),
+    PsdPlot("FPRodAvgR - PSD", "FPRodAvgR_High", axis_limits=[(0, 20), (1e4, None)], log_scale=False, nperseg=NPERSEG),
 ]
 
 # ─── POWERPOINT EXPORT MAP ────────────────────────────────────────────────────
@@ -167,7 +167,7 @@ POWERPOINT_EXPORT_MAP = [
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+def main() -> None:
     run_workflow(
         WORKFLOW_NAME,
         title=f"{WORKFLOW_NAME.upper()} PLOT GENERATION",
@@ -183,3 +183,7 @@ if __name__ == "__main__":
         powerpoint_start_slide=POWERPOINT_START_SLIDE,
         fig_size={"waveform": (20, 10), "default": (10, 8)},
     )
+
+
+if __name__ == "__main__":
+    main()
