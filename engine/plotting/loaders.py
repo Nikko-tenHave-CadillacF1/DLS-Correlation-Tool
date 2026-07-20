@@ -159,12 +159,7 @@ def _load_parquet_with_fallback(
                     hit = None
                     if c in df_cols_set:
                         hit = c
-                    elif (
-                        c.startswith("_")
-                        and len(c) > 1
-                        and c[1].isalpha()
-                        and (c[1].upper() + c[2:]) in df_cols_set
-                    ):
+                    elif c.startswith("_") and len(c) > 1 and c[1].isalpha() and (c[1].upper() + c[2:]) in df_cols_set:
                         hit = c[1].upper() + c[2:]
                     elif len(c) > 1 and c[0].isalpha() and c[0].islower() and (c[0].upper() + c[1:]) in df_cols_set:
                         # e.g. user asked for 'nRun'; parquet column

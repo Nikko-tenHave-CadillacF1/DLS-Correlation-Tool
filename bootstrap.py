@@ -76,9 +76,7 @@ def _pip_install_requirements() -> None:
     if not req.exists():
         return
     print("[bootstrap] Installing dependencies from requirements.txt ...")
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "-r", str(req)]
-    )
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "-r", str(req)])
 
 
 def _legacy_auto_venv_bootstrap(*, prefer_venv: bool = True) -> None:

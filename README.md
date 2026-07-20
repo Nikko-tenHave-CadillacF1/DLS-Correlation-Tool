@@ -19,6 +19,27 @@ python Run_Correlation.py
 Parquet input files require at least one of: `pyarrow`, `fastparquet` (both
 included in `requirements.txt`).
 
+### Alternative: console-script entry points
+
+`pip install -e .` also installs a set of console scripts that call the same
+`Run_*.py` `main()` functions. Useful for CI, packaged installs, or when
+`.venv\Scripts\` is on PATH:
+
+```powershell
+dls-correlation          # equivalent to: python Run_Correlation.py
+dls-boxplots             # equivalent to: python Run_BoxPlots.py
+dls-dampers              # equivalent to: python Run_Dampers.py
+dls-ridedil              # equivalent to: python Run_RideDIL.py
+dls-ridereport           # equivalent to: python Run_RideReport.py
+dls-vibrations           # equivalent to: python Run_Vibrations.py
+dls-oc-checks            # equivalent to: python Run_OC_Checks.py
+dls-bumpstop             # equivalent to: python Run_Bumpstop.py
+dls-template             # equivalent to: python Run_Template.py
+```
+
+The `Run_*.py` files remain the primary user-editable configuration; the
+console scripts are just shortcuts.
+
 ### Environment overrides
 
 - `DLS_SKIP_BOOTSTRAP=1` — skip the dependency check entirely (used by CI

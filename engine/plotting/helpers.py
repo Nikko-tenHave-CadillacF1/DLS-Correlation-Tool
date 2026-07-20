@@ -107,9 +107,7 @@ def _draw_static_markers(axes, markers, *, label_y=1.01, x_clip=True):
                     fontsize=9,
                     fontweight="bold",
                     color=color,
-                    bbox=dict(
-                        boxstyle="round,pad=0.2", facecolor="white", edgecolor=color, linewidth=0.8, alpha=0.9
-                    ),
+                    bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor=color, linewidth=0.8, alpha=0.9),
                     zorder=12,
                 )
 
@@ -193,9 +191,7 @@ def _get_plot_group(plotter, index):
 
 
 def _sanitize_plot_filename(plotter, prefix, plot_name, suffix=""):
-    safe = (
-        plot_name.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_").replace("\\", "_")
-    )
+    safe = plot_name.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_").replace("\\", "_")
     subdir = plotter.plots_dir / prefix
     try:
         subdir.mkdir(parents=True, exist_ok=True)

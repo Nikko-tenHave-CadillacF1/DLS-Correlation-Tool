@@ -37,6 +37,10 @@ MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 
+# Refactor / debug scratch pad — captures from before/after CLI probes, hash
+# manifests, one-off verification scripts. Never commit — regenerate on demand.
+_capture/
+
 # Unit test / coverage reports
 htmlcov/
 .tox/

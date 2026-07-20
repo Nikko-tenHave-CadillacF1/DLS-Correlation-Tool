@@ -17,10 +17,11 @@ from matplotlib.patches import Patch
 
 from . import datafunctions
 from .logger import log
-from .plot_generators_bar_box import BarBoxMixin
-from .plot_generators_misc import HeatmapMixin, PsdHistMixin
-from .plot_generators_scatter import ScatterMixin
-from .plot_generators_waveform import WaveformMixin
+from .plotting import generate_bar_box as _gen_bar_box
+from .plotting import generate_heatmap as _gen_heatmap
+from .plotting import generate_psd_hist as _gen_psd_hist
+from .plotting import generate_scatter as _gen_scatter
+from .plotting import generate_waveform as _gen_waveform
 from .plotting import helpers as _helpers
 from .plotting import loaders as _loaders
 from .plotting.context import PlotContext
@@ -361,7 +362,7 @@ def compute_slap_alignment(runs, run_data, target_length=None):
     return result
 
 
-class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBoxMixin):
+class DataPlotter:
     def __init__(
         self,
         root_folder: str | Path,
@@ -578,6 +579,62 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
     @_lorentz_fit_records.setter
     def _lorentz_fit_records(self, value):
         self.ctx.lorentz_fit_records = value
+
+    # ------------------------------------------------------------------
+    # Plot-generator method bindings (Prompt 12 Phase 3)
+    # ------------------------------------------------------------------
+    # After the mixin-to-module extraction, ``DataPlotter`` no longer
+    # inherits from the 5 generator mixins. Their methods are bound here
+    # directly so that ``plotter._prepare_scatter_xy(...)`` etc. inside the
+    # extracted module functions still resolve on the instance. The public
+    # ``generate_*`` entrypoints are also bound so any downstream code
+    # calling ``plotter.generate_scatter_plots()`` keeps working; the
+    # in-file ``plot_data()`` dispatcher below still calls the module
+    # functions directly rather than routing through these bindings.
+    #
+    # Waveform (from engine.plotting.generate_waveform):
+    _normalize_waveform_row_spec = _gen_waveform._normalize_waveform_row_spec
+    _normalize_waveform_axis_limits = _gen_waveform._normalize_waveform_axis_limits
+    _normalize_waveform_reference_lines = _gen_waveform._normalize_waveform_reference_lines
+    _prepare_waveform_channels = _gen_waveform._prepare_waveform_channels
+    _format_waveform_channel_label = _gen_waveform._format_waveform_channel_label
+    generate_waveform_plots = _gen_waveform.generate_waveform_plots
+    # Scatter (from engine.plotting.generate_scatter):
+    COMPACT_SEGMENT_THRESHOLD = _gen_scatter.COMPACT_SEGMENT_THRESHOLD
+    _prepare_scatter_xy = _gen_scatter._prepare_scatter_xy
+    _resolve_scatter_plot_style = _gen_scatter._resolve_scatter_plot_style
+    _build_gradient_segment_labels = _gen_scatter._build_gradient_segment_labels
+    _select_trendline_anchor = _gen_scatter._select_trendline_anchor
+    _parse_eq_list_to_segments = _gen_scatter._parse_eq_list_to_segments
+    _compute_segment_pct_errors = _gen_scatter._compute_segment_pct_errors
+    _display_fit_info = _gen_scatter._display_fit_info
+    _display_segment_boxes = _gen_scatter._display_segment_boxes
+    _display_compact_fit_box = _gen_scatter._display_compact_fit_box
+    generate_scatter_plots = _gen_scatter.generate_scatter_plots
+    generate_scatter3d_plots = _gen_scatter.generate_scatter3d_plots
+    _fmt_coeff = staticmethod(_gen_scatter._fmt_coeff)
+    _format_pct_error = staticmethod(_gen_scatter._format_pct_error)
+    # PSD + histogram (from engine.plotting.generate_psd_hist):
+    LORENTZ_COMPACT_THRESHOLD = _gen_psd_hist.LORENTZ_COMPACT_THRESHOLD
+    generate_psd_plots = _gen_psd_hist.generate_psd_plots
+    generate_histogram_plots = _gen_psd_hist.generate_histogram_plots
+    _draw_lorentz_compact_box = _gen_psd_hist._draw_lorentz_compact_box
+    _record_lorentz_fit = _gen_psd_hist._record_lorentz_fit
+    _log_lorentz_fit_summary = _gen_psd_hist._log_lorentz_fit_summary
+    # Heatmap (from engine.plotting.generate_heatmap):
+    generate_heatmap_plots = _gen_heatmap.generate_heatmap_plots
+    # Bar + box (from engine.plotting.generate_bar_box):
+    generate_bar_plots = _gen_bar_box.generate_bar_plots
+    generate_box_plots = _gen_bar_box.generate_box_plots
+    _parse_boxplot_definition = _gen_bar_box._parse_boxplot_definition
+    _collect_boxplot_point_series_from_data = _gen_bar_box._collect_boxplot_point_series_from_data
+    _apply_boxplot_artist_style = _gen_bar_box._apply_boxplot_artist_style
+    _generate_boxplot_per_run = _gen_bar_box._generate_boxplot_per_run
+    _generate_boxplot_aggregated = _gen_bar_box._generate_boxplot_aggregated
+    _generate_boxplot_per_run_aggregated = _gen_bar_box._generate_boxplot_per_run_aggregated
+    _generate_boxplot_grid = _gen_bar_box._generate_boxplot_grid
+    _render_grid_cell_aggregated = _gen_bar_box._render_grid_cell_aggregated
+    _render_grid_cell_per_run = _gen_bar_box._render_grid_cell_per_run
 
     PLOT_FONT = {
         "family": "Montserrat",
@@ -2022,8 +2079,14 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         self, ax, handles=None, labels=None, loc="best", bbox_to_anchor=None, ncol=1, avoid_corner=None
     ):
         return _helpers._add_standard_legend(
-            self, ax, handles=handles, labels=labels, loc=loc,
-            bbox_to_anchor=bbox_to_anchor, ncol=ncol, avoid_corner=avoid_corner,
+            self,
+            ax,
+            handles=handles,
+            labels=labels,
+            loc=loc,
+            bbox_to_anchor=bbox_to_anchor,
+            ncol=ncol,
+            avoid_corner=avoid_corner,
         )
 
     def _add_waveform_figure_legend(self, fig, handles, labels, position="top"):
@@ -2037,6 +2100,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         self._psd_cache = {}
         self._gated_data_cache = {}
         self._outlier_log = []
+        self._lorentz_fit_records = []
         from collections import Counter as _Counter
 
         class _AggregatingHandler(logging.Handler):
@@ -2053,15 +2117,17 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
 
         agg = _AggregatingHandler()
         log.addHandler(agg)
+        # Phase 3 dispatch: call module functions directly rather than
+        # relying on inheritance from the (now-empty) mixin classes.
         all_generators = [
-            ("waveform", self.generate_waveform_plots),
-            ("scatter", self.generate_scatter_plots),
-            ("psd", self.generate_psd_plots),
-            ("histogram", self.generate_histogram_plots),
-            ("bar", self.generate_bar_plots),
-            ("box", self.generate_box_plots),
-            ("heatmap", self.generate_heatmap_plots),
-            ("scatter3d", self.generate_scatter3d_plots),
+            ("waveform", lambda: _gen_waveform.generate_waveform_plots(self)),
+            ("scatter", lambda: _gen_scatter.generate_scatter_plots(self)),
+            ("psd", lambda: _gen_psd_hist.generate_psd_plots(self)),
+            ("histogram", lambda: _gen_psd_hist.generate_histogram_plots(self)),
+            ("bar", lambda: _gen_bar_box.generate_bar_plots(self)),
+            ("box", lambda: _gen_bar_box.generate_box_plots(self)),
+            ("heatmap", lambda: _gen_heatmap.generate_heatmap_plots(self)),
+            ("scatter3d", lambda: _gen_scatter.generate_scatter3d_plots(self)),
         ]
         if plot_types is not None:
             requested = {t.lower() for t in plot_types}

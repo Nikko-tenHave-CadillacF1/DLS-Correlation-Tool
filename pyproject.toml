@@ -29,9 +29,34 @@ dev = [
     "pre-commit>=3.0,<5.0",
 ]
 
+# Additive install-time shortcuts. `python Run_<name>.py` still works exactly
+# as before — these entries just expose the same `main()` under a
+# `pip install -e .`-friendly console-script name.
+[project.scripts]
+dls-correlation = "Run_Correlation:main"
+dls-boxplots    = "Run_BoxPlots:main"
+dls-dampers     = "Run_Dampers:main"
+dls-ridedil     = "Run_RideDIL:main"
+dls-ridereport  = "Run_RideReport:main"
+dls-vibrations  = "Run_Vibrations:main"
+dls-oc-checks   = "Run_OC_Checks:main"
+dls-bumpstop    = "Run_Bumpstop:main"
+dls-template    = "Run_Template:main"
+
 [tool.setuptools]
-py-modules = ["bootstrap", "channel_config",
-              "Run_Correlation", "Run_BoxPlots", "Run_Dampers", "Run_RideDIL", "Run_Template"]
+py-modules = [
+    "bootstrap",
+    "channel_config",
+    "Run_Correlation",
+    "Run_BoxPlots",
+    "Run_Dampers",
+    "Run_RideDIL",
+    "Run_RideReport",
+    "Run_Vibrations",
+    "Run_OC_Checks",
+    "Run_Bumpstop",
+    "Run_Template",
+]
 
 [tool.setuptools.packages.find]
 include = ["engine*", "tools*"]

@@ -48,6 +48,7 @@ def calc_channel(*deps):
     callable
         A decorator that annotates its target with ``__dls_deps__``.
     """
+
     def _wrap(fn):
         try:
             fn.__dls_deps__ = tuple(deps)
@@ -815,7 +816,8 @@ def plot_scatter_with_multi_fit(
         if fit_mask_info["status"] == "missing_condition_channel":
             log.warning(
                 "No fit condition channel %r for run %r. Segment skipped.",
-                fit_mask_info["axis_name"], label,
+                fit_mask_info["axis_name"],
+                label,
             )
             slopes_list.append(None)
             intercepts_list.append(None)
@@ -836,7 +838,10 @@ def plot_scatter_with_multi_fit(
             if info is None:
                 log.warning(
                     "Robust fit segment %d failed for %r (%s vs %s). Skipping segment.",
-                    idx + 1, label, x_var, y_var,
+                    idx + 1,
+                    label,
+                    x_var,
+                    y_var,
                 )
                 slopes_list.append(None)
                 intercepts_list.append(None)
@@ -863,7 +868,10 @@ def plot_scatter_with_multi_fit(
             except ValueError:
                 log.warning(
                     "Not enough data for fit segment %d of %r (%s vs %s). Skipping segment.",
-                    idx + 1, label, x_var, y_var,
+                    idx + 1,
+                    label,
+                    x_var,
+                    y_var,
                 )
                 slopes_list.append(None)
                 intercepts_list.append(None)
@@ -930,7 +938,9 @@ def build_fit_condition_data(df, index, fit_defs, plot_name="", run_name=""):
         if channel not in df.columns:
             log.warning(
                 "Scatter plot %r: fit condition channel %r missing in run %r.",
-                plot_name, channel, run_name,
+                plot_name,
+                channel,
+                run_name,
             )
             continue
         series = pd.to_numeric(df[channel], errors="coerce").reindex(index)
