@@ -21,6 +21,18 @@ from .plot_generators_bar_box import BarBoxMixin
 from .plot_generators_misc import HeatmapMixin, PsdHistMixin
 from .plot_generators_scatter import ScatterMixin
 from .plot_generators_waveform import WaveformMixin
+from .plotting import loaders as _loaders
+from .plotting.context import PlotContext
+from .plotting.corner_layout import (  # noqa: F401  (back-compat re-export)
+    _CORNER_TO_LOC,
+    _INFO_CORNER_XY,
+    _LOC_TO_CORNER,
+    _legend_corner_from_bbox,
+)
+from .plotting.slap_alignment import (  # noqa: F401  (back-compat re-export)
+    _prepare_slap_vcar_series,
+    _score_slap_alignment,
+)
 
 
 def make_unique(names):
@@ -187,44 +199,6 @@ def collect_referenced_channels(plot_definitions):
                 if getattr(plot_def, "gate", None) is not None:
                     referenced.update(datafunctions.collect_gate_channels(plot_def.gate))
     return sorted(referenced)
-
-
-def _prepare_slap_vcar_series(df):
-    if "sLap" not in df.columns or "vCar" not in df.columns:
-        return None, None
-    s = pd.to_numeric(df["sLap"], errors="coerce")
-    v = pd.to_numeric(df["vCar"], errors="coerce")
-    tmp = pd.DataFrame({"s": s, "v": v}).dropna()
-    if tmp.empty:
-        return None, None
-    tmp = tmp[tmp["s"] >= 0].sort_values("s")
-    if tmp.empty:
-        return None, None
-    tmp = tmp.groupby("s", as_index=False)["v"].mean()
-    if len(tmp) < 50:
-        return None, None
-    return tmp["s"].to_numpy(dtype=float), tmp["v"].to_numpy(dtype=float)
-
-
-def _score_slap_alignment(ref_s, ref_v, oth_s, oth_v, scale, offset):
-    transformed = oth_s * scale + offset
-    lo = max(ref_s.min(), transformed.min())
-    hi = min(ref_s.max(), transformed.max())
-    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
-        return None
-    grid = np.arange(np.ceil(lo), np.floor(hi) + 1.0, 5.0)
-    if grid.size < 100:
-        return None
-    ref_interp = np.interp(grid, ref_s, ref_v)
-    oth_interp = np.interp(grid, transformed, oth_v)
-    if np.std(ref_interp) < 1e-9 or np.std(oth_interp) < 1e-9:
-        corr = 0.0
-    else:
-        corr = float(np.corrcoef(ref_interp, oth_interp)[0, 1])
-        if not np.isfinite(corr):
-            corr = 0.0
-    mae = float(np.mean(np.abs(ref_interp - oth_interp)))
-    return corr, mae, grid.size
 
 
 def estimate_slap_alignment(runs, run_data):
@@ -501,17 +475,15 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         self.plot_aspect_ratios = plot_aspect_ratios or {}
         self.BOX_PLOT_SETTINGS = box_plot_settings or {}
         self.debug_scatter3d_plots = list(debug_scatter3d_plots or [])
-        self.run_filepaths = {}
-        self.run_data = {}
-        self.run_units = {}
-        self.run_required_cols = {}
-        self.run_sample_rates = {}
+        # Runtime state (per-run data + caches) lives on a single PlotContext
+        # so it can be threaded through extracted helpers without a full
+        # DataPlotter instance. The eight `@property` shims below let existing
+        # `self.run_data` / `self._psd_cache` reads and writes flow through
+        # unchanged.
+        self.ctx = PlotContext()
         self.modal_results = {}
         self.VIBRATIONS_FIT = vibrations_fit
         self.PSD_MIN_AVERAGES_TARGET = int(psd_min_averages_target)
-        self._gated_data_cache = {}
-        self._psd_cache = {}
-        self._outlier_log = []
         self._reverse_mappings = {}
         self._parquet_alias_cache = {}
         self._loaded = False
@@ -524,6 +496,79 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         self.plots_dir.mkdir(parents=True, exist_ok=True)
         self.load_data(root_folder)
         self.preprocess_data()
+
+    # ------------------------------------------------------------------
+    # PlotContext shim properties
+    # ------------------------------------------------------------------
+    # These forward reads/writes of the eight per-run state fields to
+    # ``self.ctx``. Kept so mixin/plugin code that still says
+    # ``self.run_data[...]`` or ``self._psd_cache.clear()`` keeps working
+    # verbatim during the incremental extraction. Do NOT remove — the goal
+    # is that ``plotter.run_data`` and ``plotter.ctx.run_data`` are both
+    # valid entry points.
+    @property
+    def run_data(self):
+        return self.ctx.run_data
+
+    @run_data.setter
+    def run_data(self, value):
+        self.ctx.run_data = value
+
+    @property
+    def run_units(self):
+        return self.ctx.run_units
+
+    @run_units.setter
+    def run_units(self, value):
+        self.ctx.run_units = value
+
+    @property
+    def run_filepaths(self):
+        return self.ctx.run_filepaths
+
+    @run_filepaths.setter
+    def run_filepaths(self, value):
+        self.ctx.run_filepaths = value
+
+    @property
+    def run_required_cols(self):
+        return self.ctx.run_required_cols
+
+    @run_required_cols.setter
+    def run_required_cols(self, value):
+        self.ctx.run_required_cols = value
+
+    @property
+    def run_sample_rates(self):
+        return self.ctx.run_sample_rates
+
+    @run_sample_rates.setter
+    def run_sample_rates(self, value):
+        self.ctx.run_sample_rates = value
+
+    @property
+    def _psd_cache(self):
+        return self.ctx.psd_cache
+
+    @_psd_cache.setter
+    def _psd_cache(self, value):
+        self.ctx.psd_cache = value
+
+    @property
+    def _gated_data_cache(self):
+        return self.ctx.gated_data_cache
+
+    @_gated_data_cache.setter
+    def _gated_data_cache(self, value):
+        self.ctx.gated_data_cache = value
+
+    @property
+    def _outlier_log(self):
+        return self.ctx.outlier_log
+
+    @_outlier_log.setter
+    def _outlier_log(self, value):
+        self.ctx.outlier_log = value
 
     PLOT_FONT = {
         "family": "Montserrat",
@@ -797,17 +842,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         return None
 
     def _normalize_parquet_column_aliases(self, df):
-        raw_columns = [str(c).strip() for c in df.columns]
-        rename_map = {}
-        existing = set(raw_columns)
-        for col in raw_columns:
-            if col.startswith("_") and len(col) > 1 and col[1].isalpha():
-                canonical = col[1].upper() + col[2:]
-                if canonical not in existing:
-                    rename_map[col] = canonical
-        if rename_map:
-            df = df.rename(columns=rename_map)
-        return df
+        return _loaders._normalize_parquet_column_aliases(df)
 
     def _find_parquet_column(self, df, logical_name):
         columns = [str(c).strip() for c in df.columns]
@@ -836,49 +871,13 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         return None
 
     def _resolve_required_parquet_columns(self, schema_cols, columns_to_load, nrun=None, nlap=None):
-        raw_set = set(schema_cols)
-        raw_lower = {c.lower(): c for c in schema_cols}
-        schema_key = tuple(schema_cols)
-        canonical_to_raw = self._parquet_alias_cache.get(schema_key)
-        if canonical_to_raw is None:
-            canonical_to_raw = {}
-            for raw in schema_cols:
-                if raw.startswith("_") and len(raw) > 1 and raw[1].isalpha():
-                    canonical = raw[1].upper() + raw[2:]
-                    # Also expose the camelCase form so users can write
-                    # 'nRun' when the parquet column is '_nRun'.
-                    camelcase = raw[1].lower() + raw[2:]
-                    canonical_to_raw.setdefault(camelcase, raw)
-                else:
-                    canonical = raw
-                canonical_to_raw.setdefault(canonical, raw)
-                canonical_to_raw.setdefault(raw, raw)
-            self._parquet_alias_cache[schema_key] = canonical_to_raw
-        needed = set()
-        for candidates, flag in [
-            (["nRun", "nrun", "_nRun", "_nrun", "NRun"], nrun),
-            (["nLap", "nlap", "_nLap", "_nlap", "NLap"], nlap),
-        ]:
-            if flag is not None:
-                for c in candidates:
-                    if c in raw_set:
-                        needed.add(c)
-                        break
-                else:
-                    target_lower = candidates[0].lower()
-                    if target_lower in raw_lower:
-                        needed.add(raw_lower[target_lower])
-        if columns_to_load:
-            for logical in columns_to_load:
-                if logical in canonical_to_raw:
-                    needed.add(canonical_to_raw[logical])
-                elif logical in raw_set:
-                    needed.add(logical)
-                else:
-                    lower = logical.lower()
-                    if lower in raw_lower:
-                        needed.add(raw_lower[lower])
-        return sorted(needed) if needed else None
+        return _loaders._resolve_required_parquet_columns(
+            schema_cols,
+            columns_to_load,
+            nrun=nrun,
+            nlap=nlap,
+            alias_cache=self._parquet_alias_cache,
+        )
 
     def _apply_parquet_rank_value_filter(
         self,
@@ -1025,105 +1024,17 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
     def _load_parquet_with_fallback(
         self, file_path, columns_to_load=None, parquet_nrun=None, parquet_nlap=None, run_name=""
     ):
-        available_engines = self._available_parquet_engines()
-        if not available_engines:
-            raise ImportError("Parquet input requires 'pyarrow' or 'fastparquet', but neither is installed.")
-        errors = []
-        for engine in available_engines:
-            try:
-                schema_cols = self._get_parquet_schema_columns(file_path, engine)
-                if schema_cols is not None and columns_to_load:
-                    col_subset = self._resolve_required_parquet_columns(
-                        schema_cols,
-                        columns_to_load,
-                        nrun=parquet_nrun,
-                        nlap=parquet_nlap,
-                    )
-                else:
-                    col_subset = None
-                read_kwargs = {"engine": engine}
-                if col_subset:
-                    read_kwargs["columns"] = col_subset
-                if parquet_nrun is not None and parquet_nlap is not None:
-                    log.info(
-                        "Run '%s' provided both nrun and nlap; applying nrun filter and ignoring nlap.",
-                        run_name.upper() if run_name else file_path.name,
-                    )
-                df = pd.read_parquet(file_path, **read_kwargs)
-                df.columns = [str(c).strip() for c in df.columns]
-                df = self._normalize_parquet_column_aliases(df)
-                if parquet_nrun is not None:
-                    df = self._apply_parquet_rank_value_filter(
-                        df,
-                        filter_spec=parquet_nrun,
-                        column_logical_name="nRun",
-                        file_path=file_path,
-                        run_name=run_name,
-                        is_rank=True,
-                        raise_on_missing_column=True,
-                        raise_on_empty_result=True,
-                    )
-                elif parquet_nlap is not None:
-                    df = self._apply_parquet_rank_value_filter(
-                        df,
-                        filter_spec=parquet_nlap,
-                        column_logical_name="nLap",
-                        file_path=file_path,
-                        run_name=run_name,
-                        is_rank=False,
-                        raise_on_missing_column=False,
-                        raise_on_empty_result=False,
-                    )
-                if columns_to_load:
-                    requested = sorted(set(columns_to_load))
-                    df_cols = list(df.columns)
-                    df_cols_set = set(df_cols)
-                    df_cols_lower = {str(c).lower(): c for c in df_cols}
-                    available = []
-                    missing = []
-                    seen_avail = set()
-                    for c in requested:
-                        hit = None
-                        if c in df_cols_set:
-                            hit = c
-                        elif (
-                            c.startswith("_")
-                            and len(c) > 1
-                            and c[1].isalpha()
-                            and (c[1].upper() + c[2:]) in df_cols_set
-                        ):
-                            hit = c[1].upper() + c[2:]
-                        elif len(c) > 1 and c[0].isalpha() and c[0].islower() and (c[0].upper() + c[1:]) in df_cols_set:
-                            # e.g. user asked for 'nRun'; parquet column
-                            # normalised from '_nRun' is 'NRun'.
-                            hit = c[0].upper() + c[1:]
-                        elif c.lower() in df_cols_lower:
-                            # Case-insensitive fallback (e.g. user 'nRun',
-                            # parquet column 'nrun' with no underscore).
-                            hit = df_cols_lower[c.lower()]
-                        if hit is None:
-                            missing.append(c)
-                            continue
-                        if hit not in seen_avail:
-                            available.append(hit)
-                            seen_avail.add(hit)
-                    if missing and self.verbose:
-                        log.debug(
-                            "Parquet '%s' missing %d channel(s): %s%s",
-                            file_path.name,
-                            len(missing),
-                            ", ".join(missing[:10]),
-                            " ..." if len(missing) > 10 else "",
-                        )
-                    if available:
-                        df = df[available]
-                    else:
-                        raise KeyError(f"No requested channels found in parquet. Requested: {requested[:10]}")
-                return df
-            except Exception as exc:
-                errors.append(f"{engine}: {exc}")
-        raise RuntimeError(
-            f"Unable to load parquet '{file_path}' via engines {available_engines}. Errors: {' | '.join(errors)}"
+        return _loaders._load_parquet_with_fallback(
+            file_path,
+            columns_to_load=columns_to_load,
+            parquet_nrun=parquet_nrun,
+            parquet_nlap=parquet_nlap,
+            run_name=run_name,
+            available_engines=self._available_parquet_engines(),
+            get_schema_columns=self._get_parquet_schema_columns,
+            apply_rank_value_filter=self._apply_parquet_rank_value_filter,
+            alias_cache=self._parquet_alias_cache,
+            verbose=self.verbose,
         )
 
     def _load_run_data(
@@ -1135,45 +1046,16 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         parquet_nlap=None,
         run_name="",
     ):
-        try:
-            if file_path.suffix.lower() == ".parquet":
-                df = self._load_parquet_with_fallback(
-                    file_path,
-                    columns_to_load=columns_to_load,
-                    parquet_nrun=parquet_nrun,
-                    parquet_nlap=parquet_nlap,
-                    run_name=run_name,
-                )
-                df.columns = make_unique([str(c).strip() for c in df.columns])
-                units = {c: "" for c in df.columns}
-                return df, df.columns, units
-            with open(file_path) as f:
-                lines = f.readlines()
-            header = make_unique(lines[1].strip().split(","))
-            units_row = lines[2].strip().split(",")
-            units = dict(zip(header, units_row))
-            if columns_to_load:
-                cols_to_read = [c for c in header if c in set(columns_to_load)]
-            else:
-                cols_to_read = None
-            kwargs = dict(
-                sep=",",
-                skiprows=3,
-                header=None,
-                names=header,
-                on_bad_lines="skip",
-                usecols=cols_to_read,
-            )
-            if use_python_engine:
-                kwargs["engine"] = "python"
-            else:
-                kwargs["low_memory"] = False
-            df = pd.read_csv(file_path, **kwargs)
-            units = {c: units.get(c, "") for c in df.columns}
-            return df, df.columns, units
-        except Exception as e:
-            log.error("Failed to load '%s': %s", file_path, e)
-            raise
+        return _loaders._load_run_data(
+            file_path,
+            use_python_engine=use_python_engine,
+            columns_to_load=columns_to_load,
+            parquet_nrun=parquet_nrun,
+            parquet_nlap=parquet_nlap,
+            run_name=run_name,
+            load_parquet=self._load_parquet_with_fallback,
+            make_unique=make_unique,
+        )
 
     def _clean_data(self):
         for run_name in list(self.run_data.keys()):
@@ -2256,20 +2138,7 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         return self._legend_corner_from_bbox(legend)
 
     def _legend_corner_from_bbox(self, legend):
-        bbox = self._legend_axes_bbox(legend)
-        if bbox is None:
-            return None
-        cx = 0.5 * (bbox[0] + bbox[2])
-        cy = 0.5 * (bbox[1] + bbox[3])
-        halign = "left" if cx < 1 / 3 else ("right" if cx > 2 / 3 else "center")
-        valign = "bottom" if cy < 1 / 3 else ("top" if cy > 2 / 3 else "center")
-        corner = (halign, valign)
-        if corner in self._INFO_CORNER_XY:
-            return corner
-        return min(
-            self._INFO_CORNER_XY.keys(),
-            key=lambda c: (self._INFO_CORNER_XY[c][0] - cx) ** 2 + (self._INFO_CORNER_XY[c][1] - cy) ** 2,
-        )
+        return _legend_corner_from_bbox(self._legend_axes_bbox(legend))
 
     def _legend_axes_bbox(self, legend):
         if legend is None:
@@ -2291,36 +2160,12 @@ class DataPlotter(WaveformMixin, ScatterMixin, PsdHistMixin, HeatmapMixin, BarBo
         except Exception:
             return None
 
-    _INFO_CORNER_XY = {
-        ("left", "top"): (0.02, 0.98),
-        ("right", "top"): (0.98, 0.98),
-        ("left", "bottom"): (0.02, 0.02),
-        ("right", "bottom"): (0.98, 0.02),
-        ("center", "top"): (0.50, 0.98),
-        ("center", "bottom"): (0.50, 0.02),
-        ("left", "center"): (0.02, 0.50),
-        ("right", "center"): (0.98, 0.50),
-    }
-    _CORNER_TO_LOC = {
-        ("left", "top"): "upper left",
-        ("right", "top"): "upper right",
-        ("left", "bottom"): "lower left",
-        ("right", "bottom"): "lower right",
-        ("center", "top"): "upper center",
-        ("center", "bottom"): "lower center",
-        ("left", "center"): "center left",
-        ("right", "center"): "center right",
-    }
-    _LOC_TO_CORNER = {
-        "upper right": ("right", "top"),
-        "upper left": ("left", "top"),
-        "lower right": ("right", "bottom"),
-        "lower left": ("left", "bottom"),
-        "upper center": ("center", "top"),
-        "lower center": ("center", "bottom"),
-        "center left": ("left", "center"),
-        "center right": ("right", "center"),
-    }
+    # Class-attribute rebindings so `self._INFO_CORNER_XY` etc. still resolve
+    # from the plot_generators_* mixins after the constants moved to
+    # engine.plotting.corner_layout. RHS resolves in enclosing module scope.
+    _INFO_CORNER_XY = _INFO_CORNER_XY
+    _CORNER_TO_LOC = _CORNER_TO_LOC
+    _LOC_TO_CORNER = _LOC_TO_CORNER
 
     def _sample_ax_data(self, ax):
         xs, ys = [], []

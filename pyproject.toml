@@ -24,6 +24,7 @@ pptx = ["python-pptx>=0.6.23,<2.0"]
 windows = ["pywin32>=306; sys_platform == 'win32'"]
 dev = [
     "pytest>=7.0,<9.0",
+    "pytest-cov>=4.0,<7.0",
     "ruff>=0.6.0,<1.0",
     "pre-commit>=3.0,<5.0",
 ]
@@ -85,9 +86,24 @@ ignore = [
 [tool.pytest.ini_options]
 minversion = "7.0"
 testpaths = ["tests"]
-addopts = ["-q", "--strict-markers", "--strict-config"]
+addopts = [
+    "-q",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=engine",
+    "--cov-report=term-missing",
+    "--cov-report=xml",
+]
 filterwarnings = [
     "error::DeprecationWarning:engine.*",
     "ignore::DeprecationWarning:matplotlib.*",
     "ignore::DeprecationWarning:pandas.*",
 ]
+
+[tool.coverage.run]
+source = ["engine"]
+branch = true
+
+[tool.coverage.report]
+skip_covered = false
+precision = 1

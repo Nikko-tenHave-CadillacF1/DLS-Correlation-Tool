@@ -55,3 +55,85 @@ jobs:
 
       - name: Ruff check
         run: ruff check .
+
+  coverage-guard:
+    name: coverage-guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install core + dev + coverage deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install "pytest>=7,<9" "pytest-cov>=4.0,<7.0"
+
+      - name: Run pytest with coverage
+        # addopts in pyproject.toml already carries --cov=engine + --cov-report=xml
+        run: pytest
+
+      - name: Compare per-file coverage against committed baseline
+        shell: python
+        run: |
+          import sys
+          import xml.etree.ElementTree as ET
+
+          TOLERANCE_PP = 2.0
+          BASELINE = "tests/golden/coverage_baseline.xml"
+          CURRENT = "coverage.xml"
+
+          def per_file_line_rates(path):
+              root = ET.parse(path).getroot()
+              rates = {}
+              for cls in root.iter("class"):
+                  filename = cls.get("filename")
+                  if not filename:
+                      continue
+                  try:
+                      rate = float(cls.get("line-rate", "0.0")) * 100.0
+                  except (TypeError, ValueError):
+                      continue
+                  rates[filename] = rate
+              return rates
+
+          baseline = per_file_line_rates(BASELINE)
+          current = per_file_line_rates(CURRENT)
+
+          if not baseline:
+              print(f"coverage-guard: baseline {BASELINE} contained no <class> entries", file=sys.stderr)
+              sys.exit(2)
+
+          regressions = []
+          for filename, base_rate in sorted(baseline.items()):
+              cur_rate = current.get(filename)
+              if cur_rate is None:
+                  # File missing from current run — could be a rename during
+                  # extraction. Flag it so the author explicitly rebaselines.
+                  regressions.append((filename, base_rate, None, "file missing from current coverage report"))
+                  continue
+              delta_pp = cur_rate - base_rate
+              if delta_pp < -TOLERANCE_PP:
+                  regressions.append(
+                      (filename, base_rate, cur_rate, f"line coverage dropped {-delta_pp:.2f} pp (tolerance {TOLERANCE_PP:.1f} pp)")
+                  )
+
+          if regressions:
+              print(f"coverage-guard FAILED — {len(regressions)} file(s) regressed vs baseline:", file=sys.stderr)
+              for filename, base, cur, why in regressions:
+                  cur_disp = f"{cur:.2f}%" if cur is not None else "n/a"
+                  print(f"  - {filename}: baseline={base:.2f}%  current={cur_disp}  ({why})", file=sys.stderr)
+              print(
+                  "\nIf this drop is intentional (e.g. an extraction that split "
+                  "a file), rebaseline by copying coverage.xml over "
+                  "tests/golden/coverage_baseline.xml in the same PR.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          print(f"coverage-guard OK — all {len(baseline)} baseline files within {TOLERANCE_PP:.1f} pp tolerance.")
