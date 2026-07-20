@@ -1,3 +1,22 @@
+"""Typed dataclasses describing every plot the engine can render.
+
+One class per plot kind (``WaveformPlot``, ``ScatterPlot``, ``PsdPlot`` …).
+Each class validates its arguments in ``__post_init__`` and exposes a
+``kind`` classvar that the runtime dispatch uses to route the plot definition
+to the correct generator. :class:`Marker` is the annotation primitive shared
+by every kind that supports vertical guides.
+
+The single source of truth for valid ``BarPlot`` aggregation names lives here
+(``_VALID_BAR_AGGS``) — ``engine.datafunctions.normalize_bar_metric_specs``
+imports it so the validation and normalisation stay in sync.
+
+Users typically build these via keyword arguments in the top-level
+``Run_*.py`` scripts:
+
+    from engine import WaveformPlot, ScatterPlot
+    WAVEFORMS = [WaveformPlot(name="Driver Input", channels=("rThrottle", "pBrakeF"))]
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -53,6 +72,35 @@ def _validate_one_gate(cond: Sequence[Any], where: str) -> None:
 
 @dataclass
 class Marker:
+    """Vertical guide annotation shared by every 2-D plot kind.
+
+    A marker is defined either at a fixed axis position (``x``) or by a
+    data-dependent boolean ``condition`` that triggers on rising/falling/both
+    edges of the referenced series. Exactly one of ``x`` and ``condition``
+    must be set.
+
+    Parameters
+    ----------
+    x : float, optional
+        Fixed axis position (in the plot's x-axis units) for a static marker.
+    label : str, optional
+        Text drawn beside the vertical line. ``None`` renders no label.
+    show_label : bool, default True
+        Suppress just the label text while still drawing the line.
+    color : str, optional
+        Matplotlib colour spec; defaults to a neutral grey.
+    linestyle : str, default ':'
+        Matplotlib line-style spec.
+    row : int, optional
+        Sub-row index for waveform plots; ``None`` = all rows.
+    condition : (channel, op, value) tuple, optional
+        Data-triggered marker; e.g. ``("SM", "==", 1)``.
+    edge : {'rising', 'falling', 'both'}, default 'rising'
+        Edge type on which the ``condition`` fires.
+    max_count : int, optional
+        Cap on how many condition-triggered markers to draw per run.
+    """
+
     x: float | None = None
     label: str | None = None
     show_label: bool = True
@@ -148,6 +196,44 @@ def _coerce_lorentz_fit(value: Any, where: str) -> list[tuple[float, float]] | N
 
 @dataclass
 class WaveformPlot:
+    """Time- or lap-domain waveform with one row per channel entry.
+
+    Each entry in ``channels`` becomes one horizontal panel. An entry may be
+    a single channel name (single y-axis) or a ``(primary, secondary)`` pair
+    (two-y-axis row). The optional ``axis_limits``, ``reference_lines``, and
+    ``subplot_heights`` tuples must be the same length as ``channels``.
+
+    Parameters
+    ----------
+    name : str
+        Plot title and filename stem.
+    channels : tuple
+        One entry per row; each entry is a channel name or a
+        ``(primary, secondary)`` pair.
+    axis_limits : tuple, optional
+        Per-row ``(y1_limits, y2_limits)`` tuples.
+    reference_lines : tuple, optional
+        Per-row lists of horizontal reference y-values.
+    subplot_heights : tuple of float, optional
+        Per-row relative height ratios.
+    x_limits : (float, float), optional
+        Shared x-axis limits for every row.
+    x_channel : str, default 'sLap'
+        Column used as the shared x-axis.
+    highlight_zones : Any, optional
+        Shaded background zones per row.
+    normalise : bool, default False
+        If True, normalise each trace to its own peak-absolute value.
+    legend_position : {'top', 'right'}, default 'top'
+        Placement of the figure-level legend.
+    show_delta : bool or tuple of bool, default False
+        Per-row toggle to draw a delta-vs-reference-run trace.
+    markers : list of Marker, optional
+        Vertical guides applied per row (see :class:`Marker.row`).
+    annotate_at : number or tuple of numbers, optional
+        X-values at which to annotate every trace's amplitude.
+    """
+
     name: str
     channels: tuple[Any, ...]
     axis_limits: tuple[Any, ...] | None = None
@@ -199,6 +285,51 @@ class WaveformPlot:
 
 @dataclass
 class ScatterPlot:
+    """2-D scatter with optional best-fit line and gate filtering.
+
+    ``best_fit`` selects the fit style:
+
+    * ``0`` — no fit,
+    * ``1`` — one linear regression across the full data,
+    * ``2`` — one quadratic polynomial,
+    * list of ``(axis, lo, hi)`` segments — piecewise fits per x-range.
+
+    ``color_gate`` is a 4-tuple ``(channel, op, value, '#hex')`` that recolours
+    the subset of points matching the gate to the given colour, keeping the
+    rest at the run's base colour.
+
+    Parameters
+    ----------
+    name : str
+        Plot title and filename stem.
+    x_channel, y_channel : str
+        Column names for the two axes.
+    axis_limits : list of (float, float), optional
+        Per-axis ``(x_limits, y_limits)`` tuples.
+    best_fit : int or list of segments, default 0
+        Fit selector (see above).
+    gate : (channel, op, value) or list of such, optional
+        Row filter applied before scatter and fit.
+    show_equations : bool, default True
+        Emit fit-equation text on the plot.
+    show_error : bool, default True
+        Show per-segment %-error vs the first run's fit.
+    error_as_factor : bool, default False
+        Render errors as multiplicative factors (×1.05) instead of %.
+    color_gate : 4-tuple, optional
+        See above.
+    annotate_fit_at : Any, optional
+        X-values where fit predictions are annotated.
+    markers : list of Marker, optional
+        Vertical guides.
+    reference_lines : list of float, optional
+        Horizontal reference y-values.
+    robust : bool, default False
+        Use Theil-Sen instead of OLS for fits.
+    robust_threshold : float, default 3.0
+        Sigma cutoff for the robust outlier flag.
+    """
+
     name: str
     x_channel: str
     y_channel: str
@@ -269,6 +400,45 @@ class Scatter3DPlot:
 
 @dataclass
 class PsdPlot:
+    """Welch Power Spectral Density plot.
+
+    ``channel`` may be a single string or a list to overlay several channels
+    per run. ``nperseg`` may be an integer window size, ``None`` for auto
+    selection (see ``engine.datafunctions.auto_nperseg`` — sample-rate-
+    aware, respects the plotter's ``PSD_MIN_AVERAGES_TARGET``), or the string
+    ``"auto"`` (equivalent to ``None``).
+
+    Optional ``lorentz_fit`` is a list of ``(f0, half_width_hz)`` tuples;
+    each pair triggers a single-degree-of-freedom Lorentz fit around that
+    peak whose amplitude, damping ratio (ζ), and uncertainty are drawn
+    inline on the spectrum.
+
+    Parameters
+    ----------
+    name : str
+        Plot title and filename stem.
+    channel : str or list of str
+        Channel(s) whose PSD is drawn.
+    axis_limits : list of (float, float), optional
+        ``[(f_min, f_max), (S_min, S_max)]`` limits.
+    log_scale : bool, default True
+        Semi-log Y axis (spectral density is log-scaled by default).
+    nperseg : int, 'auto', or None, optional
+        Welch window size; ``None``/``'auto'`` uses the sample-rate-aware policy.
+    annotate_at : Any, optional
+        Frequencies at which per-curve amplitudes are annotated.
+    markers : list of Marker, optional
+        Vertical guides.
+    gate : gate spec, optional
+        Row filter applied before spectrogram segmentation.
+    show_envelope : bool, default False
+        Draw a max-envelope band per run.
+    reference_lines : list of float, optional
+        Horizontal reference power values.
+    lorentz_fit : list of (f0, half_width_hz), optional
+        See above.
+    """
+
     name: str
     channel: Union[str, list[str], tuple[str, ...]]
     axis_limits: list[tuple[float | None, float | None]] | None = None
@@ -314,6 +484,29 @@ class PsdPlot:
 
 @dataclass
 class HistogramPlot:
+    """1-D histogram of a single channel across runs.
+
+    All loaded runs are overlaid on the same axes with transparency; the
+    per-run colour is taken from the run dict.
+
+    Parameters
+    ----------
+    name : str
+        Plot title and filename stem.
+    channel : str
+        Column to histogram.
+    axis_limits : list of (float, float), optional
+        ``[(x_min, x_max), (y_min, y_max)]`` limits.
+    log_scale : bool, default False
+        Log-scale the Y (count) axis.
+    markers : list of Marker, optional
+        Vertical guides.
+    gate : gate spec, optional
+        Row filter.
+    reference_lines : list of float, optional
+        Horizontal reference values.
+    """
+
     name: str
     channel: str
     axis_limits: list[tuple[float | None, float | None]] | None = None
@@ -335,6 +528,40 @@ class HistogramPlot:
 
 @dataclass
 class BarPlot:
+    """Grouped bar chart, one bar per run per metric.
+
+    Each entry in ``metrics`` is either a channel name (aggregated with
+    ``default_aggregation``) or a ``(channel, aggregation)`` tuple whose
+    aggregation overrides the default. Valid aggregations: ``integral``,
+    ``abs_integral``, ``sum``, ``abs_sum``, ``mean``, ``median``, ``max``,
+    ``min``, ``first``, ``last``.
+
+    When ``secondary_axis`` is True and one metric's magnitude exceeds
+    ``PlotJobConfig.bar_secondary_axis_ratio`` × the smallest, that metric
+    is drawn on a right-hand y-axis to prevent scale flattening.
+
+    Parameters
+    ----------
+    name : str
+        Plot title and filename stem.
+    metrics : tuple
+        Channel names or ``(channel, aggregation)`` tuples.
+    default_aggregation : str, default 'last'
+        Aggregation for entries that don't override it.
+    axis_limits : (float, float), optional
+        Y-axis ``(y_min, y_max)``.
+    gate : gate spec, optional
+        Row filter applied before aggregation.
+    reference_lines : list of float, optional
+        Horizontal reference values.
+    error_metrics : tuple, optional
+        Per-metric channel names whose values become the errorbar half-
+        widths. Length must match ``metrics``; entries may be ``None`` to
+        skip errorbars on individual metrics.
+    secondary_axis : bool, default True
+        Auto-split large-scale-ratio metrics onto a right axis.
+    """
+
     name: str
     metrics: tuple[Any, ...]
     default_aggregation: str = "last"
@@ -367,6 +594,33 @@ class BarPlot:
 
 @dataclass
 class BoxPlot:
+    """Box-and-whisker for one or more channels across runs.
+
+    ``aggregation_mode`` selects how boxes are grouped:
+
+    * ``per_run`` — one box per (channel, run),
+    * ``aggregated`` — one box per channel with all runs pooled,
+    * ``per_run_aggregated`` — both per-run boxes and a pooled overlay.
+
+    Parameters
+    ----------
+    name : str
+        Plot title and filename stem.
+    channels : str or list of str
+        Channels to render. A single string is coerced to a one-element list.
+    aggregation_mode : {'per_run', 'aggregated', 'per_run_aggregated'}, default 'per_run'
+        See above.
+    axis_limits : (float, float), optional
+        Y-axis ``(y_min, y_max)``.
+    gate : gate spec, optional
+        Row filter.
+    reference_lines : list of float, optional
+        Horizontal reference values.
+    options : dict, optional
+        Per-plot overrides for the shared ``BOX_PLOT_SETTINGS`` (colours,
+        whisker style, outlier appearance, etc.).
+    """
+
     name: str
     channels: Union[str, list[str], tuple[str, ...]]
     aggregation_mode: str = "per_run"
@@ -399,6 +653,37 @@ _VALID_GRID_RENDER_MODES = {"expand", "grid"}
 
 @dataclass
 class BoxPlotGrid:
+    """Matrix of :class:`BoxPlot` cells partitioned by row and column gates.
+
+    ``rows`` and ``cols`` are ``{label: gate}`` dicts. For every
+    ``(row, col)`` pair the grid expands into a child ``BoxPlot`` whose gate
+    is the AND of the row and column gates and whose name is
+    ``"{name} - {row_label} {col_label}"``.
+
+    ``render_mode='expand'`` (default) causes :func:`build_plot_groups` to
+    call :meth:`expand` and inject the child plots into the ``boxes`` group
+    at build time. ``render_mode='grid'`` reserves the entry for future
+    single-figure grid rendering (not implemented).
+
+    Parameters
+    ----------
+    name : str
+        Grid title; per-cell names append the row and column labels.
+    channels : str or list of str
+        Channels shared by every cell.
+    rows, cols : dict
+        ``{label: gate}`` partitions; each gate follows the same schema as
+        :class:`BoxPlot.gate`.
+    aggregation_mode : {'per_run', 'aggregated', 'per_run_aggregated'}, default 'per_run'
+        Passed to every child BoxPlot.
+    axis_limits : (float, float), optional
+        Shared Y-axis limits.
+    options : dict, optional
+        Shared per-cell style overrides.
+    render_mode : {'expand', 'grid'}, default 'expand'
+        See above.
+    """
+
     name: str
     channels: Union[str, list[str], tuple[str, ...]]
     rows: dict
@@ -465,6 +750,39 @@ def _normalise_gate_list(gate) -> list:
 
 @dataclass
 class HeatmapPlot:
+    """2-D binned heatmap with optional per-bin z-aggregation.
+
+    When ``z_channel`` is ``None`` the heatmap shows point density (count per
+    bin). When ``z_channel`` is set, each bin's colour reflects the chosen
+    aggregation over the z-values inside that bin. Bins with fewer than
+    ``min_count`` samples are drawn transparent.
+
+    Parameters
+    ----------
+    name : str
+        Plot title and filename stem.
+    x_channel, y_channel : str
+        Column names for the two spatial axes.
+    z_channel : str, optional
+        Column aggregated per bin; ``None`` → density.
+    aggregation : {'mean', 'median', 'std', 'count', 'sum', 'max', 'min'}, default 'mean'
+        Per-bin aggregator applied to ``z_channel``.
+    bins : int or (int, int), default 40
+        Global bin count, or ``(x_bins, y_bins)``.
+    axis_limits : list of (float, float), optional
+        ``[(x_lo, x_hi), (y_lo, y_hi)]`` limits.
+    cmap : str, default 'viridis'
+        Matplotlib colormap name.
+    z_limits : (float, float), optional
+        Colorbar clip.
+    gate : gate spec, optional
+        Row filter.
+    markers : list of Marker, optional
+        Vertical guides.
+    min_count : int, default 3
+        Bins with fewer samples are masked out.
+    """
+
     name: str
     x_channel: str
     y_channel: str

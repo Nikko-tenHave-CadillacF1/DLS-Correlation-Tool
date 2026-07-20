@@ -1,3 +1,19 @@
+"""Workflow entrypoints, CLI, and PowerPoint export for a plotting run.
+
+Everything a ``Run_*.py`` needs is re-exported from :mod:`engine`:
+:func:`run_workflow` (the top-level convenience entry), :func:`run_from_config`
+(execute a pre-built :class:`PlotJobConfig`), :func:`workflow_config` and
+:func:`build_plot_groups` (build one from keyword args), :func:`parse_plot_cli`
+(the shared argparse spec), plus :func:`Slide` for the PowerPoint export
+map. The module also owns the folder-run expansion + consolidation logic
+that turns a folder shorthand (``{"folder": "26R10SPA/"}``) into a list of
+per-file run dicts.
+
+This module imports :class:`~engine.dataplotter.DataPlotter` eagerly, so
+importing it is enough to make the full engine reachable through
+``engine.__init__``.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -39,6 +55,57 @@ _ASPECT_RATIO_CACHE = {}
 
 @dataclass
 class PlotJobConfig:
+    """Fully-resolved parameter bundle for a single plotting job.
+
+    A ``PlotJobConfig`` is what :func:`run_from_config` consumes. It is
+    normally built by :func:`workflow_config` from a workflow shorthand plus
+    the caller's kwargs, but can also be constructed directly for tests or
+    non-standard workflows.
+
+    Parameters
+    ----------
+    title : str
+        Human-readable job title (used in CLI header and PPT slide titles).
+    root_folder : Path
+        Directory containing the input run files.
+    output_dir : Path
+        Directory where ``plots/`` and the PowerPoint deck are written.
+    runs : list of dict
+        Per-run configuration dicts (name, file, type, colour, gate
+        overrides, etc.). Folder shorthands are expanded before use.
+    plot_definitions : tuple
+        Fixed-order tuple ``(waveforms, scatters, psds, histograms, bars,
+        boxes, heatmaps)``; typically produced by :func:`build_plot_groups`.
+    channel_mappings, channel_transforms, calculated_channels, filters : dict, optional
+        Source-type-keyed overrides for the project-wide settings pulled
+        from :mod:`channel_config`.
+    resample_rate : float, optional
+        Hz. ``None`` (or 0) disables resampling.
+    units_map : dict, optional
+        Channel-name → unit-string overrides for axis labels.
+    fig_size : list or dict, optional
+        Per-plot-type figure sizes; falls back to :data:`DEFAULT_FIG_SIZE`.
+    scatter_max_points, bar_secondary_axis_ratio, box_plot_settings : ...
+        Per-plot-type behaviour tunables (see the dataclass source).
+    verbose : bool, default False
+        Enable per-plot debug logs.
+    powerpoint_template, powerpoint_output, export_map, powerpoint_start_slide : ...
+        Single-deck PowerPoint export (legacy path).
+    powerpoint_exports : list, optional
+        Multi-deck alternative: list of
+        ``(template, output, export_map[, start_slide])`` tuples.
+    open_output : bool, default True
+        Auto-open the output folder on completion (skipped by ``--no-open``).
+    output_dpi : int, default 300
+        PNG DPI.
+    vibrations_fit : dict, optional
+        Config for the 4-DOF body modal fit; see repo memory for the schema.
+    psd_min_averages_target : int, default 200
+        Soft target for Welch-segment count when auto-selecting nperseg.
+    debug_scatter3d_plots : list, optional
+        Names of 3-D scatters to render interactively for debugging.
+    """
+
     title: str
     root_folder: Path
     output_dir: Path
@@ -68,6 +135,25 @@ class PlotJobConfig:
 
 
 def Slide(layout: str, *plot_refs: str) -> dict:
+    """Build one entry for a PowerPoint ``export_map``.
+
+    Resolves each ``plot_ref`` (either a bare file name or a
+    ``"prefix/name"`` reference like ``"scatter/GG Plot"``) into a PNG
+    filename that :mod:`engine.plot_runtime` will look up under ``plots_dir``.
+
+    Parameters
+    ----------
+    layout : str
+        Slide-layout name in the PowerPoint template (case-sensitive).
+    *plot_refs : str
+        One or more plot references to place on the slide.
+
+    Returns
+    -------
+    dict
+        ``{"layout": layout, "images": [filename, ...]}`` — the shape
+        consumed by :class:`PlotJobConfig.export_map`.
+    """
     images = [_plot_ref_to_filename(ref) for ref in plot_refs]
     return {"layout": layout, "images": images}
 
@@ -511,6 +597,50 @@ def run_workflow(
     cli_description: str | None = None,
     **overrides,
 ):
+    """Run the full plot pipeline from a ``Run_*.py`` script.
+
+    Convenience entrypoint that wires up :func:`build_plot_groups`,
+    :func:`workflow_config`, :func:`parse_plot_cli`, and
+    :func:`run_from_config` so the caller only supplies the workflow key,
+    the runs, and the per-type plot lists.
+
+    Any ``overrides`` are forwarded to :func:`workflow_config` and end up as
+    fields on the resulting :class:`PlotJobConfig`; use them to override
+    project defaults from :mod:`channel_config` on a per-script basis.
+
+    Parameters
+    ----------
+    workflow : str
+        Workflow key (``"correlation"``, ``"boxplots"``, ``"dampers"``,
+        ``"ride_dil"``, or a custom name resolved via
+        :func:`channel_config.get_workflow_dirs`).
+    title : str
+        Human-readable job title.
+    runs : list of dict
+        Per-run config; supports folder shorthand for auto-expansion.
+    waveforms, scatters, psds, histograms, bars, boxes, heatmaps : list, optional
+        Per-type plot definitions (instances of the corresponding dataclass).
+    scatter3d : list, optional
+        Optional 3-D scatter definitions (rendered separately).
+    powerpoint_template, powerpoint_output, export_map, powerpoint_exports : ...
+        Optional PowerPoint export configuration.
+    vibrations_fit : dict, optional
+        Enable per-run 4-DOF modal fitting.
+    fig_size : dict or list, optional
+        Per-plot-type figure sizes.
+    cli_description : str, optional
+        Overrides the ``--help`` description in :func:`parse_plot_cli`.
+    **overrides
+        Extra ``PlotJobConfig`` fields (root_folder, output_dir,
+        resample_rate, verbose, etc.).
+
+    Returns
+    -------
+    engine.dataplotter.DataPlotter or None
+        The plotter after ``plot_data()`` returns — or ``None`` for
+        early-exit CLI paths (``--list-plots``, ``--list-channels``,
+        ``--check-only``, ``--dry-run``, empty ``--runs``).
+    """
     plot_definitions = build_plot_groups(
         waveforms=waveforms,
         scatters=scatters,
@@ -538,6 +668,27 @@ def run_workflow(
 
 
 def run_from_config(config: PlotJobConfig, cli_args=None):
+    """Execute a pre-built :class:`PlotJobConfig`.
+
+    Instantiates :class:`~engine.dataplotter.DataPlotter` (which loads and
+    preprocesses the data on construction), honours early-exit CLI flags,
+    invokes ``plot_data()``, runs the PowerPoint export(s), and optionally
+    opens the output folder.
+
+    Parameters
+    ----------
+    config : PlotJobConfig
+        Fully-resolved job description.
+    cli_args : argparse.Namespace, optional
+        Parsed CLI flags from :func:`parse_plot_cli`. When ``None`` the
+        pipeline runs with default behaviour (no --only/--runs filter, no
+        early exit).
+
+    Returns
+    -------
+    engine.dataplotter.DataPlotter or None
+        The plotter instance, or ``None`` for early-exit CLI paths.
+    """
     configure_logging(verbose=config.verbose)
     resolved_export_map = _resolve_export_map(
         config.export_map,
@@ -662,6 +813,28 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
 
 
 def parse_plot_cli(description: str = "Run plotting job"):
+    """Return the standard CLI :class:`argparse.Namespace` for a runner.
+
+    Every ``Run_*.py`` gets the same flag set:
+
+    * ``--only NAME [NAME ...]`` — render only plots whose name matches (case-insensitive).
+    * ``--runs RUN [RUN ...]`` — restrict to a subset of runs by name.
+    * ``--no-open`` — do not auto-open the output folder.
+    * ``--list-plots`` — print configured plot names and exit.
+    * ``--list-channels`` — load runs, print their channels, and exit.
+    * ``--check-only`` — load + quality-check, then exit without plotting.
+    * ``--dry-run`` — preview what would run without loading data.
+
+    Parameters
+    ----------
+    description : str, default 'Run plotting job'
+        Text shown in ``--help``.
+
+    Returns
+    -------
+    argparse.Namespace
+        The parsed command-line arguments.
+    """
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--only",
@@ -905,6 +1078,25 @@ def build_plot_groups(
     boxes=None,
     heatmaps=None,
 ):
+    """Assemble the fixed-order ``plot_definitions`` tuple.
+
+    Coerces the per-type keyword lists (any of which may be ``None``) into
+    the seven-element tuple that :class:`PlotJobConfig` expects, and expands
+    :class:`~engine.plot_definitions.BoxPlotGrid` entries with
+    ``render_mode='expand'`` into their per-cell :class:`BoxPlot` children.
+
+    Parameters
+    ----------
+    waveforms, scatters, psds, histograms, bars, boxes, heatmaps : list, optional
+        Per-type plot definitions.
+
+    Returns
+    -------
+    tuple
+        Seven-element tuple in the fixed order
+        ``(waveforms, scatters, psds, histograms, bars, boxes, heatmaps)``,
+        with ``None`` entries replaced by empty lists.
+    """
     boxes = _expand_box_grids(boxes) if boxes else []
     return tuple(group or [] for group in (waveforms, scatters, psds, histograms, bars, boxes, heatmaps))
 
@@ -934,6 +1126,44 @@ def workflow_config(
     scatter3d=None,
     **overrides,
 ) -> PlotJobConfig:
+    """Build a :class:`PlotJobConfig` for the named workflow.
+
+    Resolves the workflow key to its input/output directories (from
+    :mod:`channel_config` — built-in workflows have a hard-coded name
+    mapping; anything else is resolved through
+    :func:`channel_config.get_workflow_dirs`) and pulls the project-wide
+    defaults (``CHANNEL_MAPPINGS``, ``UNITS_MAP``, ``CALCULATED_CHANNELS``,
+    ``FILTERS``, ``BOX_PLOT_SETTINGS``, ``SCATTER_MAX_POINTS``,
+    ``BAR_SECONDARY_AXIS_RATIO``, ``RESAMPLE_RATE``). Anything passed via
+    ``overrides`` supersedes the defaults.
+
+    Parameters
+    ----------
+    workflow : str
+        Workflow key.
+    title : str
+        Job title.
+    runs : list of dict
+        Per-run config.
+    plot_definitions : tuple
+        Output of :func:`build_plot_groups`.
+    powerpoint_template, powerpoint_output, export_map, powerpoint_exports : ...
+        Optional PowerPoint export configuration.
+    vibrations_fit : dict, optional
+        Modal-fit configuration.
+    fig_size : dict or list, optional
+        Per-plot-type figure sizes.
+    scatter3d : list, optional
+        3-D scatter definitions.
+    **overrides
+        Extra :class:`PlotJobConfig` fields (root_folder, output_dir,
+        verbose, resample_rate, output_dpi, etc.).
+
+    Returns
+    -------
+    PlotJobConfig
+        Fully populated job description ready for :func:`run_from_config`.
+    """
     from channel_config import (
         BAR_SECONDARY_AXIS_RATIO,
         BOX_PLOT_SETTINGS,

@@ -1,3 +1,16 @@
+"""Numerical and dataframe helpers used by the plotting engine.
+
+Stateless functions for loading-time normalisation (unit conversion, calc
+channels, filtering), for reference-frame transforms, and for signal-
+processing utilities (Welch PSD, resampling, gate evaluation). No plotting
+code here — this module is safe to import from tests and from the
+standalone vibrations kernels.
+
+The only symbol re-exported through :mod:`engine` is :func:`calc_channel`;
+everything else lives here because :class:`~engine.dataplotter.DataPlotter`
+and the plot generators call it internally.
+"""
+
 from __future__ import annotations
 
 import difflib
@@ -12,6 +25,29 @@ from .logger import log
 
 
 def calc_channel(*deps):
+    """Declare the source-channel dependencies of a calc-channel lambda.
+
+    Decorator applied to a value in ``channel_config.CALCULATED_CHANNELS``.
+    Attaches ``__dls_deps__`` (a tuple of column names) to the decorated
+    function so the loader can enumerate the columns the lambda will read
+    and keep them alive through parquet/CSV column projection.
+
+    The decorator is strictly opt-in: when it is absent, the loader falls
+    back to parsing the lambda source with a regex, which only sees the
+    first physical line of the function. Multi-line lambdas that span a
+    ``\\n`` therefore hide dependencies from the regex walker; decorate
+    them with ``calc_channel(...)`` so the projection keeps the columns.
+
+    Parameters
+    ----------
+    *deps : str
+        Source-column names the decorated function reads via ``df[...]``.
+
+    Returns
+    -------
+    callable
+        A decorator that annotates its target with ``__dls_deps__``.
+    """
     def _wrap(fn):
         try:
             fn.__dls_deps__ = tuple(deps)
