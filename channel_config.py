@@ -49,7 +49,6 @@ for _p in (
 def resolve_template_path(filename: str = "template.pptx") -> Path:
     return TEMPLATES_DIR / filename
 
-
 def get_workflow_dirs(workflow: str, event: str = None) -> tuple:
     """Return (input_dir, output_dir) for any workflow name, creating folders if needed.
 
@@ -142,6 +141,7 @@ CHANNEL_MAPPINGS = {
         "CLiftTotal_Cp2CL": "CLiftTotal",
         "rAerobalTotal_Cp2CL": "rAeroBal",
         "rBrakeBiasControl": "rBrakeBias",
+        "EESSOCDelta": "rSOCDelta",
     },
 }
 
@@ -209,6 +209,8 @@ UNITS_MAP = {
     "dmInjector": "kg/hr",
     "dmInjector (kg/s)": "",
     "tDiff": "s",
+    "rsoc": "MJ",
+    "rsocdelta": "%",
 }
 
 
@@ -238,6 +240,7 @@ CHANNEL_TRANSFORMS = {
         "FPushrodFR": lambda x: -x,
         "FPushrodRL": lambda x: x,  # raw: already compression-positive
         "FPushrodRR": lambda x: x,
+        "rSOCDelta": lambda x: x * (100.0 / 4.0),  # Convert from MJ to % of ES capacity
     },
     "DIL": {
         "PBrakeFL": lambda x: -x,
@@ -395,6 +398,11 @@ CALCULATED_CHANNELS = {
     "dmInjector (kg/s)": lambda df: df["dmInjector"] / 3600,
     "PMGUK_Deploy (MJ)": lambda df: (df["PMGUK"] / 1000 * (df["PMGUK"] > 0).astype(float)).abs(),
     "PMGUK_Charge (MJ)": lambda df: (df["PMGUK"] / 1000 * (df["PMGUK"] < 0).astype(float)).abs(),
+    "rSOCDelta": calc_channel("rSOCDelta", "rSOC")(
+        lambda df: df["rSOCDelta"]
+        if "rSOCDelta" in df.columns
+        else df["rSOC"] - df["rSOC"].dropna().iloc[0]
+    ),
     # ── Plank wear ───────────────────────────────────────────────────────────
     "PPlank_F": lambda df: (
         0.001 * np.maximum(0.1 * df["FzPlankF"] * (df["vCar"] / 3.6), 0) * (df["FzPlankF"] > 500).astype(float)

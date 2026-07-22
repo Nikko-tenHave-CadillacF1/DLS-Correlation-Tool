@@ -561,7 +561,7 @@ def validate_export_map(plot_definitions: tuple, export_map: dict | None) -> lis
                 .replace("/", "_")
                 .replace("\\", "_")
             )
-            generated_names.add(f"{prefix}_{safe}.png")
+            generated_names.add(f"{prefix}/{prefix}_{safe}.png")
     mapped_names: set[str] = set()
     for slide_config in export_map.values():
         for img in slide_config.get("images", []):
@@ -690,10 +690,14 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
         The plotter instance, or ``None`` for early-exit CLI paths.
     """
     configure_logging(verbose=config.verbose)
+    # In blank-pptx mode (no template) we start at slide 1 rather than honour
+    # ``powerpoint_start_slide``, because there are no cover/intro slides to
+    # preserve — leading blanks would just waste slides.
+    _start_slide = 1 if config.powerpoint_template is None else config.powerpoint_start_slide
     resolved_export_map = _resolve_export_map(
         config.export_map,
         config.plot_definitions,
-        start_slide=config.powerpoint_start_slide,
+        start_slide=_start_slide,
     )
     resolved_exports: list = []
     if config.powerpoint_exports:
@@ -1268,7 +1272,9 @@ def run_plot_job(
     exports: list = []
     if powerpoint_exports:
         exports.extend(powerpoint_exports)
-    if powerpoint_template and powerpoint_output and export_map:
+    # A None template is a valid "blank pptx" request as long as an output
+    # path and export map are provided.
+    if powerpoint_output and export_map:
         exports.append((powerpoint_template, powerpoint_output, export_map))
     for i, exp in enumerate(exports):
         if len(exp) == 3:
@@ -1278,7 +1284,7 @@ def run_plot_job(
         else:
             log.warning("PowerPoint export entry #%d has invalid shape: %r", i, exp)
             continue
-        if not (tpl and out and exp_map):
+        if not (out and exp_map):
             continue
         label = Path(out).name
         log.info("Exporting to PowerPoint [%d/%d]: %s", i + 1, len(exports), label)
@@ -1334,6 +1340,24 @@ DOUBLE_PLOT_LAYOUT = {
     "gap_ratio": 0.0,
 }
 
+# Blank-mode variants: no template placeholders to align to, so plots must
+# fit inside the slide with small safety margins. Used when
+# ``POWERPOINT_TEMPLATE = None``.
+BLANK_MAIN_PLOT_BOX = {
+    "left_ratio": 0.03,
+    "top_ratio": 0.05,
+    "width_ratio": 0.94,
+    "height_ratio": 0.90,
+}
+
+BLANK_DOUBLE_PLOT_LAYOUT = {
+    "left_ratio": 0.02,
+    "top_ratio": 0.05,
+    "width_ratio": 0.96,
+    "height_ratio": 0.90,
+    "gap_ratio": 0.02,
+}
+
 MSO_PICTURE_TYPES = {11, 13}
 
 PPTX_NS = {
@@ -1342,9 +1366,9 @@ PPTX_NS = {
 }
 
 
-def _resolve_box(layout_name, slide_width, slide_height, slot_index=0, slot_count=1):
+def _resolve_box(layout_name, slide_width, slide_height, slot_index=0, slot_count=1, *, blank_mode=False):
     if layout_name == "main_plot":
-        box = MAIN_PLOT_BOX
+        box = BLANK_MAIN_PLOT_BOX if blank_mode else MAIN_PLOT_BOX
         return (
             slide_width * box["left_ratio"],
             slide_height * box["top_ratio"],
@@ -1352,7 +1376,7 @@ def _resolve_box(layout_name, slide_width, slide_height, slot_index=0, slot_coun
             slide_height * box["height_ratio"],
         )
     if layout_name == "double_plot":
-        box = DOUBLE_PLOT_LAYOUT
+        box = BLANK_DOUBLE_PLOT_LAYOUT if blank_mode else DOUBLE_PLOT_LAYOUT
         left = slide_width * box["left_ratio"]
         top = slide_height * box["top_ratio"]
         width = slide_width * box["width_ratio"]
@@ -1384,11 +1408,11 @@ def _get_picture_boxes(slide):
     return sorted(boxes, key=lambda b: (b[0], b[1]))
 
 
-def _get_double_plot_boxes(picture_boxes, slide_width, slide_height):
+def _get_double_plot_boxes(picture_boxes, slide_width, slide_height, *, blank_mode=False):
     if len(picture_boxes) >= 2:
         sorted_boxes = sorted(picture_boxes, key=lambda b: b[0])
         return sorted_boxes[:2]
-    layout = DOUBLE_PLOT_LAYOUT
+    layout = BLANK_DOUBLE_PLOT_LAYOUT if blank_mode else DOUBLE_PLOT_LAYOUT
     left = slide_width * layout["left_ratio"]
     top = slide_height * layout["top_ratio"]
     total_width = slide_width * layout["width_ratio"]
@@ -1401,11 +1425,11 @@ def _get_double_plot_boxes(picture_boxes, slide_width, slide_height):
     ]
 
 
-def _get_main_plot_box(picture_boxes, slide_width, slide_height):
+def _get_main_plot_box(picture_boxes, slide_width, slide_height, *, blank_mode=False):
     if picture_boxes:
         _, top, _, height = picture_boxes[0]
         return (0, top, slide_width, height)
-    box = MAIN_PLOT_BOX
+    box = BLANK_MAIN_PLOT_BOX if blank_mode else MAIN_PLOT_BOX
     return (
         slide_width * box["left_ratio"],
         slide_height * box["top_ratio"],
@@ -1491,9 +1515,22 @@ def get_template_plot_aspect_ratios(template_path, export_map):
 def _export_via_pptx(template_path, output_path, plots_dir, export_map):
     from PIL import Image as _PILImage
     from pptx import Presentation
-    from pptx.util import Emu
+    from pptx.util import Emu, Inches
 
-    prs = Presentation(str(template_path))
+    if template_path is None:
+        # Blank-deck mode: build a fresh 16:9 presentation with exactly one
+        # blank slide per export_map entry. Any picture placeholders that
+        # would otherwise be found in a template are absent, so the layout
+        # code below falls back to _resolve_box() defaults.
+        prs = Presentation()
+        prs.slide_width = Inches(13.333)
+        prs.slide_height = Inches(7.5)
+        blank_layout = prs.slide_layouts[6] if len(prs.slide_layouts) > 6 else prs.slide_layouts[-1]
+        max_slide = max((int(k) for k in export_map.keys()), default=0)
+        for _ in range(max_slide):
+            prs.slides.add_slide(blank_layout)
+    else:
+        prs = Presentation(str(template_path))
     slide_width = int(prs.slide_width)
     slide_height = int(prs.slide_height)
 
@@ -1555,6 +1592,7 @@ def _export_via_pptx(template_path, output_path, plots_dir, export_map):
         base = img_file.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
         return base.startswith(("scatter_", "psd_", "histogram_", "bar_"))
 
+    blank_mode = template_path is None
     for slide_num, config in export_map.items():
         idx = int(slide_num) - 1
         if idx < 0 or idx >= len(prs.slides):
@@ -1568,14 +1606,14 @@ def _export_via_pptx(template_path, output_path, plots_dir, export_map):
         existing = _picture_boxes(slide)
         used_template_boxes = False
         if layout == "main_plot" and len(image_files) == 1:
-            target_boxes = [_get_main_plot_box(existing, slide_width, slide_height)]
+            target_boxes = [_get_main_plot_box(existing, slide_width, slide_height, blank_mode=blank_mode)]
             used_template_boxes = bool(existing)
         elif layout == "double_plot" and len(image_files) == 2:
-            target_boxes = _get_double_plot_boxes(existing, slide_width, slide_height)
+            target_boxes = _get_double_plot_boxes(existing, slide_width, slide_height, blank_mode=blank_mode)
             used_template_boxes = len(existing) >= 2
         else:
             target_boxes = existing or [
-                _resolve_box(layout, slide_width, slide_height, slot_index=i, slot_count=len(image_files))
+                _resolve_box(layout, slide_width, slide_height, slot_index=i, slot_count=len(image_files), blank_mode=blank_mode)
                 for i in range(len(image_files))
             ]
             used_template_boxes = bool(existing)
@@ -1594,8 +1632,12 @@ def _export_via_pptx(template_path, output_path, plots_dir, export_map):
                     slide_height,
                     slot_index=i,
                     slot_count=len(image_files),
+                    blank_mode=blank_mode,
                 )
-            if used_template_boxes:
+            if used_template_boxes or blank_mode:
+                # Template-derived boxes are already sized to fit; blank-mode
+                # boxes are calibrated to the slide, so the misc-plot bump
+                # would push images past the slide edges.
                 fill_factor = 1.0
             elif layout == "double_plot" and _is_misc_plot(img_file):
                 fill_factor = 1.2
@@ -1607,11 +1649,12 @@ def _export_via_pptx(template_path, output_path, plots_dir, export_map):
 
 
 def export_report_to_powerpoint(template_path, output_path, plots_dir, export_map, visible=False):
-    template_path = Path(template_path).resolve()
     plots_dir = Path(plots_dir).resolve()
     output_path = Path(output_path).resolve()
-    if not template_path.exists():
-        raise FileNotFoundError(f"PowerPoint template not found: {template_path}")
+    if template_path is not None:
+        template_path = Path(template_path).resolve()
+        if not template_path.exists():
+            raise FileNotFoundError(f"PowerPoint template not found: {template_path}")
     try:
         import PIL  # noqa: F401
         import pptx  # noqa: F401
@@ -1625,6 +1668,13 @@ def export_report_to_powerpoint(template_path, output_path, plots_dir, export_ma
         log.warning(
             "python-pptx export failed (%s); falling back to win32com.",
             exc,
+        )
+    if template_path is None:
+        # Blank-deck mode requires python-pptx; win32com fallback needs a
+        # concrete template on disk to open.
+        raise RuntimeError(
+            "Blank PowerPoint export requires python-pptx. Install it with:\n"
+            "    pip install python-pptx"
         )
     try:
         import win32com.client

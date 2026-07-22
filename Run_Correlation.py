@@ -63,7 +63,7 @@ RUNS = [
 ]
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
-EXPORT_TO_POWERPOINT  = True
+EXPORT_TO_POWERPOINT  = False
 POWERPOINT_TEMPLATE   = resolve_template_path("template.pptx")
 POWERPOINT_OUTPUT     = _OUTPUT_DIR / "Correlation_Report.pptx"
 # Slide number (1-based) where the first POWERPOINT_EXPORT_MAP entry is placed.
@@ -152,6 +152,12 @@ WAVEFORM_PLOT_DEFINITIONS = [
         channels=(('vCar', 'NGear'), 'BGripLimited', 'pBrakeF', ('rThrottle', 'SM')),
         axis_limits=(((None, 400), (-1, 9)), None, None, ((0, 105), (0, 1.3))),
         reference_lines=(None, (0.5,), None, None),
+    ),
+    WaveformPlot(
+        name="rSOC Delta",
+        channels=(('vCar', 'NGear'), 'rSOCDelta', 'pBrakeF', ('rThrottle', 'SM')),
+        axis_limits=(((None, 400), (-1, 9)), None, None, ((0, 105), (0, 1.3))),
+        reference_lines=(None, (0,), None, None),
     ),
 ]
 
