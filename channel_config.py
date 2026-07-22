@@ -442,6 +442,13 @@ CALCULATED_CHANNELS = {
         cumulative_trapezoid((df["SM"] >= 0.8).astype(float), dx=0.01, initial=0)
         / (cumulative_trapezoid(np.ones_like(df["SM"]), dx=0.01, initial=0) + 1e-6)
     ),
+    "time_grip_limited": lambda df: cumulative_trapezoid(
+        (df["BGripLimited"] > 0.5).astype(float), dx=0.01, initial=0
+    ),
+    "ratio_time_grip_limited": lambda df: (
+        cumulative_trapezoid((df["BGripLimited"] > 0.5).astype(float), dx=0.01, initial=0)
+        / (cumulative_trapezoid(np.ones(len(df["BGripLimited"])), dx=0.01, initial=0) + 1e-6)
+    ),
 }
 
 # ─── RESAMPLING ───────────────────────────────────────────────────────────────
@@ -550,6 +557,9 @@ FILTERS = {
     # ── Suspension / dynamics ─────────────────────────────────────────────────
     "rLLTD": {"cutoff": 1, "order": 4},
     "CosPhi": {"cutoff": 3, "order": 3},
+    "BGripLimited": {"cutoff": 0, "order": 2},
+    "time_grip_limited": {"cutoff": 0, "order": 2},
+    "ratio_time_grip_limited": {"cutoff": 0, "order": 2},
     # ── Fallback for any channel not listed above ─────────────────────────────
     "all": {"cutoff": 5, "order": 2},
 }

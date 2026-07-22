@@ -29,23 +29,37 @@ RUNS = [
     {
         "name": "CAR",
         "file": r"26R10SPA_260718_MAC26-01_BOT_Q_R02.txt",
-        "color": "#E76400",
+        "color": "#B93E00",
         "type": "CAR",
     },
-    {
-        "name": "DLS",
-        "file": r"26R10SPA  77  Q  Run 2 Q1R2 NC4  Stint 1 Q1R2 NC4_DLS.parquet",
-        "color": "#0017C8",
-        "nlap": 1,
-        "type": "DLS",
-    },
     # {
-    #     "name": "OC",
-    #     "file": r"20260707-OC-XPG - 26R10SPA - v1 Corr - v1-SPA.parquet",
-    #     "color": "#00C807",
+    #     "name": "DLS",
+    #     "file": r"26R10SPA  77  Q  Run 2 Q1R2 NC4  Stint 1 Q1R2 NC4_DLS.parquet",
+    #     "color": "#0017C8",
+    #     "nlap": 1,
+    #     "type": "DLS",
+    # },
+    # {
+    #     "name": "OC - BSL",
+    #     "file": r"20260721-OC-XPG - 26R10SPA - Correlation - 77 Q1R2 - v2-SPA.parquet",
+    #     "color": "#00B006",
     #     "nrun": 1,
     #     "type": "OC",
     # },
+    {
+        "name": "OC - Lap Time",
+        "file": r"20260720-OC-XPG - 26R10SPA - Correlation - 77 Q1R2 - v1-SPA - R92.parquet",
+        "color": "#00B0A7",
+        "nrun": 1,
+        "type": "OC",
+    },
+    {
+        "name": "OC - Top Speeds",
+        "file": r"20260720-OC-XPG - 26R10SPA - Correlation - 77 Q1R2 - v1-SPA - R112.parquet",
+        "color": "#6700B0",
+        "nrun": 1,
+        "type": "OC",
+    },
 ]
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
@@ -131,7 +145,13 @@ WAVEFORM_PLOT_DEFINITIONS = [
         channels=(('vCar', 'NGear'), 'hRideF', 'hRideR', 'pBrakeF', ('rThrottle', 'SM')),
         axis_limits=(((None, 400), (-1, 9)), None, None, None, ((0, 105), (0, 1.3))),
         reference_lines=(None, (0,), (0,), None, None),
-        subplot_heights=(0.8, 0.5, 0.7, 0.7, 0.5),
+        subplot_heights=(0.8, 0.8, 0.8, 0.5, 0.5),
+    ),
+    WaveformPlot(
+        name="Grip Limited Zones",
+        channels=(('vCar', 'NGear'), 'BGripLimited', 'pBrakeF', ('rThrottle', 'SM')),
+        axis_limits=(((None, 400), (-1, 9)), None, None, ((0, 105), (0, 1.3))),
+        reference_lines=(None, (0.5,), None, None),
     ),
 ]
 
@@ -158,7 +178,8 @@ SCATTER_PLOT_DEFINITIONS = [
                 axis_limits=[(-160, 160), (None, None)],    best_fit=[('x', -20, 20)]),
     ScatterPlot("Steering Moment",         "aSteerWheel",   "MSteerWheel",
                 axis_limits=[(-160, 160), (None, None)]),
-
+    ScatterPlot("FPRodDeltaF vs gLat",      "gLat",          "FPRodDeltaF"),
+    ScatterPlot("FPRodDeltaR vs gLat",      "gLat",          "FPRodDeltaR"),
     # ## CAR ABSOLUTE OFFSETS - FOR DIL OFFSETS
     # ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF",
     #             best_fit=[('y', -8000, None), ('y', None, -8000)], error_as_factor=True),
@@ -167,21 +188,21 @@ SCATTER_PLOT_DEFINITIONS = [
     #             best_fit=[('y', None, 15000), ('y', 15000, None)], error_as_factor=True),
     # ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)], error_as_factor=True),
 
-    # ## CAR SUSPENSION CORRELATION - FOR REPORT
-    # ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF", axis_limits=[(None, None), (0, None)],
-    #             best_fit=[('y', None, 8500), ('y', 12500, None)]),
-    # ScatterPlot("Front Roll",              "xDamperDeltaF", "FPRodDeltaF",          best_fit=[('x', None, None)]),
-    # ScatterPlot("Rear Heave",              "xDamperAvgR",   "FPRodAvgR",
-    #             best_fit=[('y', None, 13000), ('y', 16500, None)]),
-    # ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)]),
+    ## CAR SUSPENSION CORRELATION - FOR REPORT
+    ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF", axis_limits=[(None, None), (0, None)],
+                best_fit=[('y', None, 8500), ('y', 12500, None)]),
+    ScatterPlot("Front Roll",              "xDamperDeltaF", "FPRodDeltaF",          best_fit=[('x', None, None)]),
+    ScatterPlot("Rear Heave",              "xDamperAvgR",   "FPRodAvgR",
+                best_fit=[('y', None, 13000), ('y', 16500, None)]),
+    ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)]),
 
-    ## OC SUSPENSION CORRELATION - FOR OC CHECKS
-    ScatterPlot("Front Heave",             "xHubVertF_Avg",   "FzTyreF_Avg",
-                 best_fit=[('y', 2500, None), ('y', None, 2500)]),
-    ScatterPlot("Front Roll",              "xHubVertF_Delta", "FzTyreF_Delta",          best_fit=[('x', None, None)]),
-    ScatterPlot("Rear Heave",              "xHubVertR_Avg",   "FzTyreR_Avg",
-                 best_fit=[('y', None, 5000), ('y', 5000, None)]),
-    ScatterPlot("Rear Roll",               "xHubVertR_Delta", "FzTyreR_Delta",          best_fit=[('x', None, None)]),
+    # ## OC SUSPENSION CORRELATION - FOR OC CHECKS
+    # ScatterPlot("Front Heave",             "xHubVertF_Avg",   "FzTyreF_Avg",
+    #              best_fit=[('y', 2500, None), ('y', None, 2500)]),
+    # ScatterPlot("Front Roll",              "xHubVertF_Delta", "FzTyreF_Delta",          best_fit=[('x', None, None)]),
+    # ScatterPlot("Rear Heave",              "xHubVertR_Avg",   "FzTyreR_Avg",
+    #              best_fit=[('y', None, 5000), ('y', 5000, None)]),
+    # ScatterPlot("Rear Roll",               "xHubVertR_Delta", "FzTyreR_Delta",          best_fit=[('x', None, None)]),
 
     ScatterPlot("Roll angle gLat",         "gLat",          "aRoll",                best_fit=[('x', None, None)]),
     ScatterPlot("Front Pushrod vCar",      "vCar",          "FPRodAvgF",
@@ -213,10 +234,10 @@ PSD_PLOT_DEFINITIONS = [
     # PsdPlot("FR gHub PSD",                  "gHubVertFR",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
     # PsdPlot("RL gHub PSD",                  "gHubVertRL",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
     # PsdPlot("RR gHub PSD",                  "gHubVertRR",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
-    PsdPlot("Heave Mode PSD",  "FPRodHeave", axis_limits=[(0, 30), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(3, 7)),
-    PsdPlot("Pitch Mode PSD",  "FPRodPitch", axis_limits=[(0, 30), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(5, 10)),
-    PsdPlot("Roll Mode PSD",   "FPRodRoll",  axis_limits=[(0, 30), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(3, 7)),
-    PsdPlot("Warp Mode PSD",   "FPRodWarp",  axis_limits=[(0, 30), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(10, 15)),
+    PsdPlot("Heave Mode PSD",  "FPRodHeave", axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(3, 7)),
+    PsdPlot("Pitch Mode PSD",  "FPRodPitch", axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(5, 10)),
+    PsdPlot("Roll Mode PSD",   "FPRodRoll",  axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(3, 7)),
+    PsdPlot("Warp Mode PSD",   "FPRodWarp",  axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(10, 15)),
 
 ]
 
@@ -237,6 +258,7 @@ BAR_PLOT_DEFINITIONS = [
     BarPlot("Time in SM Zones",   (("time_in_SM_100",       "last"), ("time_in_SM_90",        "last"), ("time_in_SM_80",        "last"))),
     BarPlot("Ratio Time in SM Zones",   (("ratio_time_in_SM_100",       "last"), ("ratio_time_in_SM_90",        "last"), ("ratio_time_in_SM_80",        "last"))),
     # BarPlot("BrakeBal",  (("rBrakeBiasF",    "last"), ("rBrakeBias",     "last"))),
+    BarPlot("Grip Limited Time",  (("time_grip_limited",    "max"), ("ratio_time_grip_limited",     "max"))),
 ]
 
 # ─── BOX PLOTS ────────────────────────────────────────────────────────────────

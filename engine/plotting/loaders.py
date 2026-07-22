@@ -28,6 +28,19 @@ def _normalize_parquet_column_aliases(df):
                 rename_map[col] = canonical
     if rename_map:
         df = df.rename(columns=rename_map)
+    # Cast bool columns to float. Some parquet sources (notably AVL-TR OC
+    # exports) store flag channels like `_bGripLimited` as dtype=bool. That
+    # causes two silent bugs downstream:
+    #   1) scipy.integrate.cumulative_trapezoid uses boolean arithmetic on
+    #      bool inputs (True + True == True), which halves the integrated
+    #      time in derived channels like `time_grip_limited`.
+    #   2) pandas raises LossySetitemError when NaN is written into a bool
+    #      Series (e.g. `mask_waveform_discontinuities`), breaking waveform
+    #      plots that reference these channels.
+    # Float (not int) is required because NaN cannot be represented in int.
+    bool_cols = [c for c in df.columns if df[c].dtype == bool]
+    if bool_cols:
+        df = df.astype({c: "float64" for c in bool_cols}, copy=False)
     return df
 
 

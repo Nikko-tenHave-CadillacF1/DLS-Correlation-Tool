@@ -24,13 +24,13 @@ RUNS = [
     {
         "name": "CAR",
         "file": r"26R10SPA_260717_MAC26-01_BOT_P1_R03.txt",
-        "color": "#E71B00",
+        "color": "#E76000",
         "type": "CAR",
     },
     {
         "name": "DIL",
         "file": r"Spa_260717_GMDiL-08_PAG_R19PARTIAL.txt",
-        "color": "#0004E7",
+        "color": "#005CE7",
         "type": "DIL",
     },
 ]
