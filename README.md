@@ -42,12 +42,9 @@ console scripts are just shortcuts.
 
 ### Environment overrides
 
-- `DLS_SKIP_BOOTSTRAP=1` — skip the dependency check entirely (used by CI
-  where the environment is already provisioned).
-- `DLS_ENABLE_AUTO_VENV=1` — opt IN to the legacy auto-venv escape hatch:
-  the first run auto-creates `.venv`, `pip install`s `requirements.txt`, and
-  re-execs into the venv Python. Useful for double-click / hand-off scenarios
-  where the user does not have a preconfigured environment.
+- `DLS_SKIP_BOOTSTRAP=1` — skip the built-in dependency check at
+  `import engine` time (used by CI where the environment is already
+  provisioned).
 
 ---
 

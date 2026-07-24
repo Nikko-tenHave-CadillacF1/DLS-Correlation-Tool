@@ -15,10 +15,9 @@ scipy>=1.7.0,<2.0        # `scipy.stats.theilslopes` is used for robust fits.
 pyarrow>=15.0.0,<22.0
 fastparquet>=2024.11.0,<2027.0
 
-# PowerPoint export. python-pptx is cross-platform (preferred); pywin32 is
-# only used as a fallback on Windows when python-pptx isn't available.
+# PowerPoint export (required). python-pptx handles cross-platform export,
+# including blank-deck mode when no template is provided.
 python-pptx>=0.6.23,<2.0
-pywin32>=306; sys_platform == "win32"
 
 # Progress bars during plot generation. The tool runs without it.
 tqdm>=4.64.0,<5.0

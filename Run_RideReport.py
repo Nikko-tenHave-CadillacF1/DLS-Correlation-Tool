@@ -24,11 +24,7 @@ This is the *complementary* report to the correlation report. Pipeline:
      to render the per-mode evolution figures (line+CI and bar+errorbar).
 """
 
-from bootstrap import ensure_dependencies
-
-ensure_dependencies()
-
-from channel_config import get_workflow_dirs, resolve_template_path
+from channel_config import get_workflow_dirs
 from engine import (
     BarPlot,
     PsdPlot,
@@ -140,17 +136,12 @@ VIBRATIONS_FIT = {
     "bootstrap_seed": 0,
 }
 
-# ─── POWERPOINT ───────────────────────────────────────────────────────────────
-EXPORT_TO_POWERPOINT  = False
-POWERPOINT_TEMPLATE   = resolve_template_path("template.pptx")
-POWERPOINT_OUTPUT     = _OUTPUT_DIR / "GP_Comparison_Ride_Report.pptx"
-POWERPOINT_START_SLIDE = 4
-
-# Secondary deck for modal evolution artefacts. The `powerpoint_exports` list
-# accepts an unlimited number of `(template, output, export_map[, start])`
-# tuples in addition to the legacy single-template fields.
-MODAL_POWERPOINT_TEMPLATE = resolve_template_path("template.pptx")
-MODAL_POWERPOINT_OUTPUT   = _OUTPUT_DIR / "GP_Comparison_Modal_Evolution.pptx"
+# ─── POWERPOINT EXPORT ───────────────────────────────────────────────────────────────────────
+# Blank 16:9 decks by default. Multi-deck export via POWERPOINT_EXPORTS below
+# (list of `(template, output, export_map[, start_slide])` tuples). To disable,
+# set POWERPOINT_EXPORTS = None.
+POWERPOINT_OUTPUT       = _OUTPUT_DIR / "GP_Comparison_Ride_Report.pptx"
+MODAL_POWERPOINT_OUTPUT = _OUTPUT_DIR / "GP_Comparison_Modal_Evolution.pptx"
 
 # ─── WAVEFORM PLOTS ───────────────────────────────────────────────────────────
 
@@ -354,13 +345,13 @@ MODAL_POWERPOINT_EXPORT_MAP = [
                          "modal/modal_evolution_line_amp_warp"),
 ]
 
-# Build the list of secondary exports. Legacy single-template fields are still
-# supported (see Run_*.py history); below we drive everything through the new
-# `powerpoint_exports` list.
-POWERPOINT_EXPORTS = [
-    (POWERPOINT_TEMPLATE,       POWERPOINT_OUTPUT,       POWERPOINT_EXPORT_MAP,       POWERPOINT_START_SLIDE),
-    (MODAL_POWERPOINT_TEMPLATE, MODAL_POWERPOINT_OUTPUT, MODAL_POWERPOINT_EXPORT_MAP, 2),
-] if EXPORT_TO_POWERPOINT else None
+# Both decks use a blank 16:9 template. Set POWERPOINT_EXPORTS to the list
+# below to enable the export.
+POWERPOINT_EXPORTS = None
+# POWERPOINT_EXPORTS = [
+#     (None, POWERPOINT_OUTPUT,       POWERPOINT_EXPORT_MAP),
+#     (None, MODAL_POWERPOINT_OUTPUT, MODAL_POWERPOINT_EXPORT_MAP),
+# ]
 
 # ─── COMPARE GROUPING ─────────────────────────────────────────────────────────
 # Pass GROUP_BY="group" to `plot_modal_evolution` to split the line plot into

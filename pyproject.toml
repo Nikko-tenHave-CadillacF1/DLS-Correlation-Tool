@@ -21,7 +21,6 @@ dependencies = [
 [project.optional-dependencies]
 parquet = ["pyarrow>=15.0.0,<22.0", "fastparquet>=2024.11.0,<2027.0"]
 pptx = ["python-pptx>=0.6.23,<2.0"]
-windows = ["pywin32>=306; sys_platform == 'win32'"]
 dev = [
     "pytest>=7.0,<9.0",
     "pytest-cov>=4.0,<7.0",

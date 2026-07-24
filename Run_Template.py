@@ -8,11 +8,7 @@ Refer to this file for syntax, available parameters, and working examples.
 Run ``python Run_Template.py --help`` for CLI options.
 """
 
-from bootstrap import ensure_dependencies
-
-ensure_dependencies()
-
-from channel_config import get_workflow_dirs, resolve_template_path
+from channel_config import get_workflow_dirs
 from engine import (
     BarPlot,
     BoxPlot,
@@ -140,12 +136,13 @@ RUNS = [
 ]
 
 # ─── POWERPOINT EXPORT (optional) ─────────────────────────────────────────────
-EXPORT_TO_POWERPOINT  = False
-POWERPOINT_TEMPLATE   = resolve_template_path("template.pptx")
-POWERPOINT_OUTPUT     = _OUTPUT_DIR / "Report.pptx"
-# Slide number (1-based) where the first POWERPOINT_EXPORT_MAP entry is placed.
-# Leaves cover / intro slides untouched.
-POWERPOINT_START_SLIDE = 4
+# Blank 16:9 deck by default. Set POWERPOINT_OUTPUT to a Path to enable; None
+# disables the export. For a corporate template with cover slides, add to
+# run_workflow(...) below:
+#   from channel_config import resolve_template_path
+#   powerpoint_template=resolve_template_path("template.pptx"),
+#   powerpoint_start_slide=4,   # first slide to place a plot on
+POWERPOINT_OUTPUT = None  # e.g. _OUTPUT_DIR / "Report.pptx"
 
 # ─── CALCULATED CHANNELS (optional override) ─────────────────────────────────
 # All workflows (including custom ones) automatically receive the full
@@ -737,10 +734,8 @@ def main() -> None:
         bars=BAR_PLOT_DEFINITIONS,
         boxes=BOX_PLOT_DEFINITIONS,
         heatmaps=HEATMAP_PLOT_DEFINITIONS,
-        powerpoint_template=POWERPOINT_TEMPLATE if EXPORT_TO_POWERPOINT else None,
-        powerpoint_output=POWERPOINT_OUTPUT if EXPORT_TO_POWERPOINT else None,
-        export_map=POWERPOINT_EXPORT_MAP if EXPORT_TO_POWERPOINT else None,
-        powerpoint_start_slide=POWERPOINT_START_SLIDE,
+        powerpoint_output=POWERPOINT_OUTPUT,
+        export_map=POWERPOINT_EXPORT_MAP,
         # ── Optional overrides (uncomment as needed) ───────────────────────────
         # verbose=True,             # enable debug-level logging
         # output_dpi=150,           # lower DPI for faster iteration (default 300)

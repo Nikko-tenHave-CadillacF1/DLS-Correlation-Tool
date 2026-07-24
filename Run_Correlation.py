@@ -1,9 +1,5 @@
 """Correlation workflow — edit RUNS and plot definitions to configure your analysis."""
 
-from bootstrap import ensure_dependencies
-
-ensure_dependencies()
-
 from channel_config import get_workflow_dirs, resolve_template_path
 from engine import (
     BarPlot,
@@ -32,43 +28,28 @@ RUNS = [
         "color": "#B93E00",
         "type": "CAR",
     },
-    # {
-    #     "name": "DLS",
-    #     "file": r"26R10SPA  77  Q  Run 2 Q1R2 NC4  Stint 1 Q1R2 NC4_DLS.parquet",
-    #     "color": "#0017C8",
-    #     "nlap": 1,
-    #     "type": "DLS",
-    # },
-    # {
-    #     "name": "OC - BSL",
-    #     "file": r"20260721-OC-XPG - 26R10SPA - Correlation - 77 Q1R2 - v2-SPA.parquet",
-    #     "color": "#00B006",
-    #     "nrun": 1,
-    #     "type": "OC",
-    # },
     {
-        "name": "OC - Lap Time",
-        "file": r"20260720-OC-XPG - 26R10SPA - Correlation - 77 Q1R2 - v1-SPA - R92.parquet",
-        "color": "#00B0A7",
+        "name": "OC - BSL",
+        "file": r"20260721-OC-XPG - 26R10SPA - Correlation - 77 Q1R2 - v2-SPA.parquet",
+        "color": "#00B006",
         "nrun": 1,
         "type": "OC",
     },
     {
-        "name": "OC - Top Speeds",
-        "file": r"20260720-OC-XPG - 26R10SPA - Correlation - 77 Q1R2 - v1-SPA - R112.parquet",
-        "color": "#6700B0",
+        "name": "OC - MF",
+        "file": r"20260722-OC-XPG - 26R10SPA - Correlation - MF - 77 Q1R2 - v2-SPA.parquet",
+        "color": "#7500B0",
         "nrun": 1,
         "type": "OC",
     },
 ]
 
-# ─── POWERPOINT ───────────────────────────────────────────────────────────────
-EXPORT_TO_POWERPOINT  = False
+# ─── POWERPOINT EXPORT ───────────────────────────────────────────────────────────────────────
+# Corporate template with cover slides. Set POWERPOINT_OUTPUT = None to disable
+# the export, or set POWERPOINT_TEMPLATE = None to fall back to a blank 16:9 deck.
 POWERPOINT_TEMPLATE   = resolve_template_path("template.pptx")
 POWERPOINT_OUTPUT     = _OUTPUT_DIR / "Correlation_Report.pptx"
-# Slide number (1-based) where the first POWERPOINT_EXPORT_MAP entry is placed.
-# Leaves cover / intro slides untouched.
-POWERPOINT_START_SLIDE = 4
+POWERPOINT_START_SLIDE = 4  # skip cover / intro slides
 
 # ─── WAVEFORM PLOTS ───────────────────────────────────────────────────────────
 
@@ -98,13 +79,6 @@ WAVEFORM_PLOT_DEFINITIONS = [
         subplot_heights=(0.4, 0.6, 0.4, 0.6, 0.4, 0.4),
         # show_delta=(False, False, False, True, False, False)
     ),
-    # WaveformPlot(
-    #     name="DIL TELEM",
-    #     channels=('SM', 'gVert', 'PMGUK', ('vCar', 'NGear'), 'aSteerWheel', ('rThrottle', 'pBrakeF')),
-    #     axis_limits=((-0.2, 1.2), (-3, 3), (-360, 360), ((60, 400), (-1, 9)), (-180, 180), ((None, None), (None, None))),
-    #     reference_lines=(None, None, (-350, 0, 350), None, (0,), None),
-    #     subplot_heights=(0.15, 0.2, 0.3, 0.5, 0.3, 0.3),
-    # ),
     # WaveformPlot(
     #     name="OC SM Check",
     #     channels=('PMGUK', ('vCar', 'NGear'), "aUndersteerFromSlip", 'pBrakeF', ('rThrottle', 'SM')),
@@ -186,13 +160,6 @@ SCATTER_PLOT_DEFINITIONS = [
                 axis_limits=[(-160, 160), (None, None)]),
     ScatterPlot("FPRodDeltaF vs gLat",      "gLat",          "FPRodDeltaF"),
     ScatterPlot("FPRodDeltaR vs gLat",      "gLat",          "FPRodDeltaR"),
-    # ## CAR ABSOLUTE OFFSETS - FOR DIL OFFSETS
-    # ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF",
-    #             best_fit=[('y', -8000, None), ('y', None, -8000)], error_as_factor=True),
-    # ScatterPlot("Front Roll",              "xDamperDeltaF", "FPRodDeltaF",          best_fit=[('x', None, None)], error_as_factor=True),
-    # ScatterPlot("Rear Heave",              "xDamperAvgR",   "FPRodAvgR",
-    #             best_fit=[('y', None, 15000), ('y', 15000, None)], error_as_factor=True),
-    # ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)], error_as_factor=True),
 
     ## CAR SUSPENSION CORRELATION - FOR REPORT
     ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF", axis_limits=[(None, None), (0, None)],
@@ -226,6 +193,7 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("Brake Power Balance", "PBrakeF_Avg", "PBrakeR_Avg", best_fit=[('x', 200, None)]),
     ScatterPlot("rLLTD vs vCar", "vCar", "rLLTD", axis_limits=[(None, None), (40, 70)], gate=[("gLat_Abs", '>', 0.5), ("SM", '<', 0.5)]),
     ScatterPlot("rAerobal vs vCar", "vCar", "rAeroBal", axis_limits=None, gate=[("vCar", '>', 100), ("SM", '<', 0.5)]),
+    ScatterPlot("Brake Bias", "PBrakeF_Avg", "PBrakeR_Avg", best_fit=[('x', 200, None)]),
 ]
 
 # ─── PSD PLOTS ────────────────────────────────────────────────────────────────
@@ -234,12 +202,6 @@ PSD_PLOT_DEFINITIONS = [
     PsdPlot("Rear Vertical Acceleration PSD",  "gVertR",       axis_limits=[(0, 20), (1e-4, None)], nperseg=320),
     PsdPlot("Front Ride PSD",                  "hRideF (raw)", axis_limits=[(0, 20), (1e-4, None)], nperseg=320),
     PsdPlot("Rear Ride PSD",                   "hRideR (raw)", axis_limits=[(0, 20), (1e-4, None)], nperseg=320),
-    # PsdPlot("Front Heave PSD",                 ["FPRodAvgF", "FPRodAvgR"],    axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 7)),
-    # PsdPlot("Front Roll PSD",                  ["FPRodDeltaF", "FPRodDeltaR"],  axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 7)),
-    # PsdPlot("FL gHub PSD",                  "gHubVertFL",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
-    # PsdPlot("FR gHub PSD",                  "gHubVertFR",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
-    # PsdPlot("RL gHub PSD",                  "gHubVertRL",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
-    # PsdPlot("RR gHub PSD",                  "gHubVertRR",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
     PsdPlot("Heave Mode PSD",  "FPRodHeave", axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(3, 7)),
     PsdPlot("Pitch Mode PSD",  "FPRodPitch", axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(5, 10)),
     PsdPlot("Roll Mode PSD",   "FPRodRoll",  axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(3, 7)),
@@ -263,7 +225,6 @@ BAR_PLOT_DEFINITIONS = [
     BarPlot("Lap Time",           (("tLap_Calc",         "max"),)),
     BarPlot("Time in SM Zones",   (("time_in_SM_100",       "last"), ("time_in_SM_90",        "last"), ("time_in_SM_80",        "last"))),
     BarPlot("Ratio Time in SM Zones",   (("ratio_time_in_SM_100",       "last"), ("ratio_time_in_SM_90",        "last"), ("ratio_time_in_SM_80",        "last"))),
-    # BarPlot("BrakeBal",  (("rBrakeBiasF",    "last"), ("rBrakeBias",     "last"))),
     BarPlot("Grip Limited Time",  (("time_grip_limited",    "max"), ("ratio_time_grip_limited",     "max"))),
 ]
 
@@ -326,9 +287,9 @@ def main() -> None:
         histograms=HISTOGRAM_PLOT_DEFINITIONS,
         bars=BAR_PLOT_DEFINITIONS,
         scatter3d=SCATTER3D_PLOT_DEFINITIONS,
-        powerpoint_template=POWERPOINT_TEMPLATE if EXPORT_TO_POWERPOINT else None,
-        powerpoint_output=POWERPOINT_OUTPUT if EXPORT_TO_POWERPOINT else None,
-        export_map=POWERPOINT_EXPORT_MAP if EXPORT_TO_POWERPOINT else None,
+        powerpoint_template=POWERPOINT_TEMPLATE,
+        powerpoint_output=POWERPOINT_OUTPUT,
+        export_map=POWERPOINT_EXPORT_MAP,
         powerpoint_start_slide=POWERPOINT_START_SLIDE,
     )
     if plotter is not None and SCATTER3D_PLOT_DEFINITIONS:

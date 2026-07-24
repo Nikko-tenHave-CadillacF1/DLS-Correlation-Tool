@@ -9,18 +9,20 @@ and what every advanced option does.
 
 | Module | Purpose |
 |---|---|
+| `engine/__init__.py` | Public API re-exports + inline dependency check on import |
 | `engine/plot_runtime.py` | `run_workflow()`, `PlotJobConfig`, CLI parser, PowerPoint export |
 | `engine/plot_definitions.py` | All plot dataclasses (`WaveformPlot`, `ScatterPlot`, …) + `Marker` |
 | `engine/dataplotter.py` | Data loading, preprocessing, dispatch to generators |
-| `engine/plot_generators_waveform.py` | Waveform renderer |
-| `engine/plot_generators_scatter.py` | Scatter renderer (incl. robust fits) |
-| `engine/plot_generators_misc.py` | PSD / Histogram / Heatmap renderers |
-| `engine/plot_generators_bar_box.py` | Bar / Box / BoxPlotGrid renderers |
+| `engine/plotting/generate_waveform.py` | Waveform renderer |
+| `engine/plotting/generate_scatter.py` | Scatter renderer (incl. robust fits) |
+| `engine/plotting/generate_psd_hist.py` | PSD / Histogram renderers |
+| `engine/plotting/generate_heatmap.py` | Heatmap renderer |
+| `engine/plotting/generate_bar_box.py` | Bar / Box / BoxPlotGrid renderers |
+| `engine/plotting/_psd_lorentz.py` | Shared single-peak Lorentz fit helpers |
 | `engine/datafunctions.py` | Filtering, fitting, aggregation, gating helpers |
 | `engine/data_quality_report.py` | Per-run summary + missing-channel report |
 | `engine/logger.py` | Single logger configured via `configure(verbose=…)` |
 | `channel_config.py` | Project-wide settings (mappings, units, calc channels, filters) |
-| `bootstrap.py` | Auto-creates `.venv` and installs dependencies on first run |
 
 ---
 

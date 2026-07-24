@@ -1,6 +1,28 @@
-from engine.datafunctions import calc_channel  # noqa: F401
-from engine.modal_plots import plot_modal_evolution  # noqa: F401
-from engine.plot_runtime import (  # noqa: F401
+# Advisory dependency check — run before any imports that would fail on
+# missing scientific-stack packages. Keeps the error message actionable
+# ("install with pip install ...") instead of a cryptic ModuleNotFoundError
+# deep inside numpy/pandas machinery. ``DLS_SKIP_BOOTSTRAP=1`` disables it
+# (used by CI where the environment is already provisioned).
+import importlib.util as _importlib_util
+import os as _os
+import sys as _sys
+
+if _os.environ.get("DLS_SKIP_BOOTSTRAP") != "1":
+    _REQUIRED = ("pandas", "numpy", "matplotlib", "scipy")
+    _missing = [m for m in _REQUIRED if _importlib_util.find_spec(m) is None]
+    if _missing:
+        print(
+            f"[engine] Missing required packages: {', '.join(_missing)}. "
+            "Install with `python -m pip install -e .` "
+            "(or `python -m pip install -r requirements.txt`).",
+            file=_sys.stderr,
+        )
+        raise SystemExit(1)
+del _importlib_util, _os, _sys
+
+from engine.datafunctions import calc_channel  # noqa: F401, E402
+from engine.modal_plots import plot_modal_evolution  # noqa: F401, E402
+from engine.plot_runtime import (  # noqa: F401, E402
     BarPlot,
     BoxPlot,
     BoxPlotGrid,

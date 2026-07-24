@@ -23,7 +23,6 @@ import sys
 import traceback
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Union
 from zipfile import ZipFile
@@ -1027,8 +1026,10 @@ def _print_dry_run(config, runs, export_map):
     print(f"    total: {total}")
     if total:
         print(f"    estimated on-disk size: ~{est_bytes / 1024 / 1024:.0f} MB")
-    if config.powerpoint_template:
+    if config.powerpoint_output:
+        template_kind = "blank 16:9" if config.powerpoint_template is None else str(config.powerpoint_template.name)
         print(f"\n  PowerPoint: {config.powerpoint_output}")
+        print(f"    Template:      {template_kind}")
         if export_map:
             print(f"    Slides mapped: {len(export_map)}")
     print("\n" + "=" * 60 + "\n")
@@ -1239,9 +1240,30 @@ def run_plot_job(
     powerpoint_exports=None,
     open_output=True,
 ):
+    import logging as _logging
     import time as _time
+    from collections import Counter as _Counter
 
     log.info("\n%s\n%s\n%s", "=" * 80, title.center(80), "=" * 80)
+
+    class _RunAggregator(_logging.Handler):
+        """Tally WARNING/ERROR messages emitted during a plot job."""
+
+        def __init__(self):
+            super().__init__(level=_logging.WARNING)
+            self.counts = _Counter()
+
+        def emit(self, record):
+            try:
+                key = f"[{record.levelname}] {record.getMessage()}"
+            except Exception:
+                key = f"[{record.levelname}] {record.msg}"
+            self.counts[key] += 1
+
+    _aggregator = _RunAggregator()
+    log.addHandler(_aggregator)
+    _pptx_results: list[tuple[str, str]] = []  # (label, status)
+
     from .data_quality_report import (
         build_quality_sections,
         print_quality_summary,
@@ -1260,6 +1282,21 @@ def run_plot_job(
     if has_issues:
         print_quality_summary(sections)
         print(f"  Full report: {report_path}\n")
+    # Wipe stale PNGs in the subdirectories about to be regenerated so the
+    # plots folder always reflects the current Run_*.py configuration. When
+    # the user restricts to specific plot names, we leave existing files
+    # alone (targeted regeneration).
+    if not plot_names:
+        _all_kinds = ("waveform", "scatter", "psd", "histogram", "bar", "box", "heatmap", "scatter3d")
+        _kinds_to_clean = _all_kinds if not plot_types else tuple(k.lower() for k in plot_types)
+        for _kind in _kinds_to_clean:
+            _kind_dir = plotter.plots_dir / _kind
+            if _kind_dir.is_dir():
+                for _stale in _kind_dir.glob("*.png"):
+                    try:
+                        _stale.unlink()
+                    except OSError as _err:
+                        log.warning("Could not remove stale plot %s: %s", _stale, _err)
     pre_mtimes = {p: p.stat().st_mtime for p in plotter.plots_dir.rglob("*.png")}
     t0 = _time.perf_counter()
     log.info("Generating plots...")
@@ -1290,19 +1327,23 @@ def run_plot_job(
         log.info("Exporting to PowerPoint [%d/%d]: %s", i + 1, len(exports), label)
         try:
             Path(out).parent.mkdir(parents=True, exist_ok=True)
-            export_report_to_powerpoint(
+            saved = export_report_to_powerpoint(
                 template_path=tpl,
                 output_path=out,
                 plots_dir=plotter.plots_dir,
                 export_map=exp_map,
-                visible=False,
             )
-            try:
-                os.startfile(out)
-            except Exception as open_err:
-                log.warning("Could not auto-open PowerPoint file: %s", open_err)
-                log.info("File saved to: %s", out)
+            if saved:
+                _pptx_results.append((label, "ok"))
+                if open_output:
+                    try:
+                        os.startfile(out)
+                    except Exception as open_err:
+                        log.info("Auto-open skipped (%s); file saved to: %s", open_err, out)
+            else:
+                _pptx_results.append((label, "skipped (file locked)"))
         except Exception as export_err:
+            _pptx_results.append((label, f"failed: {export_err}"))
             log.error("PowerPoint export failed (%s): %s", label, export_err)
             traceback.print_exc()
     if open_output:
@@ -1310,7 +1351,48 @@ def run_plot_job(
             os.startfile(plotter.plots_dir)
         except Exception:
             pass
-    log.info("\n%s\n%s\n%s", "=" * 80, "PROCESSING COMPLETE".center(80), "=" * 80)
+    log.removeHandler(_aggregator)
+    _print_run_summary(
+        plotter=plotter,
+        plot_count=plot_count,
+        elapsed=elapsed,
+        pptx_results=_pptx_results,
+        warning_counts=_aggregator.counts,
+    )
+
+
+def _print_run_summary(*, plotter, plot_count, elapsed, pptx_results, warning_counts):
+    """Emit the final RUN SUMMARY block."""
+    n_runs = len(getattr(plotter, "runs", []) or [])
+    n_loaded = len(getattr(plotter, "run_data", {}) or {})
+    warn_total = int(sum(warning_counts.values()))
+    warn_unique = len(warning_counts)
+
+    line = "=" * 80
+    log.info("\n%s", line)
+    log.info("%s", "RUN SUMMARY".center(80))
+    log.info("%s", line)
+    log.info("  Runs loaded:      %d / %d", n_loaded, n_runs)
+    log.info("  Plots generated:  %d in %.1fs", plot_count, elapsed)
+    log.info("  Output folder:    %s", plotter.plots_dir)
+    if pptx_results:
+        for label, status in pptx_results:
+            log.info("  PowerPoint:       %s  [%s]", label, status)
+    else:
+        log.info("  PowerPoint:       (not requested)")
+    if warn_total:
+        log.info("  Warnings:         %d total (%d unique)", warn_total, warn_unique)
+        top = warning_counts.most_common(5)
+        for msg, count in top:
+            prefix = f"    x{count}" if count > 1 else "     -"
+            # Truncate long messages so the summary stays readable
+            truncated = msg if len(msg) <= 110 else msg[:107] + "..."
+            log.info("%s %s", prefix, truncated)
+        if warn_unique > len(top):
+            log.info("     ... and %d more (see log above for full context)", warn_unique - len(top))
+    else:
+        log.info("  Warnings:         0")
+    log.info("%s\n", line)
 
 
 from .plot_definitions import (  # noqa: E402, F401
@@ -1358,8 +1440,6 @@ BLANK_DOUBLE_PLOT_LAYOUT = {
     "gap_ratio": 0.02,
 }
 
-MSO_PICTURE_TYPES = {11, 13}
-
 PPTX_NS = {
     "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
     "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
@@ -1392,22 +1472,6 @@ def _resolve_box(layout_name, slide_width, slide_height, slot_index=0, slot_coun
     raise ValueError(f"Unsupported PowerPoint layout: {layout_name}")
 
 
-def _replace_slide_pictures(slide):
-    for idx in range(slide.Shapes.Count, 0, -1):
-        shape = slide.Shapes(idx)
-        if shape.Type in MSO_PICTURE_TYPES:
-            shape.Delete()
-
-
-def _get_picture_boxes(slide):
-    boxes = []
-    for idx in range(1, slide.Shapes.Count + 1):
-        sh = slide.Shapes(idx)
-        if sh.Type in MSO_PICTURE_TYPES:
-            boxes.append((sh.Left, sh.Top, sh.Width, sh.Height))
-    return sorted(boxes, key=lambda b: (b[0], b[1]))
-
-
 def _get_double_plot_boxes(picture_boxes, slide_width, slide_height, *, blank_mode=False):
     if len(picture_boxes) >= 2:
         sorted_boxes = sorted(picture_boxes, key=lambda b: b[0])
@@ -1436,22 +1500,6 @@ def _get_main_plot_box(picture_boxes, slide_width, slide_height, *, blank_mode=F
         slide_width * box["width_ratio"],
         slide_height * box["height_ratio"],
     )
-
-
-def _add_picture_fit(slide, image_path, left, top, width, height, fill_factor=1.0):
-    image_path = str(image_path)
-    shape = slide.Shapes.AddPicture(image_path, False, True, 0, 0, -1, -1)
-    shape.LockAspectRatio = True
-    scale = min(width / shape.Width, height / shape.Height)
-    scale *= fill_factor
-    shape.Width *= scale
-    shape.Height *= scale
-    shape.Left = left + (width - shape.Width) / 2
-    shape.Top = top + (height - shape.Height) / 2
-    shape.Line.Visible = True
-    shape.Line.ForeColor.RGB = 0
-    shape.Line.Weight = 1
-    return shape
 
 
 def get_template_plot_aspect_ratios(template_path, export_map):
@@ -1648,7 +1696,13 @@ def _export_via_pptx(template_path, output_path, plots_dir, export_map):
     prs.save(str(output_path))
 
 
-def export_report_to_powerpoint(template_path, output_path, plots_dir, export_map, visible=False):
+def export_report_to_powerpoint(template_path, output_path, plots_dir, export_map):
+    """Export the given plots to a PowerPoint deck via ``python-pptx``.
+
+    Returns ``True`` on success and ``False`` when the target file is locked
+    by another application (typically PowerPoint has it open). Other errors
+    propagate to the caller.
+    """
     plots_dir = Path(plots_dir).resolve()
     output_path = Path(output_path).resolve()
     if template_path is not None:
@@ -1656,103 +1710,18 @@ def export_report_to_powerpoint(template_path, output_path, plots_dir, export_ma
         if not template_path.exists():
             raise FileNotFoundError(f"PowerPoint template not found: {template_path}")
     try:
-        import PIL  # noqa: F401
-        import pptx  # noqa: F401
-
         _export_via_pptx(template_path, output_path, plots_dir, export_map)
-        log.info("PowerPoint exported via python-pptx: %s", output_path)
-        return
-    except ImportError:
-        log.debug("python-pptx not available; falling back to win32com.")
-    except Exception as exc:
-        log.warning(
-            "python-pptx export failed (%s); falling back to win32com.",
-            exc,
-        )
-    if template_path is None:
-        # Blank-deck mode requires python-pptx; win32com fallback needs a
-        # concrete template on disk to open.
-        raise RuntimeError(
-            "Blank PowerPoint export requires python-pptx. Install it with:\n"
-            "    pip install python-pptx"
-        )
-    try:
-        import win32com.client
     except ImportError as exc:
         raise ImportError(
-            "Neither python-pptx nor pywin32 is available for PowerPoint export.\n"
-            "Install one of:\n"
-            "    pip install python-pptx   # cross-platform (preferred)\n"
-            "    pip install pywin32       # Windows only"
+            "PowerPoint export requires python-pptx. Install it with:\n"
+            "    pip install python-pptx"
         ) from exc
-    ppt = win32com.client.Dispatch("PowerPoint.Application")
-    ppt.Visible = True
-    pres = None
-    try:
-        pres = ppt.Presentations.Open(str(template_path), WithWindow=visible)
-        slide_width = pres.PageSetup.SlideWidth
-        slide_height = pres.PageSetup.SlideHeight
-        for slide_num, cfg in export_map.items():
-            slide = pres.Slides(slide_num)
-            layout = cfg["layout"]
-            image_list = cfg["images"]
-            picture_boxes = _get_picture_boxes(slide)
-            used_template_boxes = False
-            if layout == "main_plot" and len(image_list) == 1:
-                target_boxes = [_get_main_plot_box(picture_boxes, slide_width, slide_height)]
-                used_template_boxes = bool(picture_boxes)
-            elif layout == "double_plot" and len(image_list) == 2:
-                target_boxes = _get_double_plot_boxes(picture_boxes, slide_width, slide_height)
-                used_template_boxes = len(picture_boxes) >= 2
-            else:
-                target_boxes = picture_boxes or [
-                    _resolve_box(layout, slide_width, slide_height, slot_index=i, slot_count=len(image_list))
-                    for i in range(len(image_list))
-                ]
-                used_template_boxes = bool(picture_boxes)
-            _replace_slide_pictures(slide)
-            for i, img in enumerate(image_list):
-                img_path = plots_dir / img
-                if not img_path.exists():
-                    log.warning("Missing plot for slide %d: %s", slide_num, img)
-                    continue
-                if i < len(target_boxes):
-                    left, top, width, height = target_boxes[i]
-                else:
-                    left, top, width, height = _resolve_box(
-                        layout,
-                        slide_width,
-                        slide_height,
-                        slot_index=i,
-                        slot_count=len(image_list),
-                    )
-                _basename = img.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
-                if (
-                    not used_template_boxes
-                    and layout == "double_plot"
-                    and _basename.startswith(("scatter_", "psd_", "histogram_", "bar_"))
-                ):
-                    fill_factor = 1.2
-                else:
-                    fill_factor = 1.0
-                _add_picture_fit(slide, img_path, left, top, width, height, fill_factor)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            pres.SaveAs(str(output_path))
-            final = output_path
-        except Exception as exc:
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            fallback = output_path.with_name(f"{output_path.stem}_{ts}{output_path.suffix}")
-            log.warning("Could not save to %s (%s). Using fallback: %s", output_path, exc, fallback)
-            pres.SaveAs(str(fallback))
-            final = fallback
-        log.info("PowerPoint report saved to: %s", final)
-    except Exception as exc:
-        log.error("PowerPoint export failed: %s", exc)
-    finally:
-        try:
-            ppt.Quit()
-        except Exception as quit_err:
-            log.warning("Error quitting PowerPoint: %s", quit_err)
-        pres = None
-        ppt = None
+    except PermissionError:
+        log.warning(
+            "PowerPoint export skipped: '%s' is open in another application. "
+            "Close it and re-run to update the deck.",
+            output_path.name,
+        )
+        return False
+    log.info("PowerPoint exported: %s", output_path)
+    return True

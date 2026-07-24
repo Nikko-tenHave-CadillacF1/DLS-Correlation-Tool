@@ -1,10 +1,6 @@
 """Correlation workflow — edit RUNS and plot definitions to configure your analysis."""
 
-from bootstrap import ensure_dependencies
-
-ensure_dependencies()
-
-from channel_config import get_workflow_dirs, resolve_template_path
+from channel_config import get_workflow_dirs
 from engine import (
     BarPlot,
     ScatterPlot,
@@ -28,12 +24,8 @@ RUNS = [
 ]
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
-EXPORT_TO_POWERPOINT  = False
-POWERPOINT_TEMPLATE   = resolve_template_path("template.pptx")
-POWERPOINT_OUTPUT     = _OUTPUT_DIR / "Correlation_Report.pptx"
-# Slide number (1-based) where the first POWERPOINT_EXPORT_MAP entry is placed.
-# Leaves cover / intro slides untouched.
-POWERPOINT_START_SLIDE = 4
+# Set POWERPOINT_OUTPUT to a Path to enable a blank 16:9 deck export.
+POWERPOINT_OUTPUT = None  # e.g. _OUTPUT_DIR / "Correlation_Report.pptx"
 
 # ─── WAVEFORM PLOTS ───────────────────────────────────────────────────────────
 
@@ -167,10 +159,8 @@ def main() -> None:
         psds=PSD_PLOT_DEFINITIONS,
         histograms=HISTOGRAM_PLOT_DEFINITIONS,
         bars=BAR_PLOT_DEFINITIONS,
-        powerpoint_template=POWERPOINT_TEMPLATE if EXPORT_TO_POWERPOINT else None,
-        powerpoint_output=POWERPOINT_OUTPUT if EXPORT_TO_POWERPOINT else None,
-        export_map=POWERPOINT_EXPORT_MAP if EXPORT_TO_POWERPOINT else None,
-        powerpoint_start_slide=POWERPOINT_START_SLIDE,
+        powerpoint_output=POWERPOINT_OUTPUT,
+        export_map=POWERPOINT_EXPORT_MAP,
     )
 
 

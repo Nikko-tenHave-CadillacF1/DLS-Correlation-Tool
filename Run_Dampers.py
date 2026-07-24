@@ -1,9 +1,5 @@
 """Damper workflow — edit RUNS and plot definitions to configure your analysis."""
 
-from bootstrap import ensure_dependencies
-
-ensure_dependencies()
-
 from channel_config import get_workflow_dirs
 from engine import PsdPlot, ScatterPlot, WaveformPlot, run_workflow
 
