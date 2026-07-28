@@ -6,6 +6,7 @@ matplotlib.use("Agg")
 
 import importlib.util
 import logging
+import re
 from collections import Counter, deque
 from pathlib import Path
 
@@ -360,6 +361,96 @@ def compute_slap_alignment(runs, run_data, target_length=None):
             continue
         result[rn] = scale
     return result
+
+
+def compute_slap_offsets(
+    runs,
+    run_data,
+    *,
+    reference_name: str | None = None,
+    search_halfwidth_m: float = 200.0,
+    min_correlation: float = 0.7,
+    min_offset_m: float = 2.0,
+):
+    """Compute a constant sLap shift per non-reference run via vCar correlation.
+
+    Assumes any track-length scale correction has already been applied. For
+    each non-reference run, grid-searches offset over
+    [-search_halfwidth_m, +search_halfwidth_m] and refines with a scalar
+    Brent search. Only returns offsets where the correlation with the
+    reference vCar(sLap) curve is at least ``min_correlation`` and the
+    magnitude is at least ``min_offset_m``.
+    """
+    offsets: dict[str, float] = {}
+    if not runs or len(runs) < 2:
+        return offsets
+    if reference_name is None:
+        for r in runs:
+            if r.get("baseline") or r.get("reference"):
+                reference_name = r["name"].lower()
+                break
+        if reference_name is None:
+            reference_name = runs[0]["name"].lower()
+    if reference_name not in run_data:
+        return offsets
+    ref_s, ref_v = _prepare_slap_vcar_series(run_data[reference_name])
+    if ref_s is None:
+        return offsets
+    grid = np.arange(-search_halfwidth_m, search_halfwidth_m + 1.0, 5.0)
+    for run in runs:
+        rn = run["name"].lower()
+        if rn == reference_name or rn not in run_data:
+            continue
+        oth_s, oth_v = _prepare_slap_vcar_series(run_data[rn])
+        if oth_s is None:
+            continue
+        best = None
+        for offset in grid:
+            score = _score_slap_alignment(ref_s, ref_v, oth_s, oth_v, 1.0, float(offset))
+            if score is None:
+                continue
+            corr, mae, n = score
+            key = (corr, -mae, n)
+            if best is None or key > best["key"]:
+                best = {"offset": float(offset), "corr": corr, "mae": mae, "n": n, "key": key}
+        if best is None:
+            continue
+        try:
+            from scipy.optimize import minimize_scalar
+
+            def _obj(o: float) -> float:
+                s = _score_slap_alignment(ref_s, ref_v, oth_s, oth_v, 1.0, float(o))
+                if s is None:
+                    return 1e6
+                c, m, _ = s
+                return -c + 1e-3 * m
+
+            bracket_lo = best["offset"] - 10.0
+            bracket_hi = best["offset"] + 10.0
+            res = minimize_scalar(
+                _obj,
+                bracket=(bracket_lo, best["offset"], bracket_hi),
+                method="brent",
+                options={"xtol": 1e-3, "maxiter": 100},
+            )
+            if np.isfinite(res.fun):
+                score = _score_slap_alignment(ref_s, ref_v, oth_s, oth_v, 1.0, float(res.x))
+                if score is not None:
+                    corr, mae, n = score
+                    key = (corr, -mae, n)
+                    if key > best["key"]:
+                        best = {
+                            "offset": float(res.x),
+                            "corr": corr,
+                            "mae": mae,
+                            "n": n,
+                            "key": key,
+                        }
+        except Exception:
+            pass
+        if best["corr"] >= min_correlation and abs(best["offset"]) >= min_offset_m:
+            offsets[rn] = best["offset"]
+    return offsets
 
 
 class DataPlotter:
@@ -1866,20 +1957,35 @@ class DataPlotter:
                 return
             log.info("sLap alignment: no track detected, using baseline-relative mode")
             alignment = compute_slap_alignment(self.runs, self.run_data)
-        if not alignment:
-            return
-        for rn, scale in alignment.items():
-            df = self.run_data.get(rn)
-            if df is None or "sLap" not in df.columns:
-                continue
-            df["sLap"] = df["sLap"] * scale
-            drift_est = (scale - 1.0) * float(df["sLap"].max() - df["sLap"].min())
-            log.info(
-                "sLap aligned '%s': scale=%.6f (drift correction ~%.1f m)",
-                rn,
-                scale,
-                drift_est,
-            )
+        if alignment:
+            for rn, scale in alignment.items():
+                df = self.run_data.get(rn)
+                if df is None or "sLap" not in df.columns:
+                    continue
+                df["sLap"] = df["sLap"] * scale
+                drift_est = (scale - 1.0) * float(df["sLap"].max() - df["sLap"].min())
+                log.info(
+                    "sLap aligned '%s': scale=%.6f (drift correction ~%.1f m)",
+                    rn,
+                    scale,
+                    drift_est,
+                )
+        # Second pass: constant offset via vCar correlation vs reference run.
+        # Track-length scaling only fixes the LENGTH of each lap; runs from
+        # different loggers (CAR vs DIL vs OC) usually start counting sLap from
+        # different physical points on the track, leaving a residual shift.
+        if len(self.runs) >= 2:
+            offsets = compute_slap_offsets(self.runs, self.run_data)
+            for rn, offset in offsets.items():
+                df = self.run_data.get(rn)
+                if df is None or "sLap" not in df.columns:
+                    continue
+                df["sLap"] = df["sLap"] + offset
+                log.info(
+                    "sLap aligned '%s': offset=%+.2f m (vCar-correlation)",
+                    rn,
+                    offset,
+                )
 
     def _detect_track_length(self) -> float | None:
         try:
@@ -1889,11 +1995,56 @@ class DataPlotter:
         track_code = self._extract_track_code(getattr(self, "_root_folder", None))
         if track_code and track_code in TRACK_LENGTHS:
             return TRACK_LENGTHS[track_code]
+        keys = set(TRACK_LENGTHS.keys())
+        # Scan run names and filenames for any TRACK_LENGTHS code appearing as
+        # a standalone 3-letter token (high confidence: `"DIL - BAK"` -> `BAK`,
+        # `"-v0-BAK.parquet"` -> `BAK`).
+        for run in self.runs:
+            for source in (run.get("name"), run.get("file")):
+                code = self._scan_for_track_code(source, keys, mode="standalone")
+                if code:
+                    return TRACK_LENGTHS[code]
+        # Legacy fallback: last 3 alpha chars of the filename's leading token
+        # (catches `26R10SPA_...` -> `SPA`, `20260726...v0-SPA.parquet` -> falls
+        # through to the scan above's tail-mode).
         for run in self.runs:
             filename = run.get("file", "")
             code = self._extract_track_code_from_filename(filename)
             if code and code in TRACK_LENGTHS:
                 return TRACK_LENGTHS[code]
+            # Also try the same scan in tail-mode across all delimited tokens
+            # so `26R10SPA` embedded in a longer path still resolves.
+            code = self._scan_for_track_code(filename, keys, mode="tail")
+            if code:
+                return TRACK_LENGTHS[code]
+        return None
+
+    @staticmethod
+    def _scan_for_track_code(text, keys, mode: str = "standalone") -> str | None:
+        """Scan ``text`` for any 3-letter TRACK_LENGTHS code.
+
+        ``mode="standalone"`` matches only tokens that are exactly a 3-letter
+        alphabetic code (highest confidence — no false positives from English
+        words hiding inside longer tokens).
+
+        ``mode="tail"`` also accepts the last 3 alpha chars of a longer
+        alphanumeric token (legacy behaviour: ``26R10SPA`` -> ``SPA``).
+        """
+        if not text:
+            return None
+        tokens = re.split(r"[_\-\.\s/]+", str(text).upper())
+        # Pass 1 — exact 3-letter alpha token (always tried).
+        for tok in tokens:
+            if len(tok) == 3 and tok.isalpha() and tok in keys:
+                return tok
+        if mode != "tail":
+            return None
+        # Pass 2 — tail of a longer alphanumeric token (legacy).
+        for tok in tokens:
+            if len(tok) > 3:
+                tail = tok[-3:]
+                if tail.isalpha() and tail in keys:
+                    return tail
         return None
 
     @staticmethod
@@ -2067,7 +2218,11 @@ class DataPlotter:
         xs, ys = self._sample_ax_data(ax)
         x0, x1 = ax.get_xlim()
         y0, y1 = ax.get_ylim()
-        corners = list(self._INFO_CORNER_XY.keys())
+        # Restrict placement to the 4 true corners — mid-edge slots cause
+        # visual adjacency collisions when a neighbouring box already occupies
+        # the same edge. With 4 corners and up to 3 info boxes (fit / gate /
+        # legend), there is always at least one clear corner.
+        corners = [c for c in self._INFO_CORNER_XY if c[0] in ("left", "right") and c[1] in ("top", "bottom")]
         if xs.size == 0:
             return corners
         return sorted(

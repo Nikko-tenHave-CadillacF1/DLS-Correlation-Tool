@@ -10,7 +10,7 @@ from engine import (
 )
 
 WORKFLOW_NAME = "ride_dil"
-EVENT = "26R10SPA"
+EVENT = "26R11BUD"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
@@ -18,14 +18,14 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 RUNS = [
     {
-        "name": "CAR",
-        "file": r"26R10SPA_260717_MAC26-01_BOT_P1_R03.txt",
+        "name": "PER FP2R2",
+        "file": r"26R11BUD_260724_MAC26-02_PER_P2_R02PARTIAL.txt",
         "color": "#E76000",
         "type": "CAR",
     },
     {
-        "name": "DIL",
-        "file": r"Spa_260717_GMDiL-08_PAG_R19PARTIAL.txt",
+        "name": "FIT R18",
+        "file": r"Budapest_260724_GMDiL-08_FIT_R18PARTIAL.txt",
         "color": "#005CE7",
         "type": "DIL",
     },
@@ -33,7 +33,7 @@ RUNS = [
 
 # ─── POWERPOINT EXPORT ───────────────────────────────────────────────────────────────────────
 # Set POWERPOINT_OUTPUT to a Path to enable a blank 16:9 deck export.
-NPERSEG = 300  # PSD segment length (samples) for Welch method. See PSD_PLOT_DEFINITIONS.
+NPERSEG = 256  # PSD segment length (samples) for Welch method. See PSD_PLOT_DEFINITIONS.
 POWERPOINT_OUTPUT = None  # e.g. _OUTPUT_DIR / "DIL_Ride_Report.pptx"
 
 # ─── WAVEFORM PLOTS ───────────────────────────────────────────────────────────

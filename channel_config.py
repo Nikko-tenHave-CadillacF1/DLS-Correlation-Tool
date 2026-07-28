@@ -91,10 +91,11 @@ CHANNEL_MAPPINGS = {
         "FPlankVertF": "FzPlankF",
         "EPlankWearLapF": "EPlankF",
         "PPlankWearF": "PPlankF",
-        "pBrakeF1": "pBrakeF",
+        "CAN_6_622_pBrakeF_Can": "pBrakeF",
         "CAN_6_632_aSteerWheel_Can": "aSteerWheel",
         "CAN_6_637_gVert_Can": "gVert",
         "sLapCan": "sLap",
+        "PMGUKActual": "PMGUK",
     },
     "DLS": {
         "aRollCarTrack": "aRoll",
@@ -231,13 +232,13 @@ CHANNEL_TRANSFORMS = {
         "FPushrodRR": lambda x: x,
     },
     "CAR": {
-        # "sLap":  lambda x: x - 10,     # GPS alignment shift
+        # "sLap":  lambda x: x - 7,     # GPS alignment shift
         "PBrakeFL": lambda x: -x,
         "PBrakeFR": lambda x: -x,
         "PBrakeRL": lambda x: -x,
         "PBrakeRR": lambda x: -x,
-        "FPushrodFL": lambda x: -x,  # raw: tension-negative → flip to compression-positive
-        "FPushrodFR": lambda x: -x,
+        "FPushrodFL": lambda x: -1*x,  # sign flip (tension-neg → compression-pos) + temporary 1.16x calibration to match DLS FPRodFL
+        "FPushrodFR": lambda x: -1.16 * x,
         "FPushrodRL": lambda x: x,  # raw: already compression-positive
         "FPushrodRR": lambda x: x,
         "rSOCDelta": lambda x: x * (100.0 / 4.0),  # Convert from MJ to % of ES capacity
@@ -430,6 +431,8 @@ CALCULATED_CHANNELS = {
     # ── Brake Powers ─────────────────────────
     "PBrakeF_Avg": lambda df: (df["PBrakeFL"] + df["PBrakeFR"]) / 2,
     "PBrakeR_Avg": lambda df: (df["PBrakeRL"] + df["PBrakeRR"]) / 2,
+    "PBrakeF": lambda df: df["PBrakeFL"] + df["PBrakeFR"],
+    "PBrakeR": lambda df: df["PBrakeRL"] + df["PBrakeRR"],
     "EBrakeFL": lambda df: cumulative_trapezoid(abs(df["PBrakeFL"] / 1000), dx=0.01, initial=0),
     "EBrakeFR": lambda df: cumulative_trapezoid(abs(df["PBrakeFR"] / 1000), dx=0.01, initial=0),
     "EBrakeRL": lambda df: cumulative_trapezoid(abs(df["PBrakeRL"] / 1000), dx=0.01, initial=0),
@@ -480,6 +483,17 @@ RESAMPLE_RATE = 100
 # To override for a specific workflow, pass `filters={...}` to run_workflow().
 
 FILTERS = {
+    # ── Distance / time / lap-index channels (MUST stay unfiltered) ───────────
+    # These are monotonically-increasing ramps with lap-boundary step resets.
+    # A low-pass filter causes Gibbs-like ringing at each reset that shifts the
+    # ramp end-point (breaks sLap alignment, inflates track length, injects
+    # fake resets). Never filter them.
+    "sLap": {"cutoff": 0, "order": 2},
+    "tLap": {"cutoff": 0, "order": 2},
+    "tLap_Calc": {"cutoff": 0, "order": 2},
+    "TimeIntoExport": {"cutoff": 0, "order": 2},
+    "nLap": {"cutoff": 0, "order": 2},
+    "nRun": {"cutoff": 0, "order": 2},
     # ── Unfiltered channels (discrete / categorical / integral signals) ───────
     "SM": {"cutoff": 0, "order": 2},
     "NGear": {"cutoff": 0, "order": 2},
@@ -514,11 +528,15 @@ FILTERS = {
     "hRideR (raw)": {"cutoff": 0, "order": 2},
     "hRideF (high)": {"cutoff": 0.5, "order": 4, "type": "high"},
     "hRideR (high)": {"cutoff": 0.5, "order": 4, "type": "high"},
+    "hRideF": {"cutoff": 3, "order": 2},
+    "hRideR": {"cutoff": 3, "order": 2},
     # ── Brakes ────────────────────────────────────────────────────────────────
     "PBrakeFL": {"cutoff": 0, "order": 2},
     "PBrakeFR": {"cutoff": 0, "order": 2},
     "PBrakeRL": {"cutoff": 0, "order": 2},
     "PBrakeRR": {"cutoff": 0, "order": 2},
+    "PBrakeF": {"cutoff": 0, "order": 2},
+    "PBrakeR": {"cutoff": 0, "order": 2},
     # ── Plank / energy channels ───────────────────────────────────────────────
     "FzPlankF": {"cutoff": 0, "order": 2},
     "EPlank_F": {"cutoff": 0, "order": 2},
@@ -592,7 +610,7 @@ TRACK_LENGTHS = {
     "SPB": 4309.6,
     "SIL": 5888.6,
     "SPA": 7000.2,
-    "HUN": 4377.0,
+    "BUD": 4377.0,
     "ZVT": 4255.6,
     "MZA": 5793.6,
     "MAD": 5415.4,

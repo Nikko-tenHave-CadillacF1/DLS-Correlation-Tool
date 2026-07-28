@@ -13,7 +13,7 @@ from engine import (
 from engine.plot_definitions import Scatter3DPlot
 
 WORKFLOW_NAME = "correlation"
-EVENT = "26R10SPA"
+EVENT = "26R11BUD"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
@@ -24,23 +24,23 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 RUNS = [
     {
         "name": "CAR",
-        "file": r"26R10SPA_260718_MAC26-01_BOT_Q_R02.txt",
-        "color": "#B93E00",
+        "file": r"26R11BUD_260725_MAC26-01_BOT_Q_R03.txt",
+        "color": "#C86400",
         "type": "CAR",
     },
     {
-        "name": "OC - BSL",
-        "file": r"20260721-OC-XPG - 26R10SPA - Correlation - 77 Q1R2 - v2-SPA.parquet",
-        "color": "#00B006",
-        "nrun": 1,
-        "type": "OC",
+        "name": "DLS - BSL",
+        "file": r"BOT Q1R2 NC5_-BSL_DLS.parquet",
+        "color": "#0049B0",
+        "nlap": 1,
+        "type": "DLS",
     },
     {
-        "name": "OC - MF",
-        "file": r"20260722-OC-XPG - 26R10SPA - Correlation - MF - 77 Q1R2 - v2-SPA.parquet",
-        "color": "#7500B0",
-        "nrun": 1,
-        "type": "OC",
+        "name": "DLS - NEW",
+        "file": r"BOT Q1R2 NC5_-NEWFINAL_DLS.parquet",
+        "color": "#8D00B0",
+        "nlap": 1,
+        "type": "DLS",
     },
 ]
 
@@ -71,12 +71,20 @@ WAVEFORM_PLOT_DEFINITIONS = [
         reference_lines=((-350, 0, 350), (0,), None, (10000,), None, None),
         subplot_heights=(0.4, 0.4, 0.6, 0.4, 0.4, 0.4),
     ),
+    # WaveformPlot(
+    #     name="Plank Wear",
+    #     channels=('PMGUK', 'vCar', 'FzPlankF', 'EPlank_F', 'pBrakeF', ('rThrottle', 'SM')),
+    #     axis_limits=(None, None, None, None, None, ((0, 105), (0, 1.3))),
+    #     reference_lines=((-350, 0, 350), None, (0, 7500), None, (0, 100), None),
+    #     subplot_heights=(0.4, 0.6, 0.4, 0.6, 0.4, 0.4),
+    #     # show_delta=(False, False, False, True, False, False)
+    # ),
     WaveformPlot(
         name="Plank Wear",
-        channels=('PMGUK', 'vCar', 'FzPlankF', 'EPlank_F', 'pBrakeF', ('rThrottle', 'SM')),
-        axis_limits=(None, None, None, None, None, ((0, 105), (0, 1.3))),
-        reference_lines=((-350, 0, 350), None, (0, 7500), None, (0, 100), None),
-        subplot_heights=(0.4, 0.6, 0.4, 0.6, 0.4, 0.4),
+        channels=('vCar', 'FzPlankF', 'EPlank_F', 'pBrakeF', ('rThrottle', 'SM')),
+        axis_limits=(None, None, None, None, ((0, 105), (0, 1.3))),
+        reference_lines=(None, None, None, None, (0, 100)),
+        subplot_heights=(0.4, 0.6, 0.4, 0.4, 0.4),
         # show_delta=(False, False, False, True, False, False)
     ),
     # WaveformPlot(
@@ -220,6 +228,7 @@ HISTOGRAM_PLOT_DEFINITIONS = [
 BAR_PLOT_DEFINITIONS = [
     BarPlot("Cumulative Metrics", (("dmInjector (kg/s)", "integral"), ("PMGUK_Deploy (MJ)", "integral"), ("PMGUK_Charge (MJ)", "integral"))),
     BarPlot("Brake Energies Bar", (("EBrakeFL", "max"), ("EBrakeFR", "max"), ("EBrakeRL", "max"), ("EBrakeRR", "max")), secondary_axis=False),
+    BarPlot("Avg Brake Powers Bar", (("PBrakeFL", "mean"), ("PBrakeFR", "mean"), ("PBrakeRL", "mean"), ("PBrakeRR", "mean")), secondary_axis=False),
     # BarPlot("CPLV", (("CPLV_Front", "last"), ("CPLV_Rear", "last"))),
     BarPlot("Plank Energy",       (("EPlank_F",          "max"),)),
     BarPlot("Lap Time",           (("tLap_Calc",         "max"),)),

@@ -558,6 +558,14 @@ def normalize_bar_metric_specs(metric_specs, default_aggregation="last"):
                 aggregation = default_aggregation
             aggregation = aggregation.lower().strip()
             if aggregation not in valid_aggs:
+                log.warning(
+                    "BarPlot metric '%s': unknown aggregation %r — falling back to %r. "
+                    "Valid choices: %s",
+                    channel,
+                    aggregation,
+                    default_aggregation,
+                    ", ".join(sorted(valid_aggs)),
+                )
                 aggregation = default_aggregation
             normalized.append((channel, aggregation))
     return normalized

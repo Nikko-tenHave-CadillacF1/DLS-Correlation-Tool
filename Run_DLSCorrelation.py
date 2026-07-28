@@ -13,7 +13,7 @@ from engine import (
 from engine.plot_definitions import Scatter3DPlot
 
 WORKFLOW_NAME = "correlation"
-EVENT = "26R10SPA"
+EVENT = "26R11BUD"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
@@ -24,13 +24,13 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 RUNS = [
     {
         "name": "CAR",
-        "file": r"26R10SPA_260718_MAC26-01_BOT_Q_R02.txt",
-        "color": "#B93E00",
+        "file": r"26R11BUD_260724_MAC26-02_PER_P1_R02PARTIAL.txt",
+        "color": "#B96300",
         "type": "CAR",
     },
     {
         "name": "DLS",
-        "file": r"26R10SPA  77  Q  Run 2 Q1R2 NC4  Stint 1 Q1R2 NC4_DLS.parquet",
+        "file": r"1 FP1R2 nC5 Q Sim_DLS.parquet",
         "color": "#0017C8",
         "nlap": 1,
         "type": "DLS",
@@ -41,7 +41,7 @@ RUNS = [
 # Corporate template with cover slides. Set POWERPOINT_OUTPUT = None to disable
 # the export, or set POWERPOINT_TEMPLATE = None to fall back to a blank 16:9 deck.
 POWERPOINT_TEMPLATE   = resolve_template_path("template.pptx")
-POWERPOINT_OUTPUT     = _OUTPUT_DIR / "Correlation_Report.pptx"
+POWERPOINT_OUTPUT     = None # _OUTPUT_DIR / "Correlation_Report.pptx"
 POWERPOINT_START_SLIDE = 4  # skip cover / intro slides
 
 # ─── WAVEFORM PLOTS ───────────────────────────────────────────────────────────
@@ -106,10 +106,10 @@ SCATTER_PLOT_DEFINITIONS = [
                 axis_limits=[(-160, 160), (None, None)]),
 
     ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF", axis_limits=[(None, None), (0, None)],
-                best_fit=[('y', None, 8500), ('y', 12500, None)]),
+                best_fit=[('y', None, 8500), ('y', 10000, None)]),
     ScatterPlot("Front Roll",              "xDamperDeltaF", "FPRodDeltaF",          best_fit=[('x', None, None)]),
     ScatterPlot("Rear Heave",              "xDamperAvgR",   "FPRodAvgR",
-                best_fit=[('y', None, 13000), ('y', 16500, None)]),
+                best_fit=[('y', None, 12000), ('y', 15000, None)]),
     ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)]),
 
     ScatterPlot("Roll angle gLat",         "gLat",          "aRoll",                best_fit=[('x', None, None)]),
@@ -139,8 +139,8 @@ PSD_PLOT_DEFINITIONS = [
     # PsdPlot("Front Roll PSD",                  ["FPRodDeltaF", "FPRodDeltaR"],  axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 7)),
     # PsdPlot("FL gHub PSD",                  "gHubVertFL",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
     # PsdPlot("FR gHub PSD",                  "gHubVertFR",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
-    # PsdPlot("RL gHub PSD",                  "gHubVertRL",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
-    # PsdPlot("RR gHub PSD",                  "gHubVertRR",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
+    PsdPlot("RL gHub PSD",                  "gHubVertRL", nperseg=320,    axis_limits=[(0, 20), (1e-3, None)], log_scale=False),
+    PsdPlot("RR gHub PSD",                  "gHubVertRR", nperseg=320,    axis_limits=[(0, 20), (1e-3, None)], log_scale=False),
     PsdPlot("Heave Mode PSD",  "FPRodHeave", axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(3, 7)),
     PsdPlot("Pitch Mode PSD",  "FPRodPitch", axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(5, 10)),
     PsdPlot("Roll Mode PSD",   "FPRodRoll",  axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(3, 7)),

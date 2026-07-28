@@ -87,7 +87,11 @@ def _select_trendline_anchor(plotter, ax, equations_list, avoid_corner=None, n_t
             return 0
         return plotter._count_points_in_region(xs, ys, x0, x1, y0, y1, corner[0], corner[1], w_frac, h_frac)
 
-    corners = [c for c in plotter._INFO_CORNER_XY if c != avoid_corner]
+    corners = [
+        c
+        for c in plotter._INFO_CORNER_XY
+        if c != avoid_corner and c[0] in ("left", "right") and c[1] in ("top", "bottom")
+    ]
     corners.sort(key=_density)
     halign, valign = corners[0]
     x_anchor, y_anchor = plotter._INFO_CORNER_XY[(halign, valign)]
@@ -680,22 +684,43 @@ def generate_scatter_plots(plotter):
                     ann_items.append((y_at, color_e, label_name))
                 if ann_items:
                     ann_items.sort(key=lambda t: t[0])
+                    n_items = len(ann_items)
                     trans = ax.transData
                     display_ys = [trans.transform((x_at, item[0]))[1] for item in ann_items]
+                    x_frac = (x_at - xl) / (xr - xl) if (xr - xl) > 0 else 0.5
+                    # Decide which side of the vertical guide each label lives on.
+                    # For 2+ items we alternate sides so multi-run comparisons at
+                    # the same x sit side-by-side instead of stacking vertically.
+                    # `place_left` (x near right edge) flips the starting side so
+                    # the first label always lands inside the plot area.
+                    sides = []
+                    for i in range(n_items):
+                        if n_items == 1:
+                            sides.append("left" if x_frac > 0.80 else "right")
+                        else:
+                            first_side = "left" if x_frac > 0.80 else "right"
+                            if i % 2 == 0:
+                                sides.append(first_side)
+                            else:
+                                sides.append("right" if first_side == "left" else "left")
+                    # Vertical separation is only needed within items on the same
+                    # side — labels on opposite sides never clash.
                     min_sep = 18
                     adjusted_display_ys = list(display_ys)
-                    for i in range(1, len(adjusted_display_ys)):
-                        gap = adjusted_display_ys[i] - adjusted_display_ys[i - 1]
-                        if gap < min_sep:
-                            adjusted_display_ys[i] = adjusted_display_ys[i - 1] + min_sep
-                    x_frac = (x_at - xl) / (xr - xl) if (xr - xl) > 0 else 0.5
-                    place_left = x_frac > 0.80
+                    for side in ("left", "right"):
+                        side_indices = [i for i, s in enumerate(sides) if s == side]
+                        for k in range(1, len(side_indices)):
+                            i_prev = side_indices[k - 1]
+                            i_curr = side_indices[k]
+                            gap = adjusted_display_ys[i_curr] - adjusted_display_ys[i_prev]
+                            if gap < min_sep:
+                                adjusted_display_ys[i_curr] = adjusted_display_ys[i_prev] + min_sep
                     for i, (y_at, color_e, _) in enumerate(ann_items):
                         base_display_y = display_ys[i]
                         target_display_y = adjusted_display_ys[i]
                         nudge_pts = target_display_y - base_display_y
                         y_offset = 8 + nudge_pts
-                        if place_left or (len(ann_items) > 2 and i % 2 == 1):
+                        if sides[i] == "left":
                             x_text_offset = -10
                             ha = "right"
                         else:
