@@ -12,12 +12,20 @@ dependencies are importable and print an install hint if not.
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -e .            # or: pip install -r requirements.txt
+pip install -r requirements.txt   # full install (recommended)
 python Run_Correlation.py
 ```
 
-Parquet input files require at least one of: `pyarrow`, `fastparquet` (both
-included in `requirements.txt`).
+`requirements.txt` is the recommended install path — it pulls in the full
+set (core + parquet + PowerPoint + tqdm). Alternatively:
+
+```powershell
+pip install -e ".[parquet,pptx]"   # editable install with extras
+pip install -e .                    # minimal (core only — no parquet, no pptx)
+```
+
+Parquet input files require at least one of `pyarrow`, `fastparquet`; both
+ship in the `[parquet]` extra and in `requirements.txt`.
 
 ### Alternative: console-script entry points
 
@@ -106,10 +114,15 @@ any flags. The full set:
 |---|---|
 | [Run_Template.py](Run_Template.py) | Reference / tutorial — every plot type with annotated examples |
 | [Run_Correlation.py](Run_Correlation.py) | Correlation plots + PowerPoint export |
+| [Run_DLSCorrelation.py](Run_DLSCorrelation.py) | DLS-focused correlation preset |
+| [Run_DILCorrelation.py](Run_DILCorrelation.py) | DIL simulator correlation preset |
 | [Run_BoxPlots.py](Run_BoxPlots.py) | Box plots and `BoxPlotGrid` examples |
 | [Run_Dampers.py](Run_Dampers.py) | Damper analysis (waveform + scatter) |
 | [Run_RideDIL.py](Run_RideDIL.py) | Ride / DIL simulator comparison (PSD) |
+| [Run_RideReport.py](Run_RideReport.py) | Ride report + modal-evolution deck |
 | [Run_Vibrations.py](Run_Vibrations.py) | 4-DOF body modal analysis (Heave, Pitch, Roll, Warp) |
+| [Run_OC_Checks.py](Run_OC_Checks.py) | OC data-quality checks |
+| [Run_Bumpstop.py](Run_Bumpstop.py) | Bumpstop characterisation |
 | [channel_config.py](channel_config.py) | Project-wide settings: paths, channel mappings, units, transforms, calc channels, filters |
 
 ### Engine (do not edit)

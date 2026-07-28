@@ -44,11 +44,12 @@ dls-template    = "Run_Template:main"
 
 [tool.setuptools]
 py-modules = [
-    "bootstrap",
     "channel_config",
     "Run_Correlation",
     "Run_BoxPlots",
     "Run_Dampers",
+    "Run_DILCorrelation",
+    "Run_DLSCorrelation",
     "Run_RideDIL",
     "Run_RideReport",
     "Run_Vibrations",
