@@ -77,10 +77,11 @@ CHANNEL_MAPPINGS = {
         "aUndersteer_nYaw": "aUndersteerFromnYaw",
         "dtLap_drGripFactorTotal": "Grip Sens.",
         "sRun": "sLap",
-        "aCamberKinematicFL": "aCamberFLKinematic",
-        "aCamberKinematicFR": "aCamberFRKinematic",
-        "aCamberKinematicRL": "aCamberRLKinematic",
-        "aCamberKinematicRR": "aCamberRRKinematic",
+        # OC parquet has two camber channels per corner: `aCamberKinematic*`
+        # (pure suspension geometry, near-flat) and `aCamber*` (total, incl.
+        # compliance/toe). CAR's `aCamber*Kinematic` is the TOTAL quantity
+        # despite its name, so leave the mappings out and let the calc-channel
+        # fallback pick `aCamberFL/FR/RL/RR` (total) as the correlation match.
     },
     "DIL": {
         "BSLMActiveCan": "SM",
@@ -89,6 +90,7 @@ CHANNEL_MAPPINGS = {
         # "xDamperPotRL": "xDamperRL",
         # "xDamperPotRR": "xDamperRR",
         "FPlankVertF": "FzPlankF",
+        "FPlankVertR": "FzPlankR",
         "EPlankWearLapF": "EPlankF",
         "PPlankWearF": "PPlankF",
         "CAN_6_622_pBrakeF_Can": "pBrakeF",
@@ -157,6 +159,7 @@ UNITS_MAP = {
     "gvertr": "g",
     "glat_abs": "g",
     "gLong (raw)": "g",
+    "gCombined": "g",
     "gVert": "g",
     "vcar": "kph",
     "aroll": "deg",
@@ -200,11 +203,17 @@ UNITS_MAP = {
     "nyaw": "deg/s",
     "pbrakef": "bar",
     "rthrottle": "%",
+    "rmdeceltot": "%",
     "cplv_front": "N",
     "cplv_rear": "N",
     "EPlank_F": "kJ",
     "PPlank_F": "kW",
     "FzPlankF": "N",
+    "FzPlankF (smooth)": "N",
+    "EPlank_R": "kJ",
+    "PPlank_R": "kW",
+    "FzPlankR": "N",
+    "FzPlankR (smooth)": "N",
     "PMGUK_Deploy (MJ)": "kW",
     "PMGUK_Charge (MJ)": "kW",
     "dmInjector": "kg/hr",
@@ -244,6 +253,7 @@ CHANNEL_TRANSFORMS = {
         "rSOCDelta": lambda x: x * (100.0 / 4.0),  # Convert from MJ to % of ES capacity
     },
     "DIL": {
+        "aRoll": lambda x: -x,
         "PBrakeFL": lambda x: -x,
         "PBrakeFR": lambda x: -x,
         "PBrakeRL": lambda x: -x,
@@ -361,6 +371,7 @@ CALCULATED_CHANNELS = {
     "gLat_Abs": lambda df: df["gLat"].abs(),
     "gLatAbs": lambda df: df["gLat"].abs(),
     "gLong (raw)": lambda df: df["gLong"],
+    "gCombined": lambda df: np.sqrt(df["gLat"] ** 2 + df["gLong"] ** 2),
     "CosPhi_Calc": lambda df: df["gLong"] / np.sqrt(df["gLat"] ** 2 + df["gLong"] ** 2),
     # ── Ride height (unfiltered / high-pass copies) ──────────────────────────
     # Corner-average fallbacks — used only when the source lacks a native
@@ -378,20 +389,39 @@ CALCULATED_CHANNELS = {
     "hRideF (high)": lambda df: df["hRideF"],
     "hRideR (high)": lambda df: df["hRideR"],
     # ── Kinematic camber fallbacks ───────────────────────────────────────────
-    # FMIOpt lap-sim outputs plain aCamberFL/FR/RL/RR (rigid-suspension model,
-    # so kinematic == total). Sources that already carry an explicit
-    # ...Kinematic channel are preserved.
-    "aCamberFLKinematic": calc_channel("aCamberFLKinematic", "aCamberFL")(
-        lambda df: df["aCamberFLKinematic"] if "aCamberFLKinematic" in df.columns else df["aCamberFL"]
+    # CAR .txt carries `aCamberXXKinematic` natively — used as-is.
+    # OC parquet: derive kinematic as `aCamberXX - aCamberXXComplianceDelta`
+    # (per the TPG-analysis OC Conversions convention); OC's native
+    # `aCamberKinematicXX` channel is not what CAR calls "Kinematic".
+    # FMIOpt lap-sim outputs plain aCamberXX only (rigid suspension) —
+    # falls back to that directly.
+    "aCamberFLKinematic": calc_channel("aCamberFLKinematic", "aCamberFL", "aCamberFLComplianceDelta")(
+        lambda df: df["aCamberFLKinematic"]
+        if "aCamberFLKinematic" in df.columns
+        else (df["aCamberFL"] - df["aCamberFLComplianceDelta"])
+        if "aCamberFLComplianceDelta" in df.columns
+        else df["aCamberFL"]
     ),
-    "aCamberFRKinematic": calc_channel("aCamberFRKinematic", "aCamberFR")(
-        lambda df: df["aCamberFRKinematic"] if "aCamberFRKinematic" in df.columns else df["aCamberFR"]
+    "aCamberFRKinematic": calc_channel("aCamberFRKinematic", "aCamberFR", "aCamberFRComplianceDelta")(
+        lambda df: df["aCamberFRKinematic"]
+        if "aCamberFRKinematic" in df.columns
+        else (df["aCamberFR"] - df["aCamberFRComplianceDelta"])
+        if "aCamberFRComplianceDelta" in df.columns
+        else df["aCamberFR"]
     ),
-    "aCamberRLKinematic": calc_channel("aCamberRLKinematic", "aCamberRL")(
-        lambda df: df["aCamberRLKinematic"] if "aCamberRLKinematic" in df.columns else df["aCamberRL"]
+    "aCamberRLKinematic": calc_channel("aCamberRLKinematic", "aCamberRL", "aCamberRLComplianceDelta")(
+        lambda df: df["aCamberRLKinematic"]
+        if "aCamberRLKinematic" in df.columns
+        else (df["aCamberRL"] - df["aCamberRLComplianceDelta"])
+        if "aCamberRLComplianceDelta" in df.columns
+        else df["aCamberRL"]
     ),
-    "aCamberRRKinematic": calc_channel("aCamberRRKinematic", "aCamberRR")(
-        lambda df: df["aCamberRRKinematic"] if "aCamberRRKinematic" in df.columns else df["aCamberRR"]
+    "aCamberRRKinematic": calc_channel("aCamberRRKinematic", "aCamberRR", "aCamberRRComplianceDelta")(
+        lambda df: df["aCamberRRKinematic"]
+        if "aCamberRRKinematic" in df.columns
+        else (df["aCamberRR"] - df["aCamberRRComplianceDelta"])
+        if "aCamberRRComplianceDelta" in df.columns
+        else df["aCamberRR"]
     ),
     # ── Power unit ───────────────────────────────────────────────────────────
     "PPUTotal": lambda df: df["PMGUK"] + df["PEngine"],
@@ -405,10 +435,22 @@ CALCULATED_CHANNELS = {
         else df["rSOC"] - df["rSOC"].dropna().iloc[0]
     ),
     # ── Plank wear ───────────────────────────────────────────────────────────
+    # PPlank_R / EPlank_R skipped automatically when FzPlankR is absent
+    # (CAR .txt has front-only; DIL and DLS parquet carry both).
     "PPlank_F": lambda df: (
         0.001 * np.maximum(0.1 * df["FzPlankF"] * (df["vCar"] / 3.6), 0) * (df["FzPlankF"] > 500).astype(float)
     ),
-    "EPlank_F": lambda df: cumulative_trapezoid(df["PPlank_F"], dx=0.01, initial=0),
+    "PPlank_R": lambda df: (
+        0.001 * np.maximum(0.1 * df["FzPlankR"] * (df["vCar"] / 3.6), 0) * (df["FzPlankR"] > 500).astype(float)
+    ),
+    # Plot-only passthrough copies; low-pass smoothing applied via FILTERS.
+    "FzPlankF (smooth)": lambda df: df["FzPlankF"],
+    "FzPlankR (smooth)": lambda df: df["FzPlankR"],
+    # NaN in vCar (from source-file dropouts longer than the interpolate limit)
+    # propagates through PPlank_F; treat unknown-power samples as zero so the
+    # cumulative integral doesn't flatline at the first gap.
+    "EPlank_F": lambda df: cumulative_trapezoid(np.nan_to_num(df["PPlank_F"].to_numpy(), nan=0.0), dx=0.01, initial=0),
+    "EPlank_R": lambda df: cumulative_trapezoid(np.nan_to_num(df["PPlank_R"].to_numpy(), nan=0.0), dx=0.01, initial=0),
     "tLap_Calc": lambda df: cumulative_trapezoid(np.ones_like(df["vCar"]), dx=0.01, initial=0),
     # ── Tyre / suspension (OC sources) ───────────────────────────────────────
     "FzTyreF_Avg": lambda df: (df["FzTyreFL"] + df["FzTyreFR"]) / 2,
@@ -437,6 +479,24 @@ CALCULATED_CHANNELS = {
     "EBrakeFR": lambda df: cumulative_trapezoid(abs(df["PBrakeFR"] / 1000), dx=0.01, initial=0),
     "EBrakeRL": lambda df: cumulative_trapezoid(abs(df["PBrakeRL"] / 1000), dx=0.01, initial=0),
     "EBrakeRR": lambda df: cumulative_trapezoid(abs(df["PBrakeRR"] / 1000), dx=0.01, initial=0),
+    # CAR .txt exports rMDecelTot natively (percent, gated to pBrakeF > ~9 bar).
+    # OC parquet does not, so derive as the front-axle wheel-torque fraction
+    # (MWheelFL+MWheelFR) / total, scaled to percent. Rear uses the
+    # InertiaCompensated variants (drivetrain inertia removed) so the ratio
+    # reflects the actual braking split; front has no InertiaCompensated
+    # variant in OC (unpowered axle, no driveline inertia), so plain
+    # MWheelFL/FR is used. Gated on pBrakeF > 5 bar.
+    "rMDecelTot": calc_channel(
+        "rMDecelTot", "MWheelFL", "MWheelFR", "MWheelRLInertiaCompensated", "MWheelRRInertiaCompensated", "pBrakeF"
+    )(
+        lambda df: df["rMDecelTot"]
+        if "rMDecelTot" in df.columns
+        else (
+            100.0
+            * (df["MWheelFL"] + df["MWheelFR"])
+            / (df["MWheelFL"] + df["MWheelFR"] + df["MWheelRLInertiaCompensated"] + df["MWheelRRInertiaCompensated"])
+        ).where(df["pBrakeF"] > 5.0)
+    ),
     # ─── SM Metrics ─────────────────────────
     "time_in_SM_100": lambda df: cumulative_trapezoid((df["SM"] >= 0.999).astype(float), dx=0.01, initial=0),
     "time_in_SM_90": lambda df: cumulative_trapezoid((df["SM"] >= 0.9).astype(float), dx=0.01, initial=0),
@@ -467,7 +527,7 @@ CALCULATED_CHANNELS = {
 # filtering is applied. This guarantees filter cutoffs are consistent
 # channel-to-channel and run-to-run regardless of the source logging rate.
 # Set to 0 (or None) to disable resampling and use the native sample rate.
-RESAMPLE_RATE = 100
+RESAMPLE_RATE = 50
 
 
 # ─── FILTERS ──────────────────────────────────────────────────────────────────
@@ -501,6 +561,7 @@ FILTERS = {
     "nEngine": {"cutoff": 0, "order": 2},
     "rThrottle": {"cutoff": 0, "order": 2},
     "PMGUK": {"cutoff": 0, "order": 2},
+    "rMDecelTot": {"cutoff": 0, "order": 2},
     "PPUTotal": {"cutoff": 0, "order": 2},
     "dmInjector": {"cutoff": 0, "order": 2},
     # ── Vertical accelerations (raw for PSD, unfiltered) ──────────────────────
@@ -539,8 +600,13 @@ FILTERS = {
     "PBrakeR": {"cutoff": 0, "order": 2},
     # ── Plank / energy channels ───────────────────────────────────────────────
     "FzPlankF": {"cutoff": 0, "order": 2},
+    "FzPlankR": {"cutoff": 0, "order": 2},
+    "FzPlankF (smooth)": {"cutoff": 3, "order": 2},
+    "FzPlankR (smooth)": {"cutoff": 3, "order": 2},
     "EPlank_F": {"cutoff": 0, "order": 2},
+    "EPlank_R": {"cutoff": 0, "order": 2},
     "PPlank_F": {"cutoff": 0, "order": 2},
+    "PPlank_R": {"cutoff": 0, "order": 2},
     "nWheelAvg_R": {"cutoff": 0, "order": 2},
     # ── Misc unfiltered ───────────────────────────────────────────────────────
     "gLong (raw)": {"cutoff": 0, "order": 2},

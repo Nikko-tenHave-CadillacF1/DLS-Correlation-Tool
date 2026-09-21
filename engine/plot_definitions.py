@@ -316,6 +316,10 @@ class ScatterPlot:
         Show per-segment %-error vs the first run's fit.
     error_as_factor : bool, default False
         Render errors as multiplicative factors (×1.05) instead of %.
+    dil_friendly : bool, default False
+        DIL-friendly info-box formatting: relabel SM-based fit segments as
+        ``SM OFF`` / ``SM ON`` and show the per-segment delta as an absolute
+        y-intercept difference (``Δc = ±X.XX``) instead of a slope factor.
     color_gate : 4-tuple, optional
         See above.
     annotate_fit_at : Any, optional
@@ -339,6 +343,7 @@ class ScatterPlot:
     show_equations: bool = True
     show_error: bool = True
     error_as_factor: bool = False
+    dil_friendly: bool = False
     color_gate: Any = None
     annotate_fit_at: Any = None
     markers: list[Marker] = field(default_factory=list)
@@ -370,6 +375,7 @@ class ScatterPlot:
             raise ValueError(f"{where}.best_fit must be 0/1/2/None or a list of segments.")
         self.markers = _coerce_markers(self.markers, f"{where}.markers")
         self.robust = bool(self.robust)
+        self.dil_friendly = bool(self.dil_friendly)
         self.robust_threshold = float(self.robust_threshold)
         if self.robust_threshold <= 0:
             raise ValueError(f"{where}.robust_threshold must be > 0.")

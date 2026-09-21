@@ -13,7 +13,7 @@ from engine import (
 from engine.plot_definitions import Scatter3DPlot
 
 WORKFLOW_NAME = "correlation"
-EVENT = "26R11BUD"
+EVENT = "26R14MAD"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
@@ -23,14 +23,14 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 RUNS = [
     {
-        "name": "CAR",
-        "file": r"26R11BUD_260724_MAC26-02_PER_P1_R02PARTIAL.txt",
+        "name": "CAR - RED",
+        "file": r"26R14MAD_260911_MAC26-02_PER_P1_R02PARTIAL.txt",
         "color": "#B96300",
-        "type": "CAR",
+        "type": "CAR"
     },
     {
-        "name": "DLS",
-        "file": r"1 FP1R2 nC5 Q Sim_DLS.parquet",
+        "name": "DLS - RED",
+        "file": r"PER FP1 R2 uC4 Flap Adjust_-FINAL_DLS.parquet",
         "color": "#0017C8",
         "nlap": 1,
         "type": "DLS",
@@ -41,7 +41,7 @@ RUNS = [
 # Corporate template with cover slides. Set POWERPOINT_OUTPUT = None to disable
 # the export, or set POWERPOINT_TEMPLATE = None to fall back to a blank 16:9 deck.
 POWERPOINT_TEMPLATE   = resolve_template_path("template.pptx")
-POWERPOINT_OUTPUT     = None # _OUTPUT_DIR / "Correlation_Report.pptx"
+POWERPOINT_OUTPUT     = _OUTPUT_DIR / "Correlation_Report.pptx"
 POWERPOINT_START_SLIDE = 4  # skip cover / intro slides
 
 # ─── WAVEFORM PLOTS ───────────────────────────────────────────────────────────
@@ -66,7 +66,7 @@ WAVEFORM_PLOT_DEFINITIONS = [
     ),
     WaveformPlot(
         name="Plank Wear",
-        channels=('PMGUK', 'vCar', 'FzPlankF', 'EPlank_F', 'pBrakeF', ('rThrottle', 'SM')),
+        channels=('PMGUK', 'vCar', ('FzPlankF (smooth)', 'FzPlankR'), 'EPlank_F', 'pBrakeF', ('rThrottle', 'SM')),
         axis_limits=(None, None, None, None, None, ((0, 105), (0, 1.3))),
         reference_lines=((-350, 0, 350), None, (0, 7500), None, (0, 100), None),
         subplot_heights=(0.4, 0.6, 0.4, 0.6, 0.4, 0.4),
@@ -78,6 +78,13 @@ WAVEFORM_PLOT_DEFINITIONS = [
         axis_limits=(((None, 400), (-1, 9)), None, None, None, ((0, 105), (0, 1.3))),
         reference_lines=(None, (0,), (0,), None, None),
         subplot_heights=(0.8, 0.8, 0.8, 0.5, 0.5),
+    ),
+    # DLS diagnostics only — not exported to PowerPoint.
+    WaveformPlot(
+        name="DLS Diagnostics",
+        channels=('vCar', 'aSteerWheel', 'DCLatErrorDistLookAhead1', 'pBrakeF', ('rThrottle', 'SM')),
+        reference_lines=(None, (0,), (0,), None, None),
+        subplot_heights=(0.5, 0.5, 0.8, 0.4, 0.4),
     ),
 ]
 
@@ -106,13 +113,13 @@ SCATTER_PLOT_DEFINITIONS = [
                 axis_limits=[(-160, 160), (None, None)]),
 
     ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF", axis_limits=[(None, None), (0, None)],
-                best_fit=[('y', None, 8500), ('y', 10000, None)]),
+                best_fit=[('x', 105, None)]),
     ScatterPlot("Front Roll",              "xDamperDeltaF", "FPRodDeltaF",          best_fit=[('x', None, None)]),
     ScatterPlot("Rear Heave",              "xDamperAvgR",   "FPRodAvgR",
-                best_fit=[('y', None, 12000), ('y', 15000, None)]),
+                best_fit=[('x', None, 144), ('x', 145, None)]),
     ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)]),
 
-    ScatterPlot("Roll angle gLat",         "gLat",          "aRoll",                best_fit=[('x', None, None)]),
+    ScatterPlot("Roll angle gLat",         "gLat",          "aRoll", axis_limits=[(None, None), (-4, 4)],               best_fit=[('x', None, None)]),
     ScatterPlot("Front Pushrod vCar",      "vCar",          "FPRodAvgF",
                 best_fit=[('gLat_Abs', 0, 1)], gate=[('SM', '<', 1), ("pBrakeF", '<', 1)]),
     ScatterPlot("Rear Pushrod vCar",       "vCar",          "FPRodAvgR",
@@ -123,7 +130,7 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("Rear Ride vCar",          "vCar",          "hRideR",  best_fit=[('SM', 0, 0.5)],
                 axis_limits=[(None, None), (None, 75)],
                 annotate_fit_at=(100,200,300)),
-    ScatterPlot("Ride Height Compare",         "hRideF",    "hRideR"),
+    ScatterPlot("Ride Height Compare",         "hRideF",    "hRideR", axis_limits=[(0, 40), (0, 60)]),
     ScatterPlot("Plank power acceleration",    "gLong (raw)", "PPlank_F"),
     ScatterPlot("rLLTD vs vCar", "vCar", "rLLTD", axis_limits=[(None, None), (40, 70)], gate=[("gLat_Abs", '>', 0.5), ("SM", '<', 0.5)]),
     ScatterPlot("rAerobal vs vCar", "vCar", "rAeroBal", axis_limits=None, gate=[("vCar", '>', 100), ("SM", '<', 0.5)]),
@@ -143,8 +150,8 @@ PSD_PLOT_DEFINITIONS = [
     PsdPlot("RR gHub PSD",                  "gHubVertRR", nperseg=320,    axis_limits=[(0, 20), (1e-3, None)], log_scale=False),
     PsdPlot("Heave Mode PSD",  "FPRodHeave", axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(3, 7)),
     PsdPlot("Pitch Mode PSD",  "FPRodPitch", axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(5, 10)),
-    PsdPlot("Roll Mode PSD",   "FPRodRoll",  axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(3, 7)),
-    PsdPlot("Warp Mode PSD",   "FPRodWarp",  axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(10, 15)),
+    PsdPlot("Roll Mode PSD",   "FPRodRoll",  axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False), #, lorentz_fit=(3, 7)),
+    PsdPlot("Warp Mode PSD",   "FPRodWarp",  axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False) #, lorentz_fit=(10, 15)),
 
 ]
 

@@ -75,35 +75,43 @@ PSD_MIN_AVERAGES = 120
 # split the modal-evolution series — `plot_modal_evolution(group_by="group")`.
 
 RUNS = [
-    # # ── Monaco (26R06MCO) ────────────────────────────────────────────────────
-    # # RED has two GP stints (R02+R03) → consolidated for better PSD statistics.
-    # {"folder": "26R06MCO/RED",  "filetype": ".txt", "type": "CAR", "contains": "GP",
-    #  "consolidate": "only", "consolidated_name": "26R06MCO RED",
+    # # # ── Monaco (26R06MCO) ────────────────────────────────────────────────────
+    # {"folder": "26R06MCO/RED",  "filetype": ".txt", "type": "CAR",
+    #  "consolidate": "only", "consolidate_by": "session", "consolidated_name": "RED_{group}",
     #  "color": "#D62728", "group": "RED"},
-    # {"folder": "26R06MCO/BLUE", "filetype": ".txt", "type": "CAR", "contains": "GP",
-    #  "consolidate": "only", "consolidated_name": "26R06MCO BLUE",
-    #  "color": "#FF7F0E", "group": "BLUE"},
+    # {"folder": "26R06MCO/BLUE", "filetype": ".txt", "type": "CAR",
+    #  "consolidate": "only", "consolidate_by": "session", "consolidated_name": "BLUE_{group}",
+    #  "color": "#1F77B4", "group": "BLUE"},
 
-    # # ── Barcelona (26R07BCN) ─────────────────────────────────────────────────
-    # {"folder": "26R07BCN/RED",  "filetype": ".txt", "type": "CAR", "contains": "GP",
-    #  "consolidate": "only", "consolidated_name": "26R07BCN RED",
-    #  "color": "#1F77B4", "group": "RED"},
-    # {"folder": "26R07BCN/BLUE", "filetype": ".txt", "type": "CAR", "contains": "GP",
-    #  "consolidate": "only", "consolidated_name": "26R07BCN BLUE",
-    #  "color": "#9467BD", "group": "BLUE"},
+    # # # ── Barcelona (26R07BCN) ─────────────────────────────────────────────────
+    # {"folder": "26R07BCN/RED",  "filetype": ".txt", "type": "CAR",
+    #  "consolidate": "only", "consolidate_by": "session", "consolidated_name": "RED_{group}",
+    #  "color": "#D62728", "group": "RED"},
+    # {"folder": "26R07BCN/BLUE", "filetype": ".txt", "type": "CAR",
+    #  "consolidate": "only", "consolidate_by": "session", "consolidated_name": "BLUE_{group}",
+    #  "color": "#1F77B4", "group": "BLUE"},
 
-    # # ── Silverstone (26R09SIL) ───────────────────────────────────────────────
-    # # 26R08SPB excluded — no GP file available.
-    # {"folder": "26R09SIL/RED",  "filetype": ".txt", "type": "CAR", "contains": "GP",
-    #  "consolidate": "only", "consolidated_name": "26R09SIL RED",
-    #  "color": "#2CA02C", "group": "RED"},
-    # {"folder": "26R09SIL/BLUE", "filetype": ".txt", "type": "CAR", "contains": "GP",
-    #  "consolidate": "only", "consolidated_name": "26R09SIL BLUE",
-    #  "color": "#17BECF", "group": "BLUE"},
-    {"folder": "26R10SPA/RED", "filetype": ".txt", "type": "CAR",
+    # # # ── Silverstone (26R09SIL) ───────────────────────────────────────────────
+    # {"folder": "26R09SIL/RED",  "filetype": ".txt", "type": "CAR",
+    #  "consolidate": "only", "consolidate_by": "session", "consolidated_name": "RED_{group}",
+    #  "color": "#D62728", "group": "RED"},
+    # {"folder": "26R09SIL/BLUE", "filetype": ".txt", "type": "CAR",
+    #  "consolidate": "only", "consolidate_by": "session", "consolidated_name": "BLUE_{group}",
+    #  "color": "#1F77B4", "group": "BLUE"},
+
+    # # # ── Spa-Francorchamps (26R10SPA) ─────────────────────────────────────────
+    # {"folder": "26R10SPA/RED",  "filetype": ".txt", "type": "CAR",
+    #  "consolidate": "only", "consolidate_by": "session", "consolidated_name": "RED_{group}",
+    #  "color": "#D62728", "group": "RED"},
+    # {"folder": "26R10SPA/BLUE", "filetype": ".txt", "type": "CAR",
+    #  "consolidate": "only", "consolidate_by": "session", "consolidated_name": "BLUE_{group}",
+    #  "color": "#1F77B4", "group": "BLUE"},
+
+    # ── Hungary (26R11BUD) ── per-session RED vs BLUE evolution across the weekend
+    {"folder": "26R11BUD/RED",  "filetype": ".txt", "type": "CAR",
      "consolidate": "only", "consolidate_by": "session", "consolidated_name": "RED_{group}",
      "color": "#D62728", "group": "RED"},
-    {"folder": "26R10SPA/BLUE", "filetype": ".txt", "type": "CAR",
+    {"folder": "26R11BUD/BLUE", "filetype": ".txt", "type": "CAR",
      "consolidate": "only", "consolidate_by": "session", "consolidated_name": "BLUE_{group}",
      "color": "#1F77B4", "group": "BLUE"},
 ]
@@ -379,16 +387,16 @@ def main() -> None:
         fig_size={"waveform": (20, 10), "default": (10, 8)},
     )
     if plotter is not None and getattr(plotter, "modal_results", None):
-        # One figure per mode. `compare_by="session"` aligns runs from each
-        # group (RED, BLUE) on a shared x-axis keyed by session token (P1,
-        # P2, P3, Q, GP) so the two cars overlay for direct comparison.
+        # `compare_by="session"` aligns runs from each group (RED, BLUE) on a
+        # shared x-axis keyed by session token (P1/P2/P3/Q/GP) so the two cars
+        # overlay per session for direct compare within the event.
         for mode in ("Heave", "Pitch", "Roll", "Warp"):
             plot_modal_evolution(
                 plotter,
                 modes=(mode,),
                 name_suffix=mode.lower(),
                 group_by=GROUP_BY,
-                compare_by=lambda n: n.split()[0],  # extract event code: "26R06MCO RED" → "26R06MCO"
+                compare_by="session",
                 include_consolidated=True,
                 line_ci=True,
                 bars=True,

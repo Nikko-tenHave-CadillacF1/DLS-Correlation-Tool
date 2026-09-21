@@ -47,7 +47,9 @@ def _resolve_scatter_plot_style(plotter, point_count):
     return _resolve_scatter_style(point_count, plotter.SCATTER_DOT_SIZE, plotter.SCATTER_TRANSPARENCY)
 
 
-def _build_gradient_segment_labels(plotter, fit_defs, x_var=None, y_var=None, data_bounds=None):
+def _build_gradient_segment_labels(
+    plotter, fit_defs, x_var=None, y_var=None, data_bounds=None, dil_friendly=False
+):
     if not isinstance(fit_defs, (list, tuple)):
         return None
     labels = []
@@ -63,6 +65,15 @@ def _build_gradient_segment_labels(plotter, fit_defs, x_var=None, y_var=None, da
                 min_val = lo_bound
             if max_val is None:
                 max_val = hi_bound
+        if dil_friendly and str(axis_name).upper() == "SM":
+            lo = min_val if min_val is not None else 0.0
+            hi = max_val if max_val is not None else 1.0
+            if hi <= 0.5:
+                labels.append("SM OFF")
+                continue
+            if lo >= 0.5:
+                labels.append("SM ON")
+                continue
         if min_val is None and max_val is None:
             labels.append(f"{axis_name} $\\in$ ($-\\infty$, $+\\infty$)")
         elif min_val is None:
@@ -77,8 +88,8 @@ def _build_gradient_segment_labels(plotter, fit_defs, x_var=None, y_var=None, da
 def _select_trendline_anchor(plotter, ax, equations_list, avoid_corner=None, n_text_lines=0):
     w_frac = min(0.35, 0.22 + max(0, n_text_lines - 2) * 0.015)
     h_frac = 0.28 * min(1.5, 1.0 + max(0, n_text_lines - 4) * 0.06)
-    xs = np.concatenate([np.asarray(xv) for _, _, _, xv, _, _ in equations_list]) if equations_list else np.array([])
-    ys = np.concatenate([np.asarray(yv) for _, _, _, _, yv, _ in equations_list]) if equations_list else np.array([])
+    xs = np.concatenate([np.asarray(entry[3]) for entry in equations_list]) if equations_list else np.array([])
+    ys = np.concatenate([np.asarray(entry[4]) for entry in equations_list]) if equations_list else np.array([])
     x0, x1 = ax.get_xlim()
     y0, y1 = ax.get_ylim()
 
@@ -124,41 +135,48 @@ def _parse_eq_list_to_segments(plotter, eq_list, fit_labels=None):
         return []
     run_payload = []
     n_segments = 1
-    for run_label, eq_text, color, x_vals, y_vals, slopes in eq_list:
+    for entry in eq_list:
+        run_label, eq_text, color = entry[0], entry[1], entry[2]
+        slopes = entry[5] if len(entry) > 5 else None
+        intercepts = entry[6] if len(entry) > 6 else None
         lines = [l.strip() for l in str(eq_text).splitlines() if l.strip()] if eq_text else []
         n_segments = max(n_segments, len(lines) or 1)
-        run_payload.append((run_label, color, lines, slopes))
+        run_payload.append((run_label, color, lines, slopes, intercepts))
     segments = []
     for seg_idx in range(n_segments):
         if fit_labels and seg_idx < len(fit_labels):
             condition = fit_labels[seg_idx]
         else:
             condition = ""
-            for _run_label, _color, lines, _slopes in run_payload:
+            for _run_label, _color, lines, _slopes, _intercepts in run_payload:
                 if seg_idx < len(lines):
                     line = lines[seg_idx]
                     if "   y = " in line:
                         condition = line.split("   y = ")[0].strip()
                     break
         runs_in_seg = []
-        for run_label, color, lines, slopes in run_payload:
+        for run_label, color, lines, slopes, intercepts in run_payload:
             if seg_idx >= len(lines):
                 continue
             line = lines[seg_idx]
             eq_part = "y = " + line.split("   y = ")[1].strip() if "   y = " in line else line
             slope_val = slopes[seg_idx] if isinstance(slopes, tuple) and seg_idx < len(slopes) else slopes
-            runs_in_seg.append((run_label, color, eq_part, slope_val))
+            intercept_val = (
+                intercepts[seg_idx] if isinstance(intercepts, tuple) and seg_idx < len(intercepts) else intercepts
+            )
+            runs_in_seg.append((run_label, color, eq_part, slope_val, intercept_val))
         segments.append({"condition": condition, "runs": runs_in_seg})
     return segments
 
 
 def _compute_segment_pct_errors(plotter, runs_in_seg, baseline_label):
     baseline_slope = next(
-        (s for lbl, _, _, s in runs_in_seg if lbl.upper() == baseline_label.upper()),
+        (entry[3] for entry in runs_in_seg if entry[0].upper() == baseline_label.upper()),
         None,
     )
     errors = {}
-    for lbl, _, _, slope in runs_in_seg:
+    for entry in runs_in_seg:
+        lbl, slope = entry[0], entry[3]
         if lbl.upper() == baseline_label.upper():
             continue
         if slope is None or baseline_slope is None or slope == 0:
@@ -166,6 +184,30 @@ def _compute_segment_pct_errors(plotter, runs_in_seg, baseline_label):
         else:
             errors[lbl] = ((baseline_slope - slope) / slope) * 100
     return errors
+
+
+def _compute_segment_intercept_deltas(plotter, runs_in_seg, baseline_label):
+    baseline_intercept = next(
+        (entry[4] for entry in runs_in_seg if entry[0].upper() == baseline_label.upper()),
+        None,
+    )
+    deltas = {}
+    for entry in runs_in_seg:
+        lbl = entry[0]
+        intercept = entry[4] if len(entry) > 4 else None
+        if lbl.upper() == baseline_label.upper():
+            continue
+        if intercept is None or baseline_intercept is None:
+            deltas[lbl] = None
+        else:
+            deltas[lbl] = intercept - baseline_intercept
+    return deltas
+
+
+def _format_intercept_delta(delta):
+    if delta is None:
+        return "n/a"
+    return f"{delta:+.2f}"
 
 
 def _format_pct_error(pct, as_factor=False):
@@ -177,7 +219,15 @@ def _format_pct_error(pct, as_factor=False):
 
 
 def _display_fit_info(
-    plotter, ax, eq_list, show_equations, show_error, fit_labels=None, avoid_corner=None, error_as_factor=False
+    plotter,
+    ax,
+    eq_list,
+    show_equations,
+    show_error,
+    fit_labels=None,
+    avoid_corner=None,
+    error_as_factor=False,
+    dil_friendly=False,
 ):
     segments = plotter._parse_eq_list_to_segments(eq_list, fit_labels)
     if not segments:
@@ -187,7 +237,7 @@ def _display_fit_info(
     for seg in segments:
         has_cond = bool(seg["condition"])
         n_r = len(seg["runs"])
-        n_c = sum(1 for lbl, _, _, _ in seg["runs"] if lbl.upper() != baseline_label.upper())
+        n_c = sum(1 for entry in seg["runs"] if entry[0].upper() != baseline_label.upper())
         n_text_lines += (1 if has_cond else 0) + (n_r if show_equations else n_c)
     x_anchor, y_anchor, halign, valign = plotter._select_trendline_anchor(
         ax, eq_list, avoid_corner=avoid_corner, n_text_lines=n_text_lines
@@ -204,6 +254,7 @@ def _display_fit_info(
             halign,
             valign,
             error_as_factor=error_as_factor,
+            dil_friendly=dil_friendly,
         )
     return plotter._display_segment_boxes(
         ax,
@@ -216,6 +267,7 @@ def _display_fit_info(
         halign,
         valign,
         error_as_factor=error_as_factor,
+        dil_friendly=dil_friendly,
     )
 
 
@@ -231,6 +283,7 @@ def _display_segment_boxes(
     halign,
     valign,
     error_as_factor=False,
+    dil_friendly=False,
 ):
     from matplotlib.offsetbox import AnnotationBbox, TextArea, VPacker
 
@@ -240,7 +293,7 @@ def _display_segment_boxes(
     for seg in segments:
         has_cond = bool(seg["condition"])
         n_r = len(seg["runs"])
-        n_c = sum(1 for lbl, _, _, _ in seg["runs"] if lbl.upper() != baseline_label.upper())
+        n_c = sum(1 for entry in seg["runs"] if entry[0].upper() != baseline_label.upper())
         total_lines += (1 if has_cond else 0) + (n_r if show_equations else n_c)
     fontsize = 11 if total_lines <= 6 else (10 if total_lines <= 12 else 9)
     _ha_map = {"left": 0.0, "center": 0.5, "right": 1.0}
@@ -258,22 +311,35 @@ def _display_segment_boxes(
         condition = seg["condition"]
         runs_in_seg = seg["runs"]
         pct_errors = {}
+        intercept_deltas = {}
         if show_error and len(runs_in_seg) > 1:
-            pct_errors = plotter._compute_segment_pct_errors(runs_in_seg, baseline_label)
+            if dil_friendly:
+                intercept_deltas = plotter._compute_segment_intercept_deltas(runs_in_seg, baseline_label)
+            else:
+                pct_errors = plotter._compute_segment_pct_errors(runs_in_seg, baseline_label)
         line_items = []
         if condition:
             line_items.append((f"{condition}:", "#2A2A2A"))
-        for run_label, run_color, eq_part, _ in runs_in_seg:
+        for entry in runs_in_seg:
+            run_label, run_color, eq_part = entry[0], entry[1], entry[2]
             is_baseline = run_label.upper() == baseline_label.upper()
             if show_equations:
                 text = eq_part
-                if show_error and not is_baseline and run_label in pct_errors:
-                    pct_str = plotter._format_pct_error(pct_errors[run_label], error_as_factor)
-                    text += f" $\\rightarrow$ $\\delta$ = {pct_str}"
+                if show_error and not is_baseline:
+                    if dil_friendly and run_label in intercept_deltas:
+                        delta_str = _format_intercept_delta(intercept_deltas[run_label])
+                        text += f" $\\rightarrow$ $\\Delta$c = {delta_str}"
+                    elif run_label in pct_errors:
+                        pct_str = plotter._format_pct_error(pct_errors[run_label], error_as_factor)
+                        text += f" $\\rightarrow$ $\\delta$ = {pct_str}"
                 line_items.append((text, run_color))
             elif show_error and not is_baseline:
-                pct_str = plotter._format_pct_error(pct_errors.get(run_label), error_as_factor)
-                line_items.append((f"$\\delta$ = {pct_str}", run_color))
+                if dil_friendly:
+                    delta_str = _format_intercept_delta(intercept_deltas.get(run_label))
+                    line_items.append((f"$\\Delta$c = {delta_str}", run_color))
+                else:
+                    pct_str = plotter._format_pct_error(pct_errors.get(run_label), error_as_factor)
+                    line_items.append((f"$\\delta$ = {pct_str}", run_color))
         if not line_items:
             continue
         text_areas = [
@@ -330,6 +396,7 @@ def _display_compact_fit_box(
     halign,
     valign,
     error_as_factor=False,
+    dil_friendly=False,
 ):
     fontsize = 9
     lines = []
@@ -337,27 +404,41 @@ def _display_compact_fit_box(
         condition = seg["condition"]
         runs_in_seg = seg["runs"]
         pct_errors = {}
+        intercept_deltas = {}
         if show_error and len(runs_in_seg) > 1:
-            pct_errors = plotter._compute_segment_pct_errors(runs_in_seg, baseline_label)
+            if dil_friendly:
+                intercept_deltas = plotter._compute_segment_intercept_deltas(runs_in_seg, baseline_label)
+            else:
+                pct_errors = plotter._compute_segment_pct_errors(runs_in_seg, baseline_label)
         parts = [f"{condition}:"] if condition else []
-        for run_label, _, eq_part, slope in runs_in_seg:
+        for entry in runs_in_seg:
+            run_label, slope = entry[0], entry[3]
             is_baseline = run_label.upper() == baseline_label.upper()
             if show_equations:
                 part = f"{run_label} m={plotter._fmt_coeff(slope)}"
-                if show_error and not is_baseline and run_label in pct_errors:
-                    pct_str = plotter._format_pct_error(pct_errors[run_label], error_as_factor)
-                    part += f" ({pct_str})"
+                if show_error and not is_baseline:
+                    if dil_friendly and run_label in intercept_deltas:
+                        delta_str = _format_intercept_delta(intercept_deltas[run_label])
+                        part += f" ($\\Delta$c={delta_str})"
+                    elif run_label in pct_errors:
+                        pct_str = plotter._format_pct_error(pct_errors[run_label], error_as_factor)
+                        part += f" ({pct_str})"
                 parts.append(part)
             elif show_error and not is_baseline:
-                pct_str = plotter._format_pct_error(pct_errors.get(run_label), error_as_factor)
-                parts.append(f"{run_label} {pct_str}")
+                if dil_friendly:
+                    delta_str = _format_intercept_delta(intercept_deltas.get(run_label))
+                    parts.append(f"{run_label} $\\Delta$c={delta_str}")
+                else:
+                    pct_str = plotter._format_pct_error(pct_errors.get(run_label), error_as_factor)
+                    parts.append(f"{run_label} {pct_str}")
         min_parts = 2 if condition else 1
         if len(parts) >= min_parts:
             lines.append("  ".join(parts))
     if not lines:
         return None
     if not show_equations and show_error:
-        lines = [f"$\\delta$m vs {baseline_label}"] + [f"  {l}" for l in lines]
+        header = f"$\\Delta$c vs {baseline_label}" if dil_friendly else f"$\\delta$m vs {baseline_label}"
+        lines = [header] + [f"  {l}" for l in lines]
     ax.text(
         x_anchor,
         y_anchor,
@@ -397,6 +478,7 @@ def generate_scatter_plots(plotter):
         show_equations = plot_def.show_equations
         show_error = plot_def.show_error
         error_as_factor = getattr(plot_def, "error_as_factor", False)
+        dil_friendly = getattr(plot_def, "dil_friendly", False)
         color_gate = plot_def.color_gate
         annotate_fit_at = plot_def.annotate_fit_at
         markers = plot_def.markers
@@ -538,7 +620,9 @@ def generate_scatter_plots(plotter):
                     )
                 )
                 if ok:
-                    eq_list.append((run["name"].upper(), eq_text, run["color"], x_values, y_values, slopes))
+                    eq_list.append(
+                        (run["name"].upper(), eq_text, run["color"], x_values, y_values, slopes, intercepts)
+                    )
                     fit_line_params[run["name"].upper()] = (slopes, intercepts)
                     if robust and isinstance(fit_meta, dict) and fit_meta.get("robust_info"):
                         info = fit_meta["robust_info"]
@@ -582,7 +666,9 @@ def generate_scatter_plots(plotter):
                     robust_threshold=robust_threshold,
                 )
                 if ok:
-                    eq_list.append((run["name"].upper(), eq_text, run["color"], x_values, y_values, slope))
+                    eq_list.append(
+                        (run["name"].upper(), eq_text, run["color"], x_values, y_values, slope, interc)
+                    )
                     fit_line_params[run["name"].upper()] = (slope, interc)
                     if robust and isinstance(fit_meta, dict) and fit_meta.get("robust_info"):
                         info = fit_meta["robust_info"]
@@ -623,7 +709,7 @@ def generate_scatter_plots(plotter):
                 if len(all_y) > 0:
                     data_bounds[y_var] = (float(np.nanmin(all_y)), float(np.nanmax(all_y)))
                 fit_labels = plotter._build_gradient_segment_labels(
-                    best_fit, x_var=x_var, y_var=y_var, data_bounds=data_bounds
+                    best_fit, x_var=x_var, y_var=y_var, data_bounds=data_bounds, dil_friendly=dil_friendly
                 )
             anchor = plotter._display_fit_info(
                 ax,
@@ -632,6 +718,7 @@ def generate_scatter_plots(plotter):
                 show_error,
                 fit_labels=fit_labels,
                 error_as_factor=error_as_factor,
+                dil_friendly=dil_friendly,
             )
         fit_corner = (anchor[1], anchor[2]) if anchor else None
         legend = plotter._add_standard_legend(ax, avoid_corner=fit_corner)

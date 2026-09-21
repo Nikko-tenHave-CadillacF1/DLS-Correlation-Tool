@@ -698,6 +698,7 @@ class DataPlotter:
     _select_trendline_anchor = _gen_scatter._select_trendline_anchor
     _parse_eq_list_to_segments = _gen_scatter._parse_eq_list_to_segments
     _compute_segment_pct_errors = _gen_scatter._compute_segment_pct_errors
+    _compute_segment_intercept_deltas = _gen_scatter._compute_segment_intercept_deltas
     _display_fit_info = _gen_scatter._display_fit_info
     _display_segment_boxes = _gen_scatter._display_segment_boxes
     _display_compact_fit_box = _gen_scatter._display_compact_fit_box

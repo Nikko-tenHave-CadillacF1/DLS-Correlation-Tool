@@ -10,30 +10,73 @@ from engine import (
 )
 
 WORKFLOW_NAME = "ride_dil"
-EVENT = "26R11BUD"
+EVENT = "26R13MZA"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 
-
 RUNS = [
     {
-        "name": "PER FP2R2",
-        "file": r"26R11BUD_260724_MAC26-02_PER_P2_R02PARTIAL.txt",
-        "color": "#E76000",
+        "name": "BOT Q1R3",
+        "file": r"26R13MZA_260905_MAC26-01_BOT_Q_R03.txt",
+        "color": "#CD4E00",
         "type": "CAR",
     },
     {
-        "name": "FIT R18",
-        "file": r"Budapest_260724_GMDiL-08_FIT_R18PARTIAL.txt",
-        "color": "#005CE7",
-        "type": "DIL",
+        "name": "Roll MoI - BSL",
+        "file": r"BOT Q1R3 NC5_-Roll MoI Test - BSL_DLS.parquet",
+        "color": "#000000",
+        "nlap": 1,
+        "type": "DLS",
+    },
+    {
+        "name": "Roll MoI - 45",
+        "file": r"BOT Q1R3 NC5_-Roll MoI Test - 45_DLS.parquet",
+        "color": "#440154",
+        "nlap": 1,
+        "type": "DLS",
+    },
+    {
+        "name": "Roll MoI - 50",
+        "file": r"BOT Q1R3 NC5_-Roll MoI Test - 50_DLS.parquet",
+        "color": "#414487",
+        "nlap": 1,
+        "type": "DLS",
+    },
+    {
+        "name": "Roll MoI - 55",
+        "file": r"BOT Q1R3 NC5_-Roll MoI Test - 55_DLS.parquet",
+        "color": "#2a788e",
+        "nlap": 1,
+        "type": "DLS",
+    },
+    {
+        "name": "Roll MoI - 60",
+        "file": r"BOT Q1R3 NC5_-Roll MoI Test - 60_DLS.parquet",
+        "color": "#22a884",
+        "nlap": 1,
+        "type": "DLS",
+    },
+    {
+        "name": "Roll MoI - 65",
+        "file": r"BOT Q1R3 NC5_-Roll MoI Test - 65_DLS.parquet",
+        "color": "#7ad151",
+        "nlap": 1,
+        "type": "DLS",
+    },
+    {
+        "name": "Roll MoI - 70",
+        "file": r"BOT Q1R3 NC5_-Roll MoI Test - 70_DLS.parquet",
+        "color": "#fde725",
+        "nlap": 1,
+        "type": "DLS",
     },
 ]
 
+
 # ─── POWERPOINT EXPORT ───────────────────────────────────────────────────────────────────────
 # Set POWERPOINT_OUTPUT to a Path to enable a blank 16:9 deck export.
-NPERSEG = 256  # PSD segment length (samples) for Welch method. See PSD_PLOT_DEFINITIONS.
+NPERSEG = 120  # PSD segment length (samples) for Welch method. See PSD_PLOT_DEFINITIONS.
 POWERPOINT_OUTPUT = None  # e.g. _OUTPUT_DIR / "DIL_Ride_Report.pptx"
 
 # ─── WAVEFORM PLOTS ───────────────────────────────────────────────────────────
@@ -55,32 +98,20 @@ WAVEFORM_PLOT_DEFINITIONS = [
         subplot_heights=(0.8, 0.8, 0.8, 0.8, 0.8),
     ),
     WaveformPlot(
-        name="Damper Displacements",
-        channels=(('vCar', 'NGear'), 'xDamperFL', 'xDamperFR', 'xDamperRL', 'xDamperRR'),
-        axis_limits=(((None, 400), (-1, 9)), None, None, None, None),
-        reference_lines=(None, None, None, None, None),
-        subplot_heights=(0.8, 0.8, 0.8, 0.8, 0.8),
-    ),
-    WaveformPlot(
-        name="Damper Variations",
-        channels=(('vCar', 'NGear'), 'xDamperVarFL', 'xDamperVarFR', 'xDamperVarRL', 'xDamperVarRR'),
-        axis_limits=(((None, 400), (-1, 9)), None, None, None, None),
-        reference_lines=(None, None, None, None, None),
-        subplot_heights=(0.8, 0.8, 0.8, 0.8, 0.8),
-    ),
-    WaveformPlot(
-        name="Prod Force Variations",
-        channels=(('vCar', 'NGear'), 'FProdVarFL', 'FProdVarFR', 'FProdVarRL', 'FProdVarRR'),
-        axis_limits=(((None, 400), (-1, 9)), None, None, None, None),
-        reference_lines=(None, None, None, None, None),
-        subplot_heights=(0.8, 0.8, 0.8, 0.8, 0.8),
-    ),
-    WaveformPlot(
         name="Vertical Accelerations",
         channels=(('vCar', 'NGear'), 'gVert', 'gVertF', 'gVertR'),
         axis_limits=(((None, 400), (-1, 9)), None, None, None),
         reference_lines=(None, None, None, None),
         subplot_heights=(0.8, 0.8, 0.8, 0.8),
+    ),
+    WaveformPlot(
+        name="Driver Input",
+        channels=('PMGUK', ('vCar', 'NGear'), 'aUndersteerFromSlip', 'aSteerWheel', 'pBrakeF', ('rThrottle', 'SM')),
+        axis_limits=(None, ((None, 400), (-1, 9)) ,None, None, ((0, 105), (0, 1.3)), None),
+        reference_lines=((-350, 0, 350), None, (0,),None, None, None),
+        subplot_heights=(0.4, 0.7, 0.3, 0.3, 0.3, 0.3),
+        show_delta=(False, True, False, False, False, False),
+        # highlight_zones=('SM', '>', 0.5)
     ),
 ]
 
@@ -94,6 +125,7 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("Rear Heave",              "xDamperAvgR",   "FPRodAvgR",
                 best_fit=[('y', None, 13000)]), #, ('y', 16500, None)
     ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)]),
+    ScatterPlot("Understeer Plot",         "vCar",          "aUndersteerFromSlip"),
 ]
 
 # ─── PSD PLOTS ────────────────────────────────────────────────────────────────
