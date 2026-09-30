@@ -21,3 +21,7 @@ python-pptx>=0.6.23,<2.0
 
 # Progress bars during plot generation. The tool runs without it.
 tqdm>=4.64.0,<5.0
+
+# Interactive HTML export for 3D scatter plots (optional). If missing, only the
+# static PNG is produced.
+plotly>=5.18.0,<7.0

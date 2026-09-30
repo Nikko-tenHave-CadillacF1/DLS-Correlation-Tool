@@ -544,11 +544,11 @@ class DataPlotter:
         self.SCATTER_MAX_POINTS = scatter_max_points
         if isinstance(fig_size, dict):
             default = fig_size.get("default", (10, 8))
-            self.waveform_figsize = fig_size.get("waveform", fig_size.get("default", (15.5, 6.4)))
+            self.waveform_figsize = fig_size.get("waveform", fig_size.get("default", (17.28, 6.4)))
             self.scatter_FIGSIZE = fig_size.get("scatter", default)
             self.psd_FIGSIZE = fig_size.get("psd", default)
             self.histogram_FIGSIZE = fig_size.get("histogram", default)
-            self.bar_FIGSIZE = fig_size.get("bar", fig_size.get("default", (10, 6)))
+            self.bar_FIGSIZE = fig_size.get("bar", default)
             self.boxplot_FIGSIZE = fig_size.get("box", self.bar_FIGSIZE)
         elif (
             isinstance(fig_size, (list, tuple))

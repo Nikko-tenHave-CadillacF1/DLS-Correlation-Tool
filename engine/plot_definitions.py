@@ -566,6 +566,10 @@ class BarPlot:
         skip errorbars on individual metrics.
     secondary_axis : bool, default True
         Auto-split large-scale-ratio metrics onto a right axis.
+    show_delta : bool, default False
+        Append ``Δ ±X.XX`` on non-baseline bars, computed against the
+        reference run (``reference=True`` in the run dict, else the first
+        run). No-op when only one run is loaded.
     """
 
     name: str
@@ -576,6 +580,7 @@ class BarPlot:
     reference_lines: list[float] | None = None
     error_metrics: tuple[Any, ...] | None = None
     secondary_axis: bool = True
+    show_delta: bool = False
     kind: ClassVar[str] = "bar"
 
     def __post_init__(self) -> None:
@@ -586,6 +591,7 @@ class BarPlot:
             raise ValueError(f"{where}.default_aggregation must be one of {sorted(_VALID_BAR_AGGS)}.")
         _validate_gate(self.gate, f"{where}.gate")
         self.reference_lines = _coerce_flat_reference_lines(self.reference_lines, f"{where}.reference_lines")
+        self.show_delta = bool(self.show_delta)
         if self.error_metrics is not None:
             if not isinstance(self.error_metrics, (list, tuple)):
                 raise TypeError(f"{where}.error_metrics must be a tuple/list (one entry per metric) or None.")

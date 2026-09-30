@@ -13,7 +13,7 @@ from engine import (
 from engine.plot_definitions import Scatter3DPlot
 
 WORKFLOW_NAME = "correlation"
-EVENT = "26R16SEP"
+EVENT = "26R13MZA"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
@@ -23,41 +23,25 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 RUNS = [
     {
-        "name": "DLS - No Preload",
-        "file": r"26R16SEP - VPG v1 LF.parquet",
-        "color": "#CD4F00",
-        "nlap" : 1,
+        "name": "BOT - Q1R3",
+        "file": r"26R13MZA_260905_MAC26-01_BOT_Q_R03.txt",
+        "color": "#B94100",
+        "type": "CAR"
+    },
+    {
+        "name": "DLS",
+        "file": r"PER Q1R3 nC4_BSL_DLS.parquet",
+        "color": "#0300A1",
+        "nlap": 1,
         "type": "DLS",
     },
     {
-        "name": "DLS - Preload 1000",
-        "file": r"26R16SEP - VPG PRELOADED TB_-Preloaded TB_DLS.parquet",
-        "color": "#00CD1B",
-        "nlap" : 1,
+        "name": "DLS -15 CLF +12 CLR",
+        "file": r"PER Q1R3 nC4_-15CLF +12CLR_DLS.parquet",
+        "color": "#A10099",
+        "nlap": 1,
         "type": "DLS",
     },
-    {
-        "name": "DLS - Preload 2000",
-        "file": r"26R16SEP - VPG PRELOADED TB_-Preloaded TB 2000_DLS.parquet",
-        "color": "#0071CD",
-        "nlap" : 1,
-        "type": "DLS",
-    },
-    {
-        "name": "DLS - Preload 3000",
-        "file": r"26R16SEP - VPG PRELOADED TB_-Preloaded TB 3000_DLS.parquet",
-        "color": "#6300CD",
-        "nlap" : 1,
-        "type": "DLS",
-    },
-    
-    # {
-    #     "name": "OC",
-    #     "file": r"20260914-OC-XPG - 26R14MAD - 11 Q1R3 - Grip Scan - v1-MAD.parquet",
-    #     "color": "#007523",
-    #     "nrun": 4,
-    #     "type": "OC",
-    # },
 ]
 
 # ─── POWERPOINT EXPORT ───────────────────────────────────────────────────────────────────────
@@ -177,10 +161,19 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("Braking Efficiency",      "pBrakeF",       "gLong",
                 best_fit=[('y', None, -0.2)],  gate=('gLong', '<', 0)),
     ScatterPlot("Understeer Plot",         "vCar",          "aUndersteerFromSlip"),
-    ScatterPlot("Yaw Rate Response",       "aSteerWheel",   "nYaw",
-                axis_limits=[(-160, 160), (None, None)],    best_fit=[('x', -20, 20)]),
-    ScatterPlot("Lateral Acceleration Response", "aSteerWheel", "gLat",
-                axis_limits=[(-160, 160), (None, None)],    best_fit=[('x', -20, 20)]),
+
+    # ## STEERING CORRELATION - FOR DLS CHECKS
+    # ScatterPlot("Yaw Rate Response",       "aSteerWheel",   "nYaw",
+    #             axis_limits=[(-160, 160), (None, None)],    best_fit=[('x', -20, 20)]),
+    # ScatterPlot("Lateral Acceleration Response", "aSteerWheel", "gLat",
+    #             axis_limits=[(-160, 160), (None, None)],    best_fit=[('x', -20, 20)]),
+
+    ## STEERING CORRELATION - FOR OC CHECKS
+    ScatterPlot("Yaw Rate Response",       "aSteerF",   "nYaw",
+                axis_limits=[(-10, 10), (None, None)],    best_fit=[('x', -1, 1)]),
+    ScatterPlot("Lateral Acceleration Response", "aSteerF", "gLat",
+                axis_limits=[(-10, 10), (None, None)],    best_fit=[('x', -1, 1)]),
+
     ScatterPlot("Steering Moment",         "aSteerWheel",   "MSteerWheel",
                 axis_limits=[(-160, 160), (None, None)]),
     ScatterPlot("FPRodDeltaF vs gLat",      "gLat",          "FPRodDeltaF"),
@@ -219,6 +212,20 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("rLLTD vs vCar", "vCar", "rLLTD", axis_limits=[(None, None), (40, 70)], gate=[("gLat_Abs", '>', 0.5), ("SM", '<', 0.5)]),
     ScatterPlot("rAerobal vs vCar", "vCar", "rAeroBal", axis_limits=None, gate=[("vCar", '>', 100), ("SM", '<', 0.5)]),
     ScatterPlot("Brake Bias", "PBrakeF_Avg", "PBrakeR_Avg", best_fit=[('x', 200, None)]),
+    ## CL PROXY - F_pushrod / vCar^2 -> plateau at high speed reads as per-axle CL offset.
+    ScatterPlot("Front CL Proxy vCar - SM OFF",     "vCar",          "CLF_Proxy",
+                best_fit=[('x', 150, None)], annotate_fit_at=(150, 200, 250, 300),
+                error_as_factor=True, gate=(('pBrakeF', '<', 1), ("gLat_Abs", '<', 1), ("SM", '<', 0.5))),
+    ScatterPlot("Rear CL Proxy vCar - SM OFF",      "vCar",          "CLR_Proxy",
+                best_fit=[('x', 150, None)], annotate_fit_at=(150, 200, 250, 300),
+                error_as_factor=True, gate=(('pBrakeF', '<', 1), ("gLat_Abs", '<', 1), ("SM", '<', 0.5))),
+    ScatterPlot("Front CL Proxy vCar - SM ON",     "vCar",          "CLF_Proxy",
+                best_fit=[('x', 150, None)], annotate_fit_at=(150, 200, 250, 300),
+                error_as_factor=True, gate=(('pBrakeF', '<', 1), ("gLat_Abs", '<', 1), ("SM", '>', 0.5))),
+    ScatterPlot("Rear CL Proxy vCar - SM ON",      "vCar",          "CLR_Proxy",
+                best_fit=[('x', 150, None)], annotate_fit_at=(150, 200, 250, 300),
+                error_as_factor=True, gate=(('pBrakeF', '<', 1), ("gLat_Abs", '<', 1), ("SM", '>', 0.5))),
+
 ]
 
 # ─── PSD PLOTS ────────────────────────────────────────────────────────────────
@@ -248,7 +255,8 @@ BAR_PLOT_DEFINITIONS = [
     BarPlot("Avg Brake Powers Bar", (("PBrakeFL", "mean"), ("PBrakeFR", "mean"), ("PBrakeRL", "mean"), ("PBrakeRR", "mean")), secondary_axis=False),
     # BarPlot("CPLV", (("CPLV_Front", "last"), ("CPLV_Rear", "last"))),
     BarPlot("Plank Energy",       (("EPlank_F",          "max"),)),
-    BarPlot("Lap Time",           (("tLap_Calc",         "max"),)),
+    BarPlot("Lap Time",           (("tLap_Calc",         "max"),), axis_limits=[0, 200]),
+    BarPlot("Max vCar",           (("vCar",         "max"),), axis_limits=[0, 500]),
     BarPlot("Time in SM Zones",   (("time_in_SM_100",       "last"), ("time_in_SM_90",        "last"), ("time_in_SM_80",        "last"))),
     BarPlot("Ratio Time in SM Zones",   (("ratio_time_in_SM_100",       "last"), ("ratio_time_in_SM_90",        "last"), ("ratio_time_in_SM_80",        "last"))),
     BarPlot("Grip Limited Time",  (("time_grip_limited",    "max"), ("ratio_time_grip_limited",     "max"))),
@@ -263,10 +271,10 @@ HEATMAP_PLOT_DEFINITIONS = []
 # ─── DEBUG 3D SCATTER PLOTS (not exported, interactive) ───────────────────────────
 SCATTER3D_PLOT_DEFINITIONS = [
     Scatter3DPlot(
-        name="Engine Map (nEngine vs nBoost vs PEngine)",
-        x_channel="nEngine",
-        y_channel="nBoost",
-        z_channel="PEngine",
+        name="GlatGlongvCar",
+        x_channel="vCar",
+        y_channel="gLat",
+        z_channel="gLong",
     ),
 ]
 # ─── POWERPOINT EXPORT MAP ────────────────────────────────────────────────────

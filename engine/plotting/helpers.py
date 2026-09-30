@@ -203,6 +203,12 @@ def _sanitize_plot_filename(plotter, prefix, plot_name, suffix=""):
 def _resolve_plot_figsize(plotter, filename, default_size, *, min_height=None):
     w0, h0 = default_size
     target_aspect = plotter.plot_aspect_ratios.get(filename)
+    if target_aspect is None:
+        # Fall back to the per-prefix default derived from the template so
+        # plots not placed in the export map still match deck aspect ratios.
+        prefix = filename.split("/", 1)[0] if "/" in filename else ""
+        prefix_defaults = plotter.plot_aspect_ratios.get("__prefix_defaults__") or {}
+        target_aspect = prefix_defaults.get(prefix)
     if isinstance(target_aspect, (list, tuple)):
         target_aspect = sum(target_aspect) / len(target_aspect)
     if target_aspect is None:

@@ -13,7 +13,7 @@ from engine import (
 from engine.plot_definitions import Scatter3DPlot
 
 WORKFLOW_NAME = "correlation"
-EVENT = "26R14MAD"
+EVENT = "26R15BAK"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
@@ -24,13 +24,13 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 RUNS = [
     {
         "name": "CAR - RED",
-        "file": r"26R14MAD_260911_MAC26-02_PER_P1_R02PARTIAL.txt",
+        "file": r"26R15BAK_260924_MAC26-02_PER_P2_R02PARTIAL.txt",
         "color": "#B96300",
         "type": "CAR"
     },
     {
         "name": "DLS - RED",
-        "file": r"PER FP1 R2 uC4 Flap Adjust_-FINAL_DLS.parquet",
+        "file": r"PER FP2R2_-CORR_DLS.parquet",
         "color": "#0017C8",
         "nlap": 1,
         "type": "DLS",
@@ -120,10 +120,10 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)]),
 
     ScatterPlot("Roll angle gLat",         "gLat",          "aRoll", axis_limits=[(None, None), (-4, 4)],               best_fit=[('x', None, None)]),
-    ScatterPlot("Front Pushrod vCar",      "vCar",          "FPRodAvgF",
-                best_fit=[('gLat_Abs', 0, 1)], gate=[('SM', '<', 1), ("pBrakeF", '<', 1)]),
-    ScatterPlot("Rear Pushrod vCar",       "vCar",          "FPRodAvgR",
-                best_fit=[('gLat_Abs', 0, 1)], gate=[('SM', '<', 1), ("pBrakeF", '<', 1)]),
+    ScatterPlot("Front Pushrod vCar",      "vCar",          "FPRodAvgF", best_fit=[('SM', 0, 0.5), ('SM', 0.5, 1)],
+                annotate_fit_at=(100,200,300), error_as_factor=True, gate=(('pBrakeF', '<', 1),("gLat_Abs", '<', 1))),
+    ScatterPlot("Rear Pushrod vCar",       "vCar",          "FPRodAvgR", best_fit=[('SM', 0, 0.5), ('SM', 0.5, 1)],
+                annotate_fit_at=(100,200,300), error_as_factor=True, gate=(('pBrakeF', '<', 1),("gLat_Abs", '<', 1))),
     ScatterPlot("Front Ride vCar",         "vCar",          "hRideF",  best_fit=[('SM', 0, 0.5)],
                 axis_limits=[(None, None), (None, 40)],
                 annotate_fit_at=(100,200,300)),
@@ -138,20 +138,20 @@ SCATTER_PLOT_DEFINITIONS = [
 
 # ─── PSD PLOTS ────────────────────────────────────────────────────────────────
 PSD_PLOT_DEFINITIONS = [
-    PsdPlot("Front Vertical Acceleration PSD", "gVertF",       axis_limits=[(0, 20), (1e-4, None)], nperseg=320),
-    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR",       axis_limits=[(0, 20), (1e-4, None)], nperseg=320),
-    PsdPlot("Front Ride PSD",                  "hRideF (raw)", axis_limits=[(0, 20), (1e-4, None)], nperseg=320),
-    PsdPlot("Rear Ride PSD",                   "hRideR (raw)", axis_limits=[(0, 20), (1e-4, None)], nperseg=320),
+    PsdPlot("Front Vertical Acceleration PSD", "gVertF",       axis_limits=[(0, 20), (1e-4, None)], nperseg=160),
+    PsdPlot("Rear Vertical Acceleration PSD",  "gVertR",       axis_limits=[(0, 20), (1e-4, None)], nperseg=160),
+    PsdPlot("Front Ride PSD",                  "hRideF (raw)", axis_limits=[(0, 20), (1e-4, None)], nperseg=160),
+    PsdPlot("Rear Ride PSD",                   "hRideR (raw)", axis_limits=[(0, 20), (1e-4, None)], nperseg=160),
     # PsdPlot("Front Heave PSD",                 ["FPRodAvgF", "FPRodAvgR"],    axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 7)),
     # PsdPlot("Front Roll PSD",                  ["FPRodDeltaF", "FPRodDeltaR"],  axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 7)),
     # PsdPlot("FL gHub PSD",                  "gHubVertFL",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
     # PsdPlot("FR gHub PSD",                  "gHubVertFR",    axis_limits=[(0, 20), (1e-3, None)], lorentz_fit=(3, 7)),
-    PsdPlot("RL gHub PSD",                  "gHubVertRL", nperseg=320,    axis_limits=[(0, 20), (1e-3, None)], log_scale=False),
-    PsdPlot("RR gHub PSD",                  "gHubVertRR", nperseg=320,    axis_limits=[(0, 20), (1e-3, None)], log_scale=False),
-    PsdPlot("Heave Mode PSD",  "FPRodHeave", axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(3, 7)),
-    PsdPlot("Pitch Mode PSD",  "FPRodPitch", axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False, lorentz_fit=(5, 10)),
-    PsdPlot("Roll Mode PSD",   "FPRodRoll",  axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False), #, lorentz_fit=(3, 7)),
-    PsdPlot("Warp Mode PSD",   "FPRodWarp",  axis_limits=[(0, 20), (None, None)], nperseg=320, log_scale=False) #, lorentz_fit=(10, 15)),
+    PsdPlot("RL gHub PSD",                  "gHubVertRL", nperseg=160,    axis_limits=[(0, 20), (1e-3, None)], log_scale=False),
+    PsdPlot("RR gHub PSD",                  "gHubVertRR", nperseg=160,    axis_limits=[(0, 20), (1e-3, None)], log_scale=False),
+    PsdPlot("Heave Mode PSD",  "FPRodHeave", axis_limits=[(0, 20), (None, None)], nperseg=160, log_scale=False, lorentz_fit=(3, 7)),
+    PsdPlot("Pitch Mode PSD",  "FPRodPitch", axis_limits=[(0, 20), (None, None)], nperseg=160, log_scale=False, lorentz_fit=(5, 10)),
+    PsdPlot("Roll Mode PSD",   "FPRodRoll",  axis_limits=[(0, 20), (None, None)], nperseg=160, log_scale=False), #, lorentz_fit=(3, 7)),
+    PsdPlot("Warp Mode PSD",   "FPRodWarp",  axis_limits=[(0, 20), (None, None)], nperseg=160, log_scale=False) #, lorentz_fit=(10, 15)),
 
 ]
 

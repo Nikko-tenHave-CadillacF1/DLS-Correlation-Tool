@@ -9,18 +9,32 @@ from engine import (
     run_workflow,
 )
 
-WORKFLOW_NAME = "tests"
-EVENT = None
+WORKFLOW_NAME = "correlation"
+EVENT = "26R17SIN"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 
 RUNS = [
-    # Split a single parquet into one run per nRun value. Children are named
-    # WD_1, WD_2, ... and inherit the parent's type / units / sample rate.
-    {"name": "WD", "type": "OC",
-     "file": "WD Scan/20260624-OC-VPG - Sensitivity Check - Mini WD Scan - v1-SPB.parquet",
-     "split_by": "nRun", "color_range": ("#FF0000", "#4800FF")},
+    {
+        "name": "DLS",
+        "file": r"26R17SIN - VPG v1 LF_DLS.parquet",
+        "color": "#0034B9",
+        "nlap": 1,  
+        "type": "DLS"
+    },
+    {
+        "name": "OC",
+        "file": r"20260930-OC-XPG - 26R17SIN - Baseline LF v1 - v2-SIN.parquet",
+        "color": "#00A149",
+        "nrun": 1,
+        "type": "OC",
+    },
+    # # Split a single parquet into one run per nRun value. Children are named
+    # # WD_1, WD_2, ... and inherit the parent's type / units / sample rate.
+    # {"name": "WD", "type": "OC",
+    #  "file": "WD Scan/20260624-OC-VPG - Sensitivity Check - Mini WD Scan - v1-SPB.parquet",
+    #  "split_by": "nRun", "color_range": ("#FF0000", "#4800FF")},
 ]
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
@@ -87,10 +101,10 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("Roll angle gLat",         "gLat",          "aRoll",                best_fit=[('x', None, None)]),
     ScatterPlot("Front Ride vCar",         "vCar",          "hRideF",  best_fit=[('SM', 0, 0.5)],
                 axis_limits=[(None, None), (None, 40)],
-                annotate_fit_at=(100,200,300)),
+                annotate_fit_at=(100,200,300), gate=('pBrakeF', '<', 1)),
     ScatterPlot("Rear Ride vCar",          "vCar",          "hRideR",  best_fit=[('SM', 0, 0.5)],
                 axis_limits=[(None, None), (None, 75)],
-                annotate_fit_at=(100,200,300)),
+                annotate_fit_at=(100,200,300), gate=('pBrakeF', '<', 1)),
     ScatterPlot("Ride Height Compare",         "hRideF",    "hRideR"),
 ]
 

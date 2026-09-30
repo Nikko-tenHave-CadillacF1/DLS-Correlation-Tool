@@ -10,67 +10,66 @@ from engine import (
 )
 
 WORKFLOW_NAME = "ride_dil"
-EVENT = "26R13MZA"
+EVENT = "26R15BAK"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 
 RUNS = [
     {
-        "name": "BOT Q1R3",
-        "file": r"26R13MZA_260905_MAC26-01_BOT_Q_R03.txt",
+        "name": "PER P2R2",
+        "file": r"26R15BAK_260924_MAC26-02_PER_P2_R02PARTIAL.txt",
         "color": "#CD4E00",
         "type": "CAR",
     },
     {
-        "name": "Roll MoI - BSL",
-        "file": r"BOT Q1R3 NC5_-Roll MoI Test - BSL_DLS.parquet",
-        "color": "#000000",
-        "nlap": 1,
-        "type": "DLS",
+        "name": "FIT R22",
+        "file": r"Baku_260924_GMDiL-08_FIT_R22PARTIAL.txt",
+        "color": "#0062FF",
+        "type": "DIL",
     },
-    {
-        "name": "Roll MoI - 45",
-        "file": r"BOT Q1R3 NC5_-Roll MoI Test - 45_DLS.parquet",
-        "color": "#440154",
-        "nlap": 1,
-        "type": "DLS",
-    },
-    {
-        "name": "Roll MoI - 50",
-        "file": r"BOT Q1R3 NC5_-Roll MoI Test - 50_DLS.parquet",
-        "color": "#414487",
-        "nlap": 1,
-        "type": "DLS",
-    },
-    {
-        "name": "Roll MoI - 55",
-        "file": r"BOT Q1R3 NC5_-Roll MoI Test - 55_DLS.parquet",
-        "color": "#2a788e",
-        "nlap": 1,
-        "type": "DLS",
-    },
-    {
-        "name": "Roll MoI - 60",
-        "file": r"BOT Q1R3 NC5_-Roll MoI Test - 60_DLS.parquet",
-        "color": "#22a884",
-        "nlap": 1,
-        "type": "DLS",
-    },
-    {
-        "name": "Roll MoI - 65",
-        "file": r"BOT Q1R3 NC5_-Roll MoI Test - 65_DLS.parquet",
-        "color": "#7ad151",
-        "nlap": 1,
-        "type": "DLS",
-    },
-    {
-        "name": "Roll MoI - 70",
-        "file": r"BOT Q1R3 NC5_-Roll MoI Test - 70_DLS.parquet",
-        "color": "#fde725",
-        "nlap": 1,
-        "type": "DLS",
-    },
+    # {
+    #     "name": "Roll MoI - 45",
+    #     "file": r"BOT Q1R3 NC5_-Roll MoI Test - 45_DLS.parquet",
+    #     "color": "#440154",
+    #     "nlap": 1,
+    #     "type": "DLS",
+    # },
+    # {
+    #     "name": "Roll MoI - 50",
+    #     "file": r"BOT Q1R3 NC5_-Roll MoI Test - 50_DLS.parquet",
+    #     "color": "#414487",
+    #     "nlap": 1,
+    #     "type": "DLS",
+    # },
+    # {
+    #     "name": "Roll MoI - 55",
+    #     "file": r"BOT Q1R3 NC5_-Roll MoI Test - 55_DLS.parquet",
+    #     "color": "#2a788e",
+    #     "nlap": 1,
+    #     "type": "DLS",
+    # },
+    # {
+    #     "name": "Roll MoI - 60",
+    #     "file": r"BOT Q1R3 NC5_-Roll MoI Test - 60_DLS.parquet",
+    #     "color": "#22a884",
+    #     "nlap": 1,
+    #     "type": "DLS",
+    # },
+    # {
+    #     "name": "Roll MoI - 65",
+    #     "file": r"BOT Q1R3 NC5_-Roll MoI Test - 65_DLS.parquet",
+    #     "color": "#7ad151",
+    #     "nlap": 1,
+    #     "type": "DLS",
+    # },
+    # {
+    #     "name": "Roll MoI - 70",
+    #     "file": r"BOT Q1R3 NC5_-Roll MoI Test - 70_DLS.parquet",
+    #     "color": "#fde725",
+    #     "nlap": 1,
+    #     "type": "DLS",
+    # },
 ]
 
 
@@ -146,6 +145,11 @@ PSD_PLOT_DEFINITIONS = [
     PsdPlot("Pitch Mode PSD - gated",  "FPRodPitch", axis_limits=[(0, 20), (1e4, None)],                 log_scale=False, nperseg=NPERSEG, gate = [('rThrottle', '<', 95)]), # lorentz_fit=(4, 7)
     PsdPlot("Roll Mode PSD - gated",   "FPRodRoll",  axis_limits=[(0, 20), (1e4, None)],       log_scale=False, nperseg=NPERSEG, gate = [('rThrottle', '<', 95)]), # lorentz_fit=[(4, 7), (9, 12)],
     PsdPlot("Warp Mode PSD - gated",   "FPRodWarp",  axis_limits=[(0, 20), (1e4, None)],               log_scale=False, nperseg=NPERSEG, gate = [('rThrottle', '<', 95)]),
+
+    PsdPlot("FPushrodFL PSD",  "FPushrodFL_High", axis_limits=[(0, 20), (1e4, None)],                 log_scale=False, nperseg=NPERSEG), # lorentz_fit=(4, 7)
+    PsdPlot("FPushrodFR PSD",  "FPushrodFR_High", axis_limits=[(0, 20), (1e4, None)],                 log_scale=False, nperseg=NPERSEG), # lorentz_fit=(4, 7)
+    PsdPlot("FPushrodRL PSD",   "FPushrodRL_High",  axis_limits=[(0, 20), (1e4, None)],       log_scale=False, nperseg=NPERSEG), # lorentz_fit=[(4, 7), (9, 12)],
+    PsdPlot("FPushrodRR PSD",   "FPushrodRR_High",  axis_limits=[(0, 20), (1e4, None)],               log_scale=False, nperseg=NPERSEG),
 
 
     # PsdPlot("FPushrod FL PSD - ungated",  "FPushrodFL", axis_limits=[(0, 20), (1e4, None)], annotate_at=(4, 9), log_scale=False, nperseg=NPERSEG),

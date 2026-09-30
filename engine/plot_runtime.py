@@ -43,11 +43,11 @@ from .workflow.color_utils import (  # noqa: F401  (back-compat re-export)
 )
 
 DEFAULT_FIG_SIZE = {
-    "waveform": (15.5, 6.4),
+    "waveform": (17.28, 6.4),
     "scatter": (10, 8),
     "psd": (10, 8),
     "histogram": (10, 8),
-    "bar": (10, 6),
+    "bar": (10, 8),
 }
 _ASPECT_RATIO_CACHE = {}
 
@@ -1557,6 +1557,20 @@ def get_template_plot_aspect_ratios(template_path, export_map):
     except Exception as e:
         log.warning("Error reading template aspect ratios: %s. Using default aspect ratios.", e)
         return {}
+    # Per-prefix default aspect for plots NOT in the export map, so every
+    # generated PNG matches the deck's aspect ratio conventions even when
+    # it isn't placed on a slide.
+    prefix_totals: dict[str, list[float]] = {}
+    for img, ar in aspect_ratios.items():
+        if "/" not in img:
+            continue
+        prefix = img.split("/", 1)[0]
+        val = float(sum(ar) / len(ar)) if isinstance(ar, (list, tuple)) else float(ar)
+        prefix_totals.setdefault(prefix, []).append(val)
+    if prefix_totals:
+        aspect_ratios["__prefix_defaults__"] = {
+            p: sum(vs) / len(vs) for p, vs in prefix_totals.items()
+        }
     return aspect_ratios
 
 

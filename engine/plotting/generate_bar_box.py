@@ -142,6 +142,7 @@ def generate_bar_plots(plotter):
             offsets = item["offsets"]
             values = item["values"]
             run_label = run["name"].upper()
+            run_name = run["name"].lower()
             if ax2 is not None:
                 primary_values = [0.0 if np.isnan(v) or abs(v) >= secondary_threshold else v for v in values]
                 secondary_values = [0.0 if np.isnan(v) or abs(v) < secondary_threshold else v for v in values]
@@ -179,9 +180,9 @@ def generate_bar_plots(plotter):
                     edgecolor="white",
                     linewidth=0.6,
                 )
-                for offset, value in zip(offsets, values):
+                for m_idx, (offset, value) in enumerate(zip(offsets, values)):
                     axis = ax2 if not np.isnan(value) and abs(value) >= secondary_threshold else ax
-                    bar_info.append((offset, value, axis))
+                    bar_info.append((offset, value, axis, m_idx, run_name))
             else:
                 lbl = run_label if run_label not in plotted_labels else "_nolegend_"
                 plotted_labels.add(run_label)
@@ -195,8 +196,8 @@ def generate_bar_plots(plotter):
                     edgecolor="white",
                     linewidth=0.6,
                 )
-                for offset, value in zip(offsets, values):
-                    bar_info.append((offset, value, ax))
+                for m_idx, (offset, value) in enumerate(zip(offsets, values)):
+                    bar_info.append((offset, value, ax, m_idx, run_name))
             errs = item.get("errors")
             if errs is not None and ax2 is None:
                 err_finite = np.array(
@@ -256,16 +257,39 @@ def generate_bar_plots(plotter):
         axis_ranges = {ax: ax.get_ylim()[1] - ax.get_ylim()[0]}
         if ax2 is not None:
             axis_ranges[ax2] = ax2.get_ylim()[1] - ax2.get_ylim()[0]
-        for offset, value, axis in bar_info:
+        show_delta = bool(getattr(plot_def, "show_delta", False))
+        ref_run_name = None
+        baseline_values = None
+        if show_delta and len(loaded_runs) >= 2:
+            ref_run_name = plotter.reference_run_name()
+            for item in run_bar_data:
+                if item["run"]["name"].lower() == ref_run_name:
+                    baseline_values = item["values"]
+                    break
+        for offset, value, axis, m_idx, run_ref in bar_info:
             if not np.isnan(value):
                 y_range = axis_ranges.get(axis, 1.0)
                 padding = label_pad_ratio * y_range
                 y_pos = value + (padding if value >= 0 else -padding)
                 va = "bottom" if value >= 0 else "top"
+                label_text = datafunctions._fmt_g(value, sig=5)
+                if (
+                    show_delta
+                    and baseline_values is not None
+                    and run_ref != ref_run_name
+                    and m_idx < len(baseline_values)
+                ):
+                    base_val = baseline_values[m_idx]
+                    if not np.isnan(base_val):
+                        delta = value - base_val
+                        sign = "+" if delta >= 0 else "-"
+                        label_text = (
+                            f"{label_text}\n\u0394 {sign}{datafunctions._fmt_g(abs(delta), sig=3)}"
+                        )
                 axis.text(
                     offset,
                     y_pos,
-                    datafunctions._fmt_g(value, sig=5),
+                    label_text,
                     ha="center",
                     va=va,
                     fontsize=label_fontsize,

@@ -859,6 +859,15 @@ def generate_scatter3d_plots(plotter, plots=None):
     except ImportError:
         log.warning("Scatter3D: mpl_toolkits.mplot3d unavailable; skipping.")
         return
+    try:
+        import plotly.graph_objects as go
+        _plotly_go = go
+    except ImportError:
+        _plotly_go = None
+        log.info(
+            "Scatter3D: plotly not installed; static PNG only. "
+            "Install with `pip install plotly` to also export an interactive HTML."
+        )
     can_show = True
     try:
         backend = plt.get_backend().lower()
@@ -882,6 +891,7 @@ def generate_scatter3d_plots(plotter, plots=None):
         ax.set_zlabel(z_var, fontweight="bold", fontsize=11)
         ax.set_title(plot_name, fontweight="bold", fontsize=13)
         any_plotted = False
+        run_traces = []
         for run in plotter.runs:
             rn = run["name"].lower()
             if rn not in plotter.run_data:
@@ -932,6 +942,15 @@ def generate_scatter3d_plots(plotter, plots=None):
                 depthshade=True,
             )
             any_plotted = True
+            run_traces.append(
+                {
+                    "name": run["name"].upper(),
+                    "color": run["color"],
+                    "xyz": xyz,
+                    "size": point_size,
+                    "alpha": point_alpha,
+                }
+            )
         if not any_plotted:
             plt.close(fig)
             log.warning("Scatter3D '%s': no runs plotted. Skipping figure.", plot_name)
@@ -951,6 +970,18 @@ def generate_scatter3d_plots(plotter, plots=None):
         fig.savefig(plotter.plots_dir / filename, dpi=plotter.output_dpi, facecolor="white", bbox_inches="tight")
         if plotter.verbose:
             log.debug("Saved: %s", filename)
+        if _plotly_go is not None:
+            _export_scatter3d_html(
+                plotter,
+                _plotly_go,
+                filename,
+                plot_name,
+                x_var,
+                y_var,
+                z_var,
+                run_traces,
+                axis_limits,
+            )
         if can_show:
             try:
                 plt.show(block=True)
@@ -959,3 +990,46 @@ def generate_scatter3d_plots(plotter, plots=None):
                 plt.close(fig)
         else:
             plt.close(fig)
+
+
+def _export_scatter3d_html(
+    plotter, go, png_filename, plot_name, x_var, y_var, z_var, run_traces, axis_limits
+):
+    """Write a self-contained interactive Plotly HTML next to the PNG."""
+    html_filename = png_filename[:-4] + ".html" if png_filename.endswith(".png") else png_filename + ".html"
+    try:
+        fig = go.Figure()
+        for trace in run_traces:
+            xyz = trace["xyz"]
+            marker_size = max(2.0, min(6.0, float(trace["size"]) / 2.0))
+            fig.add_trace(
+                go.Scatter3d(
+                    x=xyz[x_var].to_numpy(dtype=float),
+                    y=xyz[y_var].to_numpy(dtype=float),
+                    z=xyz[z_var].to_numpy(dtype=float),
+                    mode="markers",
+                    marker=dict(size=marker_size, color=trace["color"], opacity=float(trace["alpha"])),
+                    name=trace["name"],
+                )
+            )
+        scene = dict(
+            xaxis=dict(title=x_var),
+            yaxis=dict(title=y_var),
+            zaxis=dict(title=z_var),
+        )
+        if axis_limits is not None:
+            for axis_key, lim in zip(("xaxis", "yaxis", "zaxis"), axis_limits):
+                lo, hi = lim
+                if lo is not None or hi is not None:
+                    scene[axis_key]["range"] = [lo, hi]
+        fig.update_layout(
+            title=plot_name,
+            scene=scene,
+            legend=dict(itemsizing="constant"),
+            margin=dict(l=0, r=0, t=40, b=0),
+        )
+        fig.write_html(plotter.plots_dir / html_filename, include_plotlyjs="cdn")
+        if plotter.verbose:
+            log.debug("Saved interactive HTML: %s", html_filename)
+    except Exception as exc:
+        log.warning("Scatter3D '%s': HTML export failed (%s).", plot_name, exc)
