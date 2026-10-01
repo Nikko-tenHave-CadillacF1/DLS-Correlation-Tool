@@ -384,6 +384,23 @@ class ScatterPlot:
 
 @dataclass
 class Scatter3DPlot:
+    """3-D scatter of three channels against each other.
+
+    Renders a static PNG; when ``plotly`` is installed an interactive HTML
+    file is written alongside it.
+
+    Parameters
+    ----------
+    name : str
+        Plot title and filename stem.
+    x_channel, y_channel, z_channel : str
+        Column names for the three axes.
+    gate : gate spec, optional
+        Row filter, same format as :class:`ScatterPlot.gate`.
+    axis_limits : list of (float, float), optional
+        Length-3 list ``[(x_lo, x_hi), (y_lo, y_hi), (z_lo, z_hi)]``.
+    """
+
     name: str
     x_channel: str
     y_channel: str
@@ -839,22 +856,6 @@ PLOT_TYPE_ORDER: tuple[str, ...] = (
     "bar",
     "box",
     "heatmap",
+    "scatter3d",
 )
 """Canonical group order — used to index ``DataPlotter.PLOT_DEFINITIONS``."""
-
-_PLOT_KIND_TO_INDEX = {kind: i for i, kind in enumerate(PLOT_TYPE_ORDER)}
-
-
-def plot_group_index(kind: str) -> int:
-    return _PLOT_KIND_TO_INDEX[kind]
-
-
-PLOT_KIND_BY_DATACLASS = {
-    WaveformPlot: "waveform",
-    ScatterPlot: "scatter",
-    PsdPlot: "psd",
-    HistogramPlot: "histogram",
-    BarPlot: "bar",
-    BoxPlot: "box",
-    HeatmapPlot: "heatmap",
-}

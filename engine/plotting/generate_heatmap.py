@@ -1,10 +1,9 @@
-"""Module-level generator functions extracted from ``HeatmapMixin``.
+"""Heatmap plot generator.
 
-Extracted 2026-07 (Prompt 12 Phase 2). Function bodies are the class's
-original method bodies with a mechanical ``self`` -> ``plotter`` rename;
-the old file at ``engine/plot_generators_*.py`` keeps a thin ``class ..Mixin``
-shim whose methods delegate here so ``DataPlotter``'s multiple inheritance
-keeps working unchanged.
+Takes the :class:`~engine.dataplotter.DataPlotter` as its ``plotter``
+argument and reads its plot list from
+``plotter._get_plot_group(<PLOT_TYPE_ORDER index>)``. Dispatched from
+``DataPlotter.plot_data()``.
 """
 
 import matplotlib.pyplot as plt

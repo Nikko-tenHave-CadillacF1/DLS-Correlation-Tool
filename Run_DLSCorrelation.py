@@ -5,12 +5,12 @@ from engine import (
     BarPlot,
     HistogramPlot,
     PsdPlot,
+    Scatter3DPlot,
     ScatterPlot,
     Slide,
     WaveformPlot,
     run_workflow,
 )
-from engine.plot_definitions import Scatter3DPlot
 
 WORKFLOW_NAME = "correlation"
 EVENT = "26R15BAK"

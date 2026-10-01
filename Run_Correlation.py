@@ -5,15 +5,15 @@ from engine import (
     BarPlot,
     HistogramPlot,
     PsdPlot,
+    Scatter3DPlot,
     ScatterPlot,
     Slide,
     WaveformPlot,
     run_workflow,
 )
-from engine.plot_definitions import Scatter3DPlot
 
 WORKFLOW_NAME = "correlation"
-EVENT = "26R13MZA"
+EVENT = "26R14MAD"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
@@ -24,7 +24,7 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 RUNS = [
     {
         "name": "BOT - Q1R3",
-        "file": r"26R13MZA_260905_MAC26-01_BOT_Q_R03.txt",
+        "file": r"26R14MAD_260912_MAC26-02_PER_Q_R03_4.txt",
         "color": "#B94100",
         "type": "CAR"
     },

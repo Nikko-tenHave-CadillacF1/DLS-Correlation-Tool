@@ -31,7 +31,6 @@ import numpy as np
 from .logger import log
 from .plot_runtime import _session_sort_key
 
-_FIG_FONT = {"family": "DejaVu Sans", "size": 11}
 _INK = "#1A1A1A"
 _PARAM_LABELS = {
     "f0": r"$f_0$ [Hz]",

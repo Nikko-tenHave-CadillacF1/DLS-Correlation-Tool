@@ -74,7 +74,8 @@ class PlotJobConfig:
         overrides, etc.). Folder shorthands are expanded before use.
     plot_definitions : tuple
         Fixed-order tuple ``(waveforms, scatters, psds, histograms, bars,
-        boxes, heatmaps)``; typically produced by :func:`build_plot_groups`.
+        boxes, heatmaps, scatter3d)``; typically produced by
+        :func:`build_plot_groups`.
     channel_mappings, channel_transforms, calculated_channels, filters : dict, optional
         Source-type-keyed overrides for the project-wide settings pulled
         from :mod:`channel_config`.
@@ -101,8 +102,6 @@ class PlotJobConfig:
         Config for the 4-DOF body modal fit; see repo memory for the schema.
     psd_min_averages_target : int, default 200
         Soft target for Welch-segment count when auto-selecting nperseg.
-    debug_scatter3d_plots : list, optional
-        Names of 3-D scatters to render interactively for debugging.
     """
 
     title: str
@@ -130,7 +129,6 @@ class PlotJobConfig:
     output_dpi: int = 300
     vibrations_fit: dict | None = None
     psd_min_averages_target: int = 200
-    debug_scatter3d_plots: list | None = None
 
 
 def Slide(layout: str, *plot_refs: str) -> dict:
@@ -176,27 +174,6 @@ def _resolve_export_map(export_map, plot_definitions, start_slide=1):
 
 _VALID_RUN_TYPES = {"OC", "CAR", "DLS", "DIL", "FMIOpt"}
 _VALID_RUN_FILETYPES = {".csv", ".parquet", ".txt"}
-
-
-def _interleave_indices(n: int) -> list[int]:
-    """Return a permutation of range(n) that alternates between the
-    two ends of the sequence (0, n-1, 1, n-2, 2, n-3, ...).
-
-    Used to colour split-by children so neighbouring legend entries land
-    at opposite ends of the colormap and contrast strongly, while the
-    full set still spans the type's hue range.
-    """
-    if n <= 1:
-        return list(range(n))
-    lo, hi = 0, n - 1
-    out: list[int] = []
-    while lo <= hi:
-        out.append(lo)
-        lo += 1
-        if lo <= hi:
-            out.append(hi)
-            hi -= 1
-    return out
 
 
 _VALID_CONSOLIDATE_MODES = {True, "only"}
@@ -617,10 +594,8 @@ def run_workflow(
         Human-readable job title.
     runs : list of dict
         Per-run config; supports folder shorthand for auto-expansion.
-    waveforms, scatters, psds, histograms, bars, boxes, heatmaps : list, optional
+    waveforms, scatters, psds, histograms, bars, boxes, heatmaps, scatter3d : list, optional
         Per-type plot definitions (instances of the corresponding dataclass).
-    scatter3d : list, optional
-        Optional 3-D scatter definitions (rendered separately).
     powerpoint_template, powerpoint_output, export_map, powerpoint_exports : ...
         Optional PowerPoint export configuration.
     vibrations_fit : dict, optional
@@ -648,6 +623,7 @@ def run_workflow(
         bars=bars,
         boxes=boxes,
         heatmaps=heatmaps,
+        scatter3d=scatter3d,
     )
     config = workflow_config(
         workflow,
@@ -660,7 +636,6 @@ def run_workflow(
         powerpoint_exports=powerpoint_exports,
         vibrations_fit=vibrations_fit,
         fig_size=fig_size,
-        scatter3d=scatter3d,
         **overrides,
     )
     return run_from_config(config, parse_plot_cli(cli_description or title))
@@ -777,7 +752,6 @@ def run_from_config(config: PlotJobConfig, cli_args=None):
         resample_rate=config.resample_rate,
         vibrations_fit=config.vibrations_fit,
         psd_min_averages_target=config.psd_min_averages_target,
-        debug_scatter3d_plots=config.debug_scatter3d_plots,
     )
     if cli_args is not None and getattr(cli_args, "list_channels", False):
         _print_run_channels(plotter.run_data)
@@ -1070,6 +1044,8 @@ def _plot_referenced_channels(plot_def) -> list:
         out.extend([plot_def.x_channel, plot_def.y_channel])
         if plot_def.z_channel:
             out.append(plot_def.z_channel)
+    elif kind == "scatter3d":
+        out.extend([plot_def.x_channel, plot_def.y_channel, plot_def.z_channel])
     return sorted(set(c for c in out if c))
 
 
@@ -1082,28 +1058,30 @@ def build_plot_groups(
     bars=None,
     boxes=None,
     heatmaps=None,
+    scatter3d=None,
 ):
     """Assemble the fixed-order ``plot_definitions`` tuple.
 
     Coerces the per-type keyword lists (any of which may be ``None``) into
-    the seven-element tuple that :class:`PlotJobConfig` expects, and expands
+    the tuple that :class:`PlotJobConfig` expects, and expands
     :class:`~engine.plot_definitions.BoxPlotGrid` entries with
     ``render_mode='expand'`` into their per-cell :class:`BoxPlot` children.
 
     Parameters
     ----------
-    waveforms, scatters, psds, histograms, bars, boxes, heatmaps : list, optional
+    waveforms, scatters, psds, histograms, bars, boxes, heatmaps, scatter3d : list, optional
         Per-type plot definitions.
 
     Returns
     -------
     tuple
-        Seven-element tuple in the fixed order
-        ``(waveforms, scatters, psds, histograms, bars, boxes, heatmaps)``,
-        with ``None`` entries replaced by empty lists.
+        Tuple in the fixed :data:`~engine.plot_definitions.PLOT_TYPE_ORDER`
+        order, with ``None`` entries replaced by empty lists.
     """
     boxes = _expand_box_grids(boxes) if boxes else []
-    return tuple(group or [] for group in (waveforms, scatters, psds, histograms, bars, boxes, heatmaps))
+    return tuple(
+        group or [] for group in (waveforms, scatters, psds, histograms, bars, boxes, heatmaps, scatter3d)
+    )
 
 
 def _expand_box_grids(boxes):
@@ -1128,7 +1106,6 @@ def workflow_config(
     powerpoint_exports=None,
     vibrations_fit=None,
     fig_size=None,
-    scatter3d=None,
     **overrides,
 ) -> PlotJobConfig:
     """Build a :class:`PlotJobConfig` for the named workflow.
@@ -1158,8 +1135,6 @@ def workflow_config(
         Modal-fit configuration.
     fig_size : dict or list, optional
         Per-plot-type figure sizes.
-    scatter3d : list, optional
-        3-D scatter definitions.
     **overrides
         Extra :class:`PlotJobConfig` fields (root_folder, output_dir,
         verbose, resample_rate, output_dpi, etc.).
@@ -1223,7 +1198,6 @@ def workflow_config(
         powerpoint_exports=powerpoint_exports,
         vibrations_fit=vibrations_fit,
         psd_min_averages_target=overrides.pop("psd_min_averages_target", 200),
-        debug_scatter3d_plots=scatter3d,
         **overrides,
     )
 
@@ -1403,6 +1377,7 @@ from .plot_definitions import (  # noqa: E402, F401
     HistogramPlot,
     Marker,
     PsdPlot,
+    Scatter3DPlot,
     ScatterPlot,
     WaveformPlot,
 )
@@ -1588,7 +1563,7 @@ def _export_via_pptx(template_path, output_path, plots_dir, export_map):
         prs.slide_width = Inches(13.333)
         prs.slide_height = Inches(7.5)
         blank_layout = prs.slide_layouts[6] if len(prs.slide_layouts) > 6 else prs.slide_layouts[-1]
-        max_slide = max((int(k) for k in export_map.keys()), default=0)
+        max_slide = max((int(k) for k in export_map), default=0)
         for _ in range(max_slide):
             prs.slides.add_slide(blank_layout)
     else:

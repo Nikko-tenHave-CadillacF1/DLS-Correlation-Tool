@@ -31,20 +31,21 @@ and what every advanced option does.
 A call to `run_workflow(...)` performs the following steps:
 
 1. **Build plot groups** — `build_plot_groups()` packs each plot-type list
-   into a fixed-order 7-tuple in `PLOT_TYPE_ORDER`.
+   into a fixed-order 8-tuple in `PLOT_TYPE_ORDER`.
 2. **Resolve workflow defaults** — `workflow_config()` looks up the input /
    output directories and calculated-channel / filter configs from
    `channel_config.py` based on the workflow name.
 3. **Parse CLI** — `parse_plot_cli()` returns a `Namespace` of filter and
    diagnostic flags.
-4. **Pre-flight validation** — `validate_config()` checks every run file
-   exists and every run type is one of `OC | CAR | DLS | DIL`.
+4. **Pre-flight validation** — `validate_config()` checks every run has a
+   unique name, every run file exists, and every run type is one of
+   `OC | CAR | DLS | DIL | FMIOpt`. Any failure aborts with exit code 1.
 5. **Load data** — `DataPlotter` reads each run file, applies channel
    renames, transforms, calculated channels, resampling, and filters.
-6. **Fail-fast typo check** — if any channel referenced by a plot
-   definition is absent from **every** loaded run, exit with suggestions
-   drawn from `difflib.get_close_matches`. Run with `--list-channels` to
-   inspect what's available.
+6. **Channel typo check** — if any channel referenced by a plot definition
+   is absent from **every** loaded run, warn with suggestions drawn from
+   `difflib.get_close_matches` and continue; affected plots are skipped.
+   Run with `--list-channels` to inspect what's available.
 7. **Render plots** — each generator iterates its plot list and writes
    one PNG per plot to `<output_dir>/`.
 8. **PowerPoint export** (optional) — `python-pptx` swaps placeholder
@@ -69,6 +70,7 @@ config = PlotJobConfig(
     plot_definitions=build_plot_groups(
         waveforms=WAVEFORMS, scatters=SCATTERS, psds=PSDS,
         histograms=HISTOGRAMS, bars=BARS, boxes=BOXES, heatmaps=HEATMAPS,
+        scatter3d=SCATTER3D,
     ),
     channel_mappings=CHANNEL_MAPPINGS,
     channel_transforms=CHANNEL_TRANSFORMS,

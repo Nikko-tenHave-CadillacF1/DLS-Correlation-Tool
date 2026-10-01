@@ -20,7 +20,7 @@ RUNS = [
         "name": "DLS",
         "file": r"26R17SIN - VPG v1 LF_DLS.parquet",
         "color": "#0034B9",
-        "nlap": 1,  
+        "nlap": 1,
         "type": "DLS"
     },
     {

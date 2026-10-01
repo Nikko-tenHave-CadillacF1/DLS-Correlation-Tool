@@ -17,15 +17,22 @@ python Run_Correlation.py
 ```
 
 `requirements.txt` is the recommended install path — it pulls in the full
-set (core + parquet + PowerPoint + tqdm). Alternatively:
+set (core + parquet + PowerPoint + 3-D HTML export + tqdm). Alternatively:
 
 ```powershell
-pip install -e ".[parquet,pptx]"   # editable install with extras
-pip install -e .                    # minimal (core only — no parquet, no pptx)
+pip install -e ".[parquet,pptx,plotly]"   # editable install with extras
+pip install -e .                           # minimal (core only)
 ```
 
-Parquet input files require at least one of `pyarrow`, `fastparquet`; both
-ship in the `[parquet]` extra and in `requirements.txt`.
+Optional extras and what you lose without them:
+
+| Extra | Package(s) | Needed for |
+|---|---|---|
+| `parquet` | `pyarrow`, `fastparquet` | reading `.parquet` inputs (either engine is enough) |
+| `pptx` | `python-pptx` | PowerPoint export |
+| `plotly` | `plotly` | the interactive `.html` beside each 3-D scatter PNG |
+
+`tqdm` (progress bars) is a core dependency but the tool runs without it.
 
 ### Alternative: console-script entry points
 
@@ -36,7 +43,6 @@ ship in the `[parquet]` extra and in `requirements.txt`.
 ```powershell
 dls-correlation          # equivalent to: python Run_Correlation.py
 dls-boxplots             # equivalent to: python Run_BoxPlots.py
-dls-dampers              # equivalent to: python Run_Dampers.py
 dls-ridedil              # equivalent to: python Run_RideDIL.py
 dls-ridereport           # equivalent to: python Run_RideReport.py
 dls-vibrations           # equivalent to: python Run_Vibrations.py
@@ -65,7 +71,6 @@ console scripts are just shortcuts.
 ```powershell
 python Run_Correlation.py
 python Run_BoxPlots.py
-python Run_Dampers.py
 python Run_RideDIL.py
 ```
 
@@ -79,15 +84,24 @@ type with annotated examples.
 
 ### Discover and validate before plotting
 
-If a plot definition references a channel name that exists in **no** loaded
-run, the runner exits with a clear error and suggests close matches. To list
-what's available in your data:
-
 ```powershell
 python Run_Correlation.py --list-channels   # channels in each loaded run
-python Run_Correlation.py --list-plots      # configured plot names
+python Run_Correlation.py --list-plots      # configured plot names + channels
 python Run_Correlation.py --check-only      # data-quality report only
+python Run_Correlation.py --dry-run         # preview the plan, no data load
 ```
+
+Two different checks run automatically on every job:
+
+- **Config validation is fatal.** Missing/duplicate run names, a missing input
+  file, an unknown `type`, or a missing PowerPoint template abort the run with
+  exit code 1 before any data is read.
+- **Unknown channel names are a warning.** If a plot references a channel that
+  exists in no loaded run, the runner prints the name with close-match
+  suggestions and carries on; affected plots are skipped. Use
+  `--list-channels` to see what your data actually contains.
+
+A successful run always exits 0, so the runners are safe to chain in scripts.
 
 ### CLI
 
@@ -106,6 +120,28 @@ any flags. The full set:
 
 ---
 
+## Plot types
+
+Each type is a dataclass imported from `engine` and passed to `run_workflow()`
+via the matching keyword. Full field documentation is in
+[docs/plot-reference.md](docs/plot-reference.md); working examples of all of
+them are in [Run_Template.py](Run_Template.py).
+
+| Dataclass | `run_workflow` keyword | Produces |
+|---|---|---|
+| `WaveformPlot` | `waveforms=` | Stacked time/distance traces, optional delta-vs-baseline rows |
+| `ScatterPlot` | `scatters=` | X-Y scatter with linear / polynomial / piecewise / robust fits |
+| `Scatter3DPlot` | `scatter3d=` | 3-channel scatter (PNG, plus interactive HTML with `plotly`) |
+| `PsdPlot` | `psds=` | Welch PSD, optional Lorentzian peak fits (f₀, ζ) |
+| `HistogramPlot` | `histograms=` | Per-run channel distributions |
+| `BarPlot` | `bars=` | Aggregated metrics per run, optional errorbars and deltas |
+| `BoxPlot` / `BoxPlotGrid` | `boxes=` | Box-and-whisker, per-run / pooled / gridded by condition |
+| `HeatmapPlot` | `heatmaps=` | 2-D density or per-bin aggregation |
+
+PNGs are written to `Data/outputs/<workflow>/<event>/plots/<type>/`.
+
+---
+
 ## File structure
 
 ### Files you edit
@@ -117,7 +153,6 @@ any flags. The full set:
 | [Run_DLSCorrelation.py](Run_DLSCorrelation.py) | DLS-focused correlation preset |
 | [Run_DILCorrelation.py](Run_DILCorrelation.py) | DIL simulator correlation preset |
 | [Run_BoxPlots.py](Run_BoxPlots.py) | Box plots and `BoxPlotGrid` examples |
-| [Run_Dampers.py](Run_Dampers.py) | Damper analysis (waveform + scatter) |
 | [Run_RideDIL.py](Run_RideDIL.py) | Ride / DIL simulator comparison (PSD) |
 | [Run_RideReport.py](Run_RideReport.py) | Ride report + modal-evolution deck |
 | [Run_Vibrations.py](Run_Vibrations.py) | 4-DOF body modal analysis (Heave, Pitch, Roll, Warp) |
@@ -129,6 +164,22 @@ any flags. The full set:
 
 Single package under [engine/](engine/). See
 [docs/architecture.md](docs/architecture.md) for the module map.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | What to do |
+|---|---|---|
+| `Configuration validation failed` | Input file not found, duplicate run name, or unknown `type` | Check `EVENT` and the `file` paths in `RUNS`; `type` must be `CAR`, `OC`, `DLS`, `DIL`, or `FMIOpt` |
+| `references channels that exist in no loaded run` | Channel typo, or the source genuinely lacks that channel | `--list-channels`, then fix the name or add a calculated channel in [channel_config.py](channel_config.py) |
+| A plot is empty or has far fewer points than expected | A `gate` filtered out everything | Relax or remove the `gate`, re-run with `--only "<Plot Name>"` |
+| Traces from different loggers don't line up | `sLap` offset/scale between sources | Alignment is automatic; check the `sLap Alignment Estimate` section of `data_quality_report.md` |
+| `'<name>.pptx' is open in another application` | The deck is locked by PowerPoint | Close it and re-run; the plots still generated and the rest of the job completed |
+| Parquet run fails to load | No parquet engine installed | `pip install pyarrow` (or `fastparquet`) |
+
+Every run also writes `plots/data_quality_report.md` with sample rates,
+missing channels, NaN ratios, flatlined channels, and `sLap` diagnostics.
 
 ---
 

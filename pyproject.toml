@@ -35,7 +35,6 @@ dev = [
 [project.scripts]
 dls-correlation = "Run_Correlation:main"
 dls-boxplots    = "Run_BoxPlots:main"
-dls-dampers     = "Run_Dampers:main"
 dls-ridedil     = "Run_RideDIL:main"
 dls-ridereport  = "Run_RideReport:main"
 dls-vibrations  = "Run_Vibrations:main"
@@ -48,7 +47,6 @@ py-modules = [
     "channel_config",
     "Run_Correlation",
     "Run_BoxPlots",
-    "Run_Dampers",
     "Run_DILCorrelation",
     "Run_DLSCorrelation",
     "Run_RideDIL",

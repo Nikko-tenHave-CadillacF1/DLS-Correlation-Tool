@@ -478,7 +478,6 @@ class DataPlotter:
         resample_rate: float | None = None,
         vibrations_fit: dict | None = None,
         psd_min_averages_target: int = 200,
-        debug_scatter3d_plots: list | None = None,
     ):
         if fig_size is None:
             fig_size = {
@@ -567,7 +566,6 @@ class DataPlotter:
             self.boxplot_FIGSIZE = fig_size[5] if len(fig_size) > 5 else self.bar_FIGSIZE
         self.plot_aspect_ratios = plot_aspect_ratios or {}
         self.BOX_PLOT_SETTINGS = box_plot_settings or {}
-        self.debug_scatter3d_plots = list(debug_scatter3d_plots or [])
         # Runtime state (per-run data + caches) lives on a single PlotContext
         # so it can be threaded through extracted helpers without a full
         # DataPlotter instance. The eight `@property` shims below let existing
@@ -855,12 +853,12 @@ class DataPlotter:
                             required_channels.add(plot_def.z_channel)
                         if plot_def.gate is not None:
                             required_channels.update(datafunctions.collect_gate_channels(plot_def.gate))
-        for plot_def in getattr(self, "debug_scatter3d_plots", None) or []:
-            required_channels.add(plot_def.x_channel)
-            required_channels.add(plot_def.y_channel)
-            required_channels.add(plot_def.z_channel)
-            if getattr(plot_def, "gate", None) is not None:
-                required_channels.update(datafunctions.collect_gate_channels(plot_def.gate))
+                    elif kind == "scatter3d":
+                        required_channels.add(plot_def.x_channel)
+                        required_channels.add(plot_def.y_channel)
+                        required_channels.add(plot_def.z_channel)
+                        if plot_def.gate is not None:
+                            required_channels.update(datafunctions.collect_gate_channels(plot_def.gate))
         for support in ("sLap", "tLap", "vCar", "TimeIntoExport"):
             required_channels.add(support)
         resolved_channels = set()
@@ -917,9 +915,6 @@ class DataPlotter:
             pass
         return None
 
-    def _normalize_parquet_column_aliases(self, df):
-        return _loaders._normalize_parquet_column_aliases(df)
-
     def _find_parquet_column(self, df, logical_name):
         columns = [str(c).strip() for c in df.columns]
         column_set = set(columns)
@@ -945,15 +940,6 @@ class DataPlotter:
                 )
             return insensitive[0]
         return None
-
-    def _resolve_required_parquet_columns(self, schema_cols, columns_to_load, nrun=None, nlap=None):
-        return _loaders._resolve_required_parquet_columns(
-            schema_cols,
-            columns_to_load,
-            nrun=nrun,
-            nlap=nlap,
-            alias_cache=self._parquet_alias_cache,
-        )
 
     def _apply_parquet_rank_value_filter(
         self,

@@ -26,6 +26,7 @@ from engine import (
     HistogramPlot,
     Marker,
     PsdPlot,
+    Scatter3DPlot,
     ScatterPlot,
     Slide,
     WaveformPlot,
@@ -580,6 +581,20 @@ HEATMAP_PLOT_DEFINITIONS = [
 ]
 
 
+# ─── 3D SCATTER PLOTS ─────────────────────────────────────────────────────────
+# Three channels against each other, one colour per run. Always writes a static
+# PNG; also writes an interactive .html when plotly is installed.
+
+SCATTER3D_PLOT_DEFINITIONS = [
+    Scatter3DPlot("gLat gLong vCar", "gLat", "gLong", "vCar"),
+
+    # ── Gated + explicit limits (exactly three (lo, hi) pairs) ───────────────
+    # Scatter3DPlot("Ride Map", "vCar", "hRideF", "hRideR",
+    #               gate=('SM', '<', 0.5),
+    #               axis_limits=[(50, 350), (20, 80), (20, 120)]),
+]
+
+
 # ─── POWERPOINT EXPORT MAP (optional) ─────────────────────────────────────────
 # Maps slides to generated plot images via the Slide() helper.
 # Layouts: "main_plot" (one full-width image) | "double_plot" (two side by side)
@@ -609,6 +624,7 @@ def main() -> None:
         bars=BAR_PLOT_DEFINITIONS,
         boxes=BOX_PLOT_DEFINITIONS,
         heatmaps=HEATMAP_PLOT_DEFINITIONS,
+        scatter3d=SCATTER3D_PLOT_DEFINITIONS,
         powerpoint_output=POWERPOINT_OUTPUT,
         export_map=POWERPOINT_EXPORT_MAP,
         # ── Optional overrides (uncomment as needed) ───────────────────────────

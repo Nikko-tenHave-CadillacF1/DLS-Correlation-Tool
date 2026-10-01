@@ -5,7 +5,7 @@ Every plot type is a dataclass with named-argument constructors and
 
 ```python
 from engine import (
-    WaveformPlot, ScatterPlot, PsdPlot, HistogramPlot,
+    WaveformPlot, ScatterPlot, Scatter3DPlot, PsdPlot, HistogramPlot,
     BarPlot, BoxPlot, BoxPlotGrid, HeatmapPlot, Marker, calc_channel,
 )
 ```
@@ -267,5 +267,24 @@ HeatmapPlot(
     min_count=3,                # cells with fewer points are masked
     gate=('SM', '<', 1),
     markers=[Marker(x=0, label="Centre")],
+)
+```
+
+---
+
+## Scatter3D
+
+Three channels plotted against each other, one colour per run. Passed to
+`run_workflow(..., scatter3d=[...])`. A static PNG is always written; when
+`plotly` is installed an interactive `.html` is written alongside it.
+
+```python
+Scatter3DPlot(
+    name="gLat / gLong / vCar",
+    x_channel="gLat",
+    y_channel="gLong",
+    z_channel="vCar",
+    gate=('SM', '<', 0.5),                       # same gate syntax as ScatterPlot
+    axis_limits=[(-6, 6), (-6, 6), (0, 350)],    # exactly three (lo, hi) pairs
 )
 ```
