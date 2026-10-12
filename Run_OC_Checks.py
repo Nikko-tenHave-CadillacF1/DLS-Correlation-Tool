@@ -1,6 +1,6 @@
 """Correlation workflow — edit RUNS and plot definitions to configure your analysis."""
 
-from channel_config import get_workflow_dirs
+from channel_config import get_workflow_dirs, resolve_template_path
 from engine import (
     BarPlot,
     ScatterPlot,
@@ -10,23 +10,29 @@ from engine import (
 )
 
 WORKFLOW_NAME = "correlation"
-EVENT = "26R17SIN"
+EVENT = "26R16SEP"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 
 RUNS = [
     {
-        "name": "DLS",
-        "file": r"26R17SIN - VPG v1 LF_DLS.parquet",
-        "color": "#0034B9",
-        "nlap": 1,
-        "type": "DLS"
+        "name": "CAR",
+        "file": r"26R16SEP_261003_MAC26-01_BOT_Q_R02.txt",
+        "color": "#AD5C00",
+        "type": "CAR"
     },
+    # {
+    #     "name": "DLS",
+    #     "file": r"26R17SIN - VPG v1 LF_DLS.parquet",
+    #     "color": "#0034B9",
+    #     "nlap": 1,
+    #     "type": "DLS"
+    # },
     {
         "name": "OC",
-        "file": r"20260930-OC-XPG - 26R17SIN - Baseline LF v1 - v2-SIN.parquet",
-        "color": "#00A149",
+        "file": r"20261004-OC-VPG - 26R16SEP - BOT Q2R2 Cor - v1-SEP.parquet",
+        "color": "#007B2F",
         "nrun": 1,
         "type": "OC",
     },
@@ -38,8 +44,10 @@ RUNS = [
 ]
 
 # ─── POWERPOINT ───────────────────────────────────────────────────────────────
-# Set POWERPOINT_OUTPUT to a Path to enable a blank 16:9 deck export.
-POWERPOINT_OUTPUT = None  # e.g. _OUTPUT_DIR / "Correlation_Report.pptx"
+# Set POWERPOINT_OUTPUT = None to disable the export.
+POWERPOINT_TEMPLATE    = resolve_template_path("oc_template.pptx")
+POWERPOINT_OUTPUT      = _OUTPUT_DIR / "OC_Correlation_Report.pptx"
+POWERPOINT_START_SLIDE = 4  # skip cover / summary / summary table
 
 # ─── WAVEFORM PLOTS ───────────────────────────────────────────────────────────
 
@@ -51,7 +59,22 @@ WAVEFORM_PLOT_DEFINITIONS = [
         axis_limits=(None, ((None, 400), (-1, 9)) ,None, None, ((0, 105), (0, 1.3))),
         reference_lines=((-350, 0, 350), None, (0,),None, None),
         subplot_heights=(0.4, 0.7, 0.4, 0.4, 0.4),
+        show_delta=(False, True, False, False, False),
         # highlight_zones=('SM', '>', 0.5)
+    ),
+    WaveformPlot(
+        name="Brake Powers",
+        channels=(('vCar', 'NGear'), 'PMGUK', 'PBrakeFL', 'PBrakeRL', 'rMDecelTot', ('rThrottle', 'SM')),
+        axis_limits=(((None, 400), (-1, 9)), None, None, None, (-5, 105), ((0, 105), (0, 1.3))),
+        subplot_heights=(0.8, 0.5, 0.5, 0.5, 0.5, 0.5),
+    ),
+    WaveformPlot(
+        name="TPG",
+        channels=(('vCar', 'NGear'), ('aCamberFLKinematic', 'aCamberFRKinematic'), ('aCamberRLKinematic', 'aCamberRRKinematic')),
+        axis_limits=(((60, 400), (-1, 9)), None, None),
+        reference_lines=(None, (0, 0), (0, 0)),
+        subplot_heights=(0.8, 0.8, 0.8),
+        show_delta=(False, True, True),
     ),
     WaveformPlot(
         name="Power Unit",
@@ -59,6 +82,20 @@ WAVEFORM_PLOT_DEFINITIONS = [
         axis_limits=(None, None, ((None, 400), (-1, 9)), None, None, ((0, 105), (0, 1.3))),
         reference_lines=((-350, 0, 350), (0,), None, (10000,), None, None),
         subplot_heights=(0.4, 0.4, 0.6, 0.4, 0.4, 0.4),
+    ),
+    WaveformPlot(
+        name="Ride Heights Waveform",
+        channels=(('vCar', 'NGear'), 'hRideF', 'hRideR', 'pBrakeF', ('rThrottle', 'SM')),
+        axis_limits=(((None, 400), (-1, 9)), None, None, None, ((0, 105), (0, 1.3))),
+        reference_lines=(None, (0,), (0,), None, None),
+        subplot_heights=(0.8, 0.8, 0.8, 0.5, 0.5),
+    ),
+    WaveformPlot(
+        name="Corner Radius",
+        channels=('PMGUK', ('vCar', 'NGear'), 'cCorner', 'pBrakeF', ('rThrottle', 'SM')),
+        axis_limits=(None, ((None, 400), (-1, 9)), None, None, ((0, 105), (0, 1.3))),
+        reference_lines=((-350, 0, 350), None, (0,), None, None),
+        subplot_heights=(0.5, 0.7, 0.5, 0.5, 0.5),
     ),
     # WaveformPlot(
     #     name="OC SM Check",
@@ -79,16 +116,24 @@ WAVEFORM_PLOT_DEFINITIONS = [
 
 
 SCATTER_PLOT_DEFINITIONS = [
+    ScatterPlot("Gear Ratios", "nWheelAvg_R", "nEngine",
+                best_fit=[('NGear', g - 0.5, g + 0.5) for g in range(2, 9)],
+                show_equations=False),
+    ScatterPlot("Engine Power",            "nEngine",       "PEngine"),
+    ScatterPlot("Engine Efficiency",       "dmInjector",    "PEngine",              best_fit=1),
     ScatterPlot("Long Acceleration",       "vCar",          "gLong"),
     ScatterPlot("Lat Acceleration",        "vCar",          "gLat_Abs"),
     ScatterPlot("GG Plot",                 "gLat",          "gLong"),
     ScatterPlot("Braking Efficiency",      "pBrakeF",       "gLong",
                 best_fit=[('y', None, -0.2)],  gate=('gLong', '<', 0)),
     ScatterPlot("Understeer Plot",         "vCar",          "aUndersteerFromSlip"),
-    ScatterPlot("Yaw Rate Response",       "aSteerWheel",   "nYaw",
-                axis_limits=[(-160, 160), (None, None)],    best_fit=[('x', -20, 20)]),
-    ScatterPlot("Lateral Acceleration Response", "aSteerWheel", "gLat",
-                axis_limits=[(-160, 160), (None, None)],    best_fit=[('x', -20, 20)]),
+    # aSteerF, not aSteerWheel: OC has a linear rack.
+    ScatterPlot("Yaw Rate Response",       "aSteerF",       "nYaw",
+                axis_limits=[(-10, 10), (None, None)],      best_fit=[('x', -1, 1)]),
+    ScatterPlot("Lateral Acceleration Response", "aSteerF", "gLat",
+                axis_limits=[(-10, 10), (None, None)],      best_fit=[('x', -1, 1)]),
+    ScatterPlot("rLLTD vs vCar",           "vCar",          "rLLTD",
+                axis_limits=[(None, None), (40, 70)],       gate=[("gLat_Abs", '>', 0.5), ("SM", '<', 0.5)]),
 
     ## OC SUSPENSION CORRELATION - FOR OC CHECKS
     ScatterPlot("Front Heave",             "xHubVertF_Avg",   "FzTyreF_Avg",
@@ -117,9 +162,11 @@ HISTOGRAM_PLOT_DEFINITIONS = []
 
 
 BAR_PLOT_DEFINITIONS = [
+    BarPlot("Cumulative Metrics", (("dmInjector (kg/s)", "integral"), ("PMGUK_Deploy (MJ)", "integral"), ("PMGUK_Charge (MJ)", "integral"))),
+    BarPlot("Brake Energies Bar", (("EBrakeFL", "max"), ("EBrakeFR", "max"), ("EBrakeRL", "max"), ("EBrakeRR", "max")), secondary_axis=False),
     BarPlot("COG Sensitivies", (("dtLap_dhCoGStatic", "integral"), ("dtLap_dxCoGStatic_Integral", "max"))),
     BarPlot("Aero Sensitivites", (("dtLap_dCDragTotal_Integral", "max"), ("dtLap_dCLiftTotal_Integral", "max"))),
-    BarPlot("Lap Time",           (("tLap_Calc",         "max"),)),
+    BarPlot("Lap Time",           (("tLap_Report",       "max"),)),
     BarPlot("Time in SM Zones",   (("time_in_SM_100",       "last"), ("time_in_SM_90",        "last"), ("time_in_SM_80",        "last"))),
     BarPlot("Ratio Time in SM Zones",   (("ratio_time_in_SM_100",       "last"), ("ratio_time_in_SM_90",        "last"), ("ratio_time_in_SM_80",        "last"))),
 ]
@@ -135,28 +182,28 @@ HEATMAP_PLOT_DEFINITIONS = []
 # Layouts: "main_plot" (full-width) | "double_plot" (two side-by-side images)
 # Reference format: "type/Plot Name" — auto-converts to filename.
 
+# Slide order matches oc_template.pptx (slides 4-18).
+
 POWERPOINT_EXPORT_MAP = [
+    # Driver input
     Slide("main_plot",   "waveform/Driver Input"),
+    Slide("main_plot",   "waveform/Brake Powers"),
+    Slide("double_plot", "bar/Brake Energies Bar",           "bar/Ratio Time in SM Zones"),
+    Slide("main_plot",   "waveform/TPG"),
+    # Power unit
     Slide("main_plot",   "waveform/Power Unit"),
     Slide("double_plot", "scatter/Gear Ratios",              "scatter/Engine Power"),
     Slide("double_plot", "bar/Cumulative Metrics",           "scatter/Engine Efficiency"),
+    # Handling
     Slide("double_plot", "scatter/Long Acceleration",        "scatter/Lat Acceleration"),
     Slide("double_plot", "scatter/GG Plot",                  "scatter/Understeer Plot"),
     Slide("double_plot", "scatter/Yaw Rate Response",        "scatter/Lateral Acceleration Response"),
-    Slide("double_plot", "scatter/Braking Efficiency",       "scatter/Steering Moment"),
-    Slide("double_plot", "scatter/Damper gLat front",        "scatter/Damper gLat rear"),
-    Slide("double_plot", "scatter/Pushrod gLat front",       "scatter/Pushrod gLat rear"),
-    Slide("double_plot", "scatter/Front Heave",              "scatter/Rear Heave"),
-    Slide("double_plot", "scatter/Front Roll",               "scatter/Rear Roll"),
-    Slide("double_plot", "scatter/Front Pushrod vCar",       "scatter/Rear Pushrod vCar"),
+    Slide("double_plot", "scatter/Braking Efficiency",       "scatter/rLLTD vs vCar"),
+    # Ride
+    Slide("main_plot",   "waveform/Ride Heights Waveform"),
     Slide("double_plot", "scatter/Front Ride vCar",          "scatter/Rear Ride vCar"),
     Slide("double_plot", "scatter/Ride Height Compare",      "scatter/Roll angle gLat"),
-    Slide("double_plot", "psd/Front Vertical Acceleration PSD", "psd/Rear Vertical Acceleration PSD"),
-    Slide("double_plot", "psd/Front Ride PSD",               "psd/Rear Ride PSD"),
-    Slide("double_plot", "psd/FL gHub PSD",               "psd/FR gHub PSD"),
-    Slide("double_plot", "psd/RL gHub PSD",               "psd/RR gHub PSD"),
-    Slide("main_plot",   "waveform/Plank Wear"),
-    Slide("double_plot", "scatter/Plank power acceleration", "histogram/Plank Power Distribution"),
+    Slide("main_plot",   "waveform/Corner Radius"),
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -173,8 +220,10 @@ def main() -> None:
         psds=PSD_PLOT_DEFINITIONS,
         histograms=HISTOGRAM_PLOT_DEFINITIONS,
         bars=BAR_PLOT_DEFINITIONS,
+        powerpoint_template=POWERPOINT_TEMPLATE,
         powerpoint_output=POWERPOINT_OUTPUT,
         export_map=POWERPOINT_EXPORT_MAP,
+        powerpoint_start_slide=POWERPOINT_START_SLIDE,
     )
 
 

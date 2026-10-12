@@ -54,7 +54,7 @@ def get_workflow_dirs(workflow: str, event: str = None) -> tuple:
 # ─── RESAMPLING ───────────────────────────────────────────────────────────────
 # All channels resampled to this rate (Hz) BEFORE filtering, so filter cutoffs
 # stay consistent regardless of the source logging rate. 0/None disables it.
-RESAMPLE_RATE = 50
+RESAMPLE_RATE = 100
 
 
 # ─── CHANNEL MAPPINGS ────────────────────────────────────────────────────────
@@ -68,6 +68,7 @@ CHANNEL_MAPPINGS = {
         "aUndersteer_nYaw":  "aUndersteerFromnYaw",
         "dtLap_drGripFactorTotal": "Grip Sens.",
         "sRun": "sLap",
+        "output.parameter.laptime": "tLapSolver",
         # aCamber* is intentionally NOT mapped: CAR's `aCamber*Kinematic` is
         # the TOTAL quantity, and the calc-channel fallback below rebuilds
         # OC's kinematic value as (aCamber − aCamberComplianceDelta).
@@ -129,7 +130,7 @@ UNITS_MAP = {
     # speeds / rates
     "vcar": "kph", "nengine": "rpm", "nwheelr_avg": "rpm", "nyaw": "deg/s",
     # angles (deg)
-    "aroll": "deg", "asteer": "deg", "asteerwheel": "deg",
+    "aroll": "deg", "apitch": "deg", "asteer": "deg", "asteerwheel": "deg",
     "aundersteerfromslip": "deg",
     # displacements (mm)
     "xrh": "mm", "laser": "mm", "hrider": "mm", "hridef": "mm",
@@ -339,6 +340,8 @@ CALCULATED_CHANNELS = {
     "hRideR (raw)":  lambda df: df["hRideR"],
     "hRideF (high)": lambda df: df["hRideF"],
     "hRideR (high)": lambda df: df["hRideR"],
+    # Same definition as the logged CAR/DIL aRake (3400 mm reference length); overrides native pitch channels.
+    "aPitch": calc_channel("hRideF", "hRideR")(lambda df: np.degrees(np.arctan((df["hRideR"] - df["hRideF"]) / 3400.0))),
 
     # ── Kinematic camber (per-source fallback strategy) ──────────────────────
     **{f"aCamber{c}Kinematic": _kinematic_camber(c) for c in _CORNERS},
@@ -364,6 +367,10 @@ CALCULATED_CHANNELS = {
     "EPlank_F": lambda df: cumulative_trapezoid(np.nan_to_num(df["PPlank_F"].to_numpy(), nan=0.0), dx=1.0 / RESAMPLE_RATE, initial=0),
     "EPlank_R": lambda df: cumulative_trapezoid(np.nan_to_num(df["PPlank_R"].to_numpy(), nan=0.0), dx=1.0 / RESAMPLE_RATE, initial=0),
     "tLap_Calc": lambda df: cumulative_trapezoid(np.ones_like(df["vCar"]), dx=1.0 / RESAMPLE_RATE, initial=0),
+    # OC solver lap time; else CAR export length (span + 1 sample = header "Length"); else tLap_Calc.
+    "tLap_Report": calc_channel("tLapSolver", "TimeIntoExport", "vCar")(
+        lambda df: df["tLapSolver"] if "tLapSolver" in df.columns else (df["TimeIntoExport"] - df["TimeIntoExport"].iloc[0] + 1.0 / RESAMPLE_RATE) if "TimeIntoExport" in df.columns else df["tLap_Calc"]
+    ),
 
     # ── Tyre / suspension (OC sources) ───────────────────────────────────────
     "FzTyreF_Avg":     lambda df: (df["FzTyreFL"] + df["FzTyreFR"]) / 2,
@@ -515,6 +522,9 @@ FILTERS = {
     # Suspension / dynamics low-pass.
     "rLLTD":  _spec(1, 4),
     "CosPhi": _spec(3, 3),
+    # Chassis attitude angles — 5 Hz low-pass (same as the "all" fallback).
+    "aRoll": _spec(5, 2),
+    "aPitch": _spec(3, 2),
     # Fallback: any channel not listed above.
     "all": _spec(5, 2),
 }

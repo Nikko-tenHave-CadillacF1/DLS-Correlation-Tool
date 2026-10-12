@@ -4,6 +4,7 @@ from channel_config import get_workflow_dirs
 from engine import (
     BarPlot,
     PsdPlot,
+    Scatter3DPlot,
     ScatterPlot,
     Slide,
     WaveformPlot,
@@ -11,10 +12,10 @@ from engine import (
 )
 
 WORKFLOW_NAME = "correlation"
-EVENT = "26R15BAK"
+EVENT = "26R17SIN"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
-NPERSEG = 120  # Welch segment length (samples) shared by every PsdPlot.
+NPERSEG = 250  # Welch segment length (samples) shared by every PsdPlot.
 
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
@@ -23,37 +24,36 @@ NPERSEG = 120  # Welch segment length (samples) shared by every PsdPlot.
 
 RUNS = [
     # {
-    #     "name": "CAR - BLUE",
-    #     "file": r"26R15BAK_260924_MAC26-01_BOT_P2_R02PARTIAL.txt",
-    #     "color": "#0900B9",
+    #     "name": "CAR - BOT SQ1R2",
+    #     "file": r"26R17SIN_261009_MAC26-01_BOT_SQ_R02.txt",
+    #     "color": "#003BB9",
     #     "type": "CAR",
     # },
     # {
-    #     "name": "DLS - BLUE",
-    #     "file": r"BOT FP2R2_-CORR_DLS.parquet",
-    #    "color": "#00A830",
+    #     "name": "DLS - BOT SQ1R2",
+    #     "file": r"BOT SQR2 uC4_DLS.parquet",
+    #     "color": "#00A10B",
     #     "nlap": 1,
     #     "type": "DLS",
     # },
     {
-        "name": "CAR - RED",
-        "file": r"26R15BAK_260924_MAC26-02_PER_P2_R02PARTIAL.txt",
+        "name": "CAR - PER P1R3",
+        "file": r"26R17SIN_261009_MAC26-02_PER_P1_R03PARTIAL.txt",
         "color": "#B90C00",
         "type": "CAR"
     },
+    # {
+    #     "name": "DLS - RED",
+    #     "file": r"PER SQ1 R1 nC4_DLS.parquet",
+    #     "color": "#00A108",
+    #     "nlap": 1,
+    #     "type": "DLS",
+    # },
     {
-        "name": "DLS - FIT R22",
-        "file": r"FIT BAK R22_-BSL_DLS.parquet",
-        "color": "#00A149",
-        "nlap": 1,
-        "type": "DLS",
-    },
-    {
-        "name": "DLS -50 CLF +30 CLR FIT R22",
-        "file": r"FIT BAK R22_-50 CLF + 30 CLR_DLS.parquet",
-        "color": "#0800A1",
-        "nlap": 1,
-        "type": "DLS",
+        "name": "DIL - PAG R11",
+        "file": r"Singapore_261009_GMDiL-08_PAG_R11PARTIAL.txt",
+        "color": "#00A118",
+        "type": "DIL",
     },
 ]
 
@@ -109,6 +109,20 @@ WAVEFORM_PLOT_DEFINITIONS = [
         reference_lines=(None, (0,), (0,), None, None, None),
         subplot_heights=(0.7, 0.3, 0.3, 0.4, 0.3, 0.3),
     ),
+    WaveformPlot(
+        name="Pushrod Checks",
+        channels=(('vCar', 'NGear'), 'FPRodAvgF', 'FPRodAvgR', 'pBrakeF', ('rThrottle', 'SM')),
+        axis_limits=(((None, 400), (-1, 9)), None, None, None, ((0, 105), (0, 1.3))),
+        reference_lines=(None, (0,), (0,), None, None),
+        subplot_heights=(0.6, 0.4, 0.4, 0.4, 0.3),
+    ),
+    WaveformPlot(
+        name="Pitch Angle",
+        channels=(('vCar', 'NGear'), 'aPitch', 'pBrakeF', ('rThrottle', 'SM')),
+        axis_limits=(((None, 400), (-1, 9)), None, None, ((0, 105), (0, 1.3))),
+        reference_lines=(None, (0,), None, None),
+        subplot_heights=(0.5, 0.7, 0.4, 0.4),
+    ),
 ]
 
 
@@ -131,7 +145,7 @@ SCATTER_PLOT_DEFINITIONS = [
 
     # ── Handling / steering ──────────────────────────────────────────────────
     ScatterPlot("Understeer Plot", "vCar", "aUndersteerFromSlip",
-                axis_limits=[(None, None), (-3, 3)]),
+                axis_limits=[(None, None), (None, None)]),
     ScatterPlot("Yaw Rate Response", "aSteerWheel", "nYaw",
                 axis_limits=[(-160, 160), (None, None)],
                 best_fit=[('x', -20, 20)], error_as_factor=True),
@@ -147,11 +161,15 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("Front Roll",  "xDamperDeltaF", "FPRodDeltaF",
                 best_fit=[('x', None, None)], error_as_factor=True),
     ScatterPlot("Rear Heave",  "xDamperAvgR", "FPRodAvgR",
-                best_fit=[('x', None, 145), ('x', 146, None)], error_as_factor=True),
+                best_fit=[('x', None, 145), ('x', 145.5, None)], error_as_factor=True),
     ScatterPlot("Rear Roll",   "xDamperDeltaR", "FPRodDeltaR",
                 best_fit=[('x', None, None)], error_as_factor=True),
     ScatterPlot("Roll angle gLat", "gLat", "aRoll",
                 best_fit=[('x', None, None)], error_as_factor=True),
+    ScatterPlot("Pitch angle gLong", "gLong", "aPitch",
+                best_fit=[('x', None, None)], error_as_factor=True, gate=(('pBrakeF', '>', 1))),
+    ScatterPlot("Front Ride gLong", "gLong", "hRideF"),
+    ScatterPlot("Rear Ride gLong", "gLong", "hRideR"),
 
     # ── Aero / ride vs vCar (SM-split fits) ──────────────────────────────────
     ScatterPlot("Front Pushrod vCar", "vCar", "FPRodAvgF",
@@ -167,10 +185,6 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("Rear Ride vCar", "vCar", "hRideR",
                 best_fit=[('SM', 0, 0.5), ('SM', 0.5, 1)], annotate_fit_at=(100, 200, 300),
                 axis_limits=[(None, None), (None, 75)],
-                error_as_factor=True, dil_friendly=True),
-    ScatterPlot("Front Ride vCar - SM OFF", "vCar", "hRideF",
-                best_fit=[('SM', 0, 0.5)], annotate_fit_at=(100, 200, 300),
-                axis_limits=[(None, None), (None, 40)],
                 error_as_factor=True, dil_friendly=True),
     ScatterPlot("Ride Height Compare", "hRideF", "hRideR"),
 
@@ -273,10 +287,22 @@ BAR_PLOT_DEFINITIONS = [
 ]
 
 
+# ─── 3D SCATTER PLOTS ─────────────────────────────────────────────────────────
+# Rendered as PNG (+ interactive HTML when plotly is installed); not exported.
+
+SCATTER3D_PLOT_DEFINITIONS = [
+    Scatter3DPlot(
+        name="Ride Heights vs gLong",
+        x_channel="gLong",
+        y_channel="hRideF",
+        z_channel="hRideR",
+    ),
+]
+
+
 # ─── POWERPOINT EXPORT MAP ────────────────────────────────────────────────────
 # Slide("main_plot",   "type/Plot Name")                       — full-width image
 # Slide("double_plot", "type/Left Plot", "type/Right Plot")    — two side-by-side
-
 POWERPOINT_EXPORT_MAP = [
     # 1. Driver / power unit
     Slide("main_plot",   "waveform/Driver Input"),
@@ -295,7 +321,7 @@ POWERPOINT_EXPORT_MAP = [
     Slide("double_plot", "scatter/Yaw Rate Response",   "scatter/Lateral Acceleration Response"),
 
     # 4. Brakes
-    Slide("main_plot",   "scatter/Braking Efficiency"),
+    Slide("double_plot", "scatter/Braking Efficiency", "scatter/Pitch angle gLong"),
 
     # 5. Suspension loads & modes
     Slide("double_plot", "scatter/Front Heave",         "scatter/Rear Heave"),
@@ -306,6 +332,7 @@ POWERPOINT_EXPORT_MAP = [
     Slide("main_plot",   "waveform/Ride Heights Waveform"),
     Slide("double_plot", "scatter/Front Ride vCar",     "scatter/Rear Ride vCar"),
     Slide("double_plot", "scatter/Ride Height Compare", "scatter/Roll angle gLat"),
+    Slide("double_plot", "scatter/Front Ride gLong",    "scatter/Rear Ride gLong"),
 
     # 7. Plank wear
     Slide("main_plot",   "waveform/Plank Wear"),
@@ -335,6 +362,7 @@ def main() -> None:
         scatters=SCATTER_PLOT_DEFINITIONS,
         psds=PSD_PLOT_DEFINITIONS,
         bars=BAR_PLOT_DEFINITIONS,
+        scatter3d=SCATTER3D_PLOT_DEFINITIONS,
         powerpoint_output=POWERPOINT_OUTPUT,
         export_map=POWERPOINT_EXPORT_MAP,
     )

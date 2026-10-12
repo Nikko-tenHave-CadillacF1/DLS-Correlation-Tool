@@ -1,74 +1,48 @@
-# Golden-output snapshots
+# tests/golden
 
-Byte-oriented regression records for `Run_*.py` workflows. Each snapshot
-captures SHA-256 hashes of every plot PNG and PowerPoint file the workflow
-produces, so subsequent refactors can be verified as pixel/byte-identical
-without a human eye-balling every output.
+Reference data for regression checks.
 
-## What lives here
+| File | Used by |
+|---|---|
+| `coverage_baseline.xml` | The CI `coverage-guard` job |
+| `<runner>.json` (optional) | [tools/golden_regression.py](../../tools/golden_regression.py) |
 
-One `<runner>.json` per workflow, committed to git. Example:
-`Run_Correlation.json` covers `Run_Correlation.py`.
+## Coverage baseline
 
-## How PNGs are hashed
-
-**We hash the pixel array, not the file bytes.** Matplotlib PNG output
-embeds a build-time timestamp in a `tIME` metadata chunk and other
-metadata that varies across `matplotlib` versions (and sometimes between
-runs on the same version). Raw-file-byte hashes would false-positive on
-every dependency bump.
-
-The tool loads each PNG with Pillow, converts to `RGBA`, and hashes the
-resulting NumPy array — this is deterministic across matplotlib versions
-as long as the actual pixels rendered are identical.
-
-## How PPTX is hashed
-
-**Content-hash of ZIP entries, excluding volatile metadata parts.** A
-`.pptx` is an OOXML ZIP archive. python-pptx rewrites two parts on every
-save regardless of whether the content changed:
-
-- `docProps/core.xml` embeds `dcterms:modified` (wall-clock timestamp).
-- `docProps/app.xml` embeds an edit-count.
-
-Raw-byte hashing would therefore false-positive on every re-run. The
-harness unzips the pptx, computes SHA-256 of each entry's bytes,
-excludes those two parts, and hashes the sorted
-`{filename → sha256}` table. This measures actual slide layout, media,
-and text — which is what a golden-output check should care about.
-
-If a future python-pptx version starts writing additional metadata
-timestamps into other parts (e.g. custom XML in `docProps/custom.xml`),
-add them to `_PPTX_VOLATILE_PARTS` in `tools/golden_regression.py`. The
-symptom is a fresh snapshot immediately failing verification.
-
-## Regeneration
-
-Snapshots are committed to source control. Regenerating them is an
-explicit, reviewable action:
+CI runs `pytest`, which writes `coverage.xml`. The job fails if any file's line
+coverage drops more than 2.0 percentage points below this baseline, or if a
+file in the baseline is missing from the new report. If the drop is
+intentional, update the baseline in the same PR:
 
 ```powershell
-python tools/golden_regression.py snapshot Run_Correlation
+pytest
+Copy-Item coverage.xml tests\golden\coverage_baseline.xml
 ```
 
-The resulting JSON diff should be reviewed the same way a source-code
-change would be — a hash change means a plot changed, and that change
-needs to be intentional. If it's not, the refactor that caused it needs
-investigation.
+## Output snapshots
 
-## Verifying
+`golden_regression.py` runs a `Run_*.py` headlessly with `--no-open` and
+interactive windows suppressed. It then hashes every PNG under
+`Data/outputs/<workflow>/<event>/plots/` and every deck the runner exports.
 
 ```powershell
-python tools/golden_regression.py verify Run_Correlation
+python tools/golden_regression.py snapshot Run_Correlation   # writes tests/golden/Run_Correlation.json
+python tools/golden_regression.py verify   Run_Correlation   # exit 0 = match, 1 = NEW / MISSING / CHANGED files listed
+python tools/golden_regression.py list
 ```
 
-Exits 0 if every hash matches the snapshot; exits 1 with a list of NEW /
-MISSING / CHANGED files otherwise.
+No snapshot is committed at the moment. A snapshot depends on the local
+`Data/` inputs, which git ignores, so it's only valid on the machine that
+recorded it. Check that the input data hasn't changed before you trust a
+`verify` result.
 
-## Reproducibility contract
+How files are hashed:
 
-Two consecutive `snapshot` invocations on the same host, same versions,
-and same input files must produce byte-identical JSON. If they don't,
-the regression harness itself is broken and needs fixing before it can
-be used to gate refactors. Report any non-determinism rather than
-loosening the hash comparison.
+- **PNG**: the decoded RGBA pixel array, so matplotlib metadata and timestamps
+  don't affect the hash.
+- **PPTX**: each ZIP entry, excluding `docProps/core.xml` (save time) and
+  `docProps/app.xml` (edit count). If a newer python-pptx writes other
+  volatile parts, add them to `_PPTX_VOLATILE_PARTS`.
+
+Two snapshots taken on the same machine with the same inputs must be identical.
+If they aren't, fix the harness rather than loosening the comparison.

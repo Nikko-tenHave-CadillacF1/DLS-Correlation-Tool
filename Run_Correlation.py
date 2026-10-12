@@ -13,7 +13,7 @@ from engine import (
 )
 
 WORKFLOW_NAME = "correlation"
-EVENT = "26R14MAD"
+EVENT = "26R17SIN"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
@@ -23,25 +23,24 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 RUNS = [
     {
-        "name": "BOT - Q1R3",
-        "file": r"26R14MAD_260912_MAC26-02_PER_Q_R03_4.txt",
-        "color": "#B94100",
+        "name": "CAR - PER SQ1R2",
+        "file": r"26R17SIN_261009_MAC26-02_PER_SQ_R02.txt",
+        "color": "#B90C00",
         "type": "CAR"
     },
     {
-        "name": "DLS",
-        "file": r"PER Q1R3 nC4_BSL_DLS.parquet",
-        "color": "#0300A1",
+        "name": "DLS - RED",
+        "file": r"PER SQ1 R1 nC4_DLS.parquet",
+        "color": "#00A108",
         "nlap": 1,
         "type": "DLS",
     },
-    {
-        "name": "DLS -15 CLF +12 CLR",
-        "file": r"PER Q1R3 nC4_-15CLF +12CLR_DLS.parquet",
-        "color": "#A10099",
-        "nlap": 1,
-        "type": "DLS",
-    },
+    # {
+    #     "name": "DIL - PAG R2",
+    #     "file": r"Singapore_261009_GMDiL-08_PAG_R02PARTIAL.txt",
+    #     "color": "#00A118",
+    #     "type": "DIL",
+    # },
 ]
 
 # ─── POWERPOINT EXPORT ───────────────────────────────────────────────────────────────────────
@@ -107,6 +106,12 @@ WAVEFORM_PLOT_DEFINITIONS = [
         subplot_heights=(0.8, 0.5, 0.5, 0.5, 0.5, 0.5),
     ),
     WaveformPlot(
+        name="rMDecelTot",
+        channels=(('vCar', 'NGear'), 'PMGUK', 'rMDecelTot', ('rThrottle', 'SM')),
+        axis_limits=(((None, 400), (-1, 9)), None, (40,60), ((0, 105), (0, 1.3))),
+        subplot_heights=(0.5, 0.5, 0.8, 0.5),
+    ),
+    WaveformPlot(
         name="TPG",
         channels=(('vCar', 'NGear'), ('aCamberFLKinematic', 'aCamberFRKinematic'),  ('aCamberRLKinematic', 'aCamberRRKinematic')),
         axis_limits=(((60, 400), (-1, 9)), None, None),
@@ -162,38 +167,41 @@ SCATTER_PLOT_DEFINITIONS = [
                 best_fit=[('y', None, -0.2)],  gate=('gLong', '<', 0)),
     ScatterPlot("Understeer Plot",         "vCar",          "aUndersteerFromSlip"),
 
-    # ## STEERING CORRELATION - FOR DLS CHECKS
-    # ScatterPlot("Yaw Rate Response",       "aSteerWheel",   "nYaw",
-    #             axis_limits=[(-160, 160), (None, None)],    best_fit=[('x', -20, 20)]),
-    # ScatterPlot("Lateral Acceleration Response", "aSteerWheel", "gLat",
-    #             axis_limits=[(-160, 160), (None, None)],    best_fit=[('x', -20, 20)]),
+    ## STEERING CORRELATION - FOR DLS CHECKS
+    ScatterPlot("Yaw Rate Response",       "aSteerWheel",   "nYaw",
+                axis_limits=[(-160, 160), (None, None)],    best_fit=[('x', -20, 20)]),
+    ScatterPlot("Lateral Acceleration Response", "aSteerWheel", "gLat",
+                axis_limits=[(-160, 160), (None, None)],    best_fit=[('x', -20, 20)]),
 
-    ## STEERING CORRELATION - FOR OC CHECKS
-    ScatterPlot("Yaw Rate Response",       "aSteerF",   "nYaw",
-                axis_limits=[(-10, 10), (None, None)],    best_fit=[('x', -1, 1)]),
-    ScatterPlot("Lateral Acceleration Response", "aSteerF", "gLat",
-                axis_limits=[(-10, 10), (None, None)],    best_fit=[('x', -1, 1)]),
+    # ## STEERING CORRELATION - FOR OC CHECKS
+    # ScatterPlot("Yaw Rate Response",       "aSteerF",   "nYaw",
+    #             axis_limits=[(-10, 10), (None, None)],    best_fit=[('x', -1, 1)]),
+    # ScatterPlot("Lateral Acceleration Response", "aSteerF", "gLat",
+    #             axis_limits=[(-10, 10), (None, None)],    best_fit=[('x', -1, 1)]),
 
-    ScatterPlot("Steering Moment",         "aSteerWheel",   "MSteerWheel",
-                axis_limits=[(-160, 160), (None, None)]),
-    ScatterPlot("FPRodDeltaF vs gLat",      "gLat",          "FPRodDeltaF"),
-    ScatterPlot("FPRodDeltaR vs gLat",      "gLat",          "FPRodDeltaR"),
+    # ScatterPlot("Steering Moment",         "aSteerWheel",   "MSteerWheel",
+    #             axis_limits=[(-160, 160), (None, None)]),
+    # ScatterPlot("FPRodDeltaF vs gLat",      "gLat",          "FPRodDeltaF"),
+    # ScatterPlot("FPRodDeltaR vs gLat",      "gLat",          "FPRodDeltaR"),
 
-    # ## CAR SUSPENSION CORRELATION - FOR REPORT
-    # ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF", axis_limits=[(None, None), (0, None)],
-    #             best_fit=[('y', None, 8500), ('y', 12500, None)]),
-    # ScatterPlot("Front Roll",              "xDamperDeltaF", "FPRodDeltaF",          best_fit=[('x', None, None)]),
-    # ScatterPlot("Rear Heave",              "xDamperAvgR",   "FPRodAvgR",
-    #             best_fit=[('y', None, 13000), ('y', 16500, None)]),
-    # ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)]),
+    ## CAR SUSPENSION CORRELATION - FOR REPORT
+    ScatterPlot("Front Heave",             "xDamperAvgF",   "FPRodAvgF", axis_limits=[(None, None), (0, None)],
+                best_fit=[('y', None, 8500), ('y', 12500, None)]),
+    # Segmented by gLat (zero ARB torque for every source): +/-0.75 g = FARB deadband, |gLat| > 1 g = outside.
+    # Gate drops pit/slow running and damper-velocity loops (same filters as tools/farb_deadband.py).
+    ScatterPlot("Front Roll",              "xDamperDeltaF", "FPRodDeltaF",
+                best_fit=[('x', None, None)]),
+    ScatterPlot("Rear Heave",              "xDamperAvgR",   "FPRodAvgR",
+                best_fit=[('y', None, 13000), ('y', 16500, None)]),
+    ScatterPlot("Rear Roll",               "xDamperDeltaR", "FPRodDeltaR",          best_fit=[('x', None, None)]),
 
-    ## OC SUSPENSION CORRELATION - FOR OC CHECKS
-    ScatterPlot("Front Heave",             "xHubVertF_Avg",   "FzTyreF_Avg",
-                 best_fit=[('y', 2500, None), ('y', None, 2500)]),
-    ScatterPlot("Front Roll",              "xHubVertF_Delta", "FzTyreF_Delta",          best_fit=[('x', None, None)]),
-    ScatterPlot("Rear Heave",              "xHubVertR_Avg",   "FzTyreR_Avg",
-                 best_fit=[('y', None, 5000), ('y', 5000, None)]),
-    ScatterPlot("Rear Roll",               "xHubVertR_Delta", "FzTyreR_Delta",          best_fit=[('x', None, None)]),
+    # ## OC SUSPENSION CORRELATION - FOR OC CHECKS
+    # ScatterPlot("Front Heave",             "xHubVertF_Avg",   "FzTyreF_Avg",
+    #              best_fit=[('y', 2500, None), ('y', None, 2500)]),
+    # ScatterPlot("Front Roll",              "xHubVertF_Delta", "FzTyreF_Delta",          best_fit=[('x', None, None)]),
+    # ScatterPlot("Rear Heave",              "xHubVertR_Avg",   "FzTyreR_Avg",
+    #              best_fit=[('y', None, 5000), ('y', 5000, None)]),
+    # ScatterPlot("Rear Roll",               "xHubVertR_Delta", "FzTyreR_Delta",          best_fit=[('x', None, None)]),
 
     ScatterPlot("Roll angle gLat",         "gLat",          "aRoll",                best_fit=[('x', None, None)]),
     ScatterPlot("Front Pushrod vCar",      "vCar",          "FPRodAvgF",
@@ -225,7 +233,8 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("Rear CL Proxy vCar - SM ON",      "vCar",          "CLR_Proxy",
                 best_fit=[('x', 150, None)], annotate_fit_at=(150, 200, 250, 300),
                 error_as_factor=True, gate=(('pBrakeF', '<', 1), ("gLat_Abs", '<', 1), ("SM", '>', 0.5))),
-
+    ScatterPlot("Rear Slips vs PMGUK", "PMGUK", "rSlipRAvg", gate=(('pBrakeF', '>', 1))),
+    ScatterPlot("rMDecelTot vs gLong", "gLong", "rMDecelTot", gate=(('pBrakeF', '>', 1), ("rMDecelTot", '>', 10))),
 ]
 
 # ─── PSD PLOTS ────────────────────────────────────────────────────────────────

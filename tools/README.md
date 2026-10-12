@@ -1,134 +1,80 @@
 # Tools
 
-Utility scripts for the DLS Correlation Tool.
+Helper scripts. Run them from the repository root.
 
-## `organise_data.py`
+| Script | Purpose |
+|---|---|
+| [organise_data.py](organise_data.py) | Sorts loose input files into event folders |
+| [validate_config.py](validate_config.py) | Checks that a `Run_*.py` file imports cleanly |
+| [farb_deadband.py](farb_deadband.py) | Builds front-ARB deadband lookup tables from CAR data |
+| [golden_regression.py](golden_regression.py) | Compares a runner's output hashes before and after a change |
 
-Moves raw data files into per-event subfolders based on the event code in
-filenames (e.g. `26R03SUZ`, `26T01BCN`).
+## organise_data.py
 
-```bash
+Moves files from `Data/inputs/<workflow>/` into `<event>/` subfolders, using
+the event code in the filename (`26R03SUZ`, `26T01BCN`, ...). It leaves a file
+where it is if the filename has no code or the target file already exists.
+
+```powershell
 python tools/organise_data.py --workflow correlation --dry-run
 python tools/organise_data.py --workflow correlation
 ```
 
-## `validate_config.py`
+## validate_config.py
 
-Validates a `Run_*.py` configuration file without generating plots.
-
-```bash
+```powershell
 python tools/validate_config.py Run_Correlation.py
 ```
 
-Runs the configuration in `--dry-run` mode, which also exercises folder-based
-run expansion (`folder` + `filetype`, including the optional `contains`
-substring filter). Empty folders, unknown filetypes, and `contains` filters
-that match no files are reported as errors before any plotting starts.
+Imports the runner and reports any error raised at import time, such as a
+syntax error or a bad plot definition. It doesn't call `main()`, so it doesn't
+check input files, folder expansion or the export map. For a full check, run
+`python Run_Correlation.py --dry-run`.
 
-## `vibrations.py` — moved to `engine/`
+## farb_deadband.py
 
-The vibrations pipeline now lives under three files in `engine/`:
+Builds front-ARB lookup tables in the same format as `FARB_8000.json`:
+`M [Nm] = f(aARBFL, aARBFR)`, with breakpoints in rad. Each table has a low
+gradient inside ±deadband and a high gradient outside it.
 
-| File | Role |
-|------|------|
-| `engine/vibrations_io.py` | I/O, body-frame transform, fit dispatch, plotting, CLI |
-| `engine/vibrations_lorentz.py` | Pure-math Lorentzian fit kernel (standalone) |
-| `engine/vibrations_body4dof.py` | Pure-math 13-parameter MCK fit kernel (standalone) |
+Run `python tools/farb_deadband.py`. It takes no arguments; change settings in
+the `SETTINGS` block at the top of the file.
 
-Each fit kernel imports nothing from the other (and nothing from
-`vibrations_io`), so the two methods can be audited in isolation. The
-I/O layer is the only place that wires them together — it optionally
-runs `vibrations_lorentz.run_fit` first to seed the body4dof DE basin.
+- **Inputs** (in `tools/`): `FARB_8000.json` is the template table.
+  `ARBS with no TB.csv` lists the FARB used in each session. The tool
+  processes every FARB in the CSV using the CAR runs that match it.
+  `FARB_VALUES` limits which FARBs are processed. `CAR_FILES` overrides the run
+  selection and only works with a single FARB.
+- **Fit**: the low gradient, high gradient and deadband half-width are fitted
+  jointly to all selected runs on `xDamperDeltaF` vs `FPRodDeltaF`. Each run
+  keeps its own sensor-zero offset and heave-crosstalk coefficient. To fix a
+  value instead of fitting it, set `K_LOW_N_PER_MM`, `K_HIGH_N_PER_MM` or
+  `DEADBAND_HALF_WIDTH_MM`.
+- **Filters** (all in `SETTINGS`): `vCar ≥ 100 kph`,
+  `|vDamperDeltaF| ≤ 10 mm/s`, duplicate files removed, heave-crosstalk
+  compensation and a 3σ outlier trim.
+- **Units**: `DLS_FILE`, a DLS run on the template table, converts plot units
+  (N/mm, mm) to table units (Nm/rad, rad). If that file is missing, built-in
+  fallback values are used.
+- **Outputs**: `Data/outputs/farb_deadband/FARB_<k>_deadband.json` and
+  `plots/FARB_<k>_deadband.png`, overwritten on each run, plus a summary in the
+  console. FARBs with no usable CAR data are skipped. The bilinear table can't
+  reproduce the deadband kink exactly; the tool reports the maximum
+  interpolation error, and `GRID_POINTS` trades table size against it.
 
-Import the public API directly from the I/O module:
+## golden_regression.py
 
-```python
-from engine.vibrations_io import run_fit, run_fit_from_arrays, plot_comparison, expand_runs
+Runs a runner headlessly and hashes every output PNG and PPTX, so you can
+confirm a refactor hasn't changed any plot. See
+[tests/golden/README.md](../tests/golden/README.md).
+
+```powershell
+python tools/golden_regression.py snapshot Run_Correlation
+python tools/golden_regression.py verify   Run_Correlation
 ```
 
-(`engine.vibrations_io` is intentionally not re-exported from
-`engine/__init__.py` because it transitively imports `channel_config`,
-which imports `engine.datafunctions` — eager re-export would create a
-circular import while `engine/__init__.py` is still mid-load. The lazy
-import inside `DataPlotter._run_modal_fits` is unaffected.)
+## Vibrations
 
-**Preferred usage** — edit settings in `Run_Vibrations.py` and run directly:
-
-```bash
-python Run_Vibrations.py
-```
-
-Standalone CLI is also available:
-
-```bash
-python -m engine.vibrations_io Data/inputs/ride_dil/26R07BCN/26R07BCN_260612_MAC26-03_BOT_P2_R01.txt
-python -m engine.vibrations_io path/to/file.txt --fmin 1.5 --fmax 15 --no-plots
-```
-
-### Fit methods
-
-| Method | Parameters | Description |
-|--------|-----------|-------------|
-| `lorentzian_combined` | 2 × (f₀, ζ, A_F, A_R) per subsystem | Shared-pole Lorentzians: each mode shares (f₀, ζ) across front/rear DOFs with independent amplitudes. Fast (~2–4 s per subsystem). Default. |
-| `body4dof` | 13 physical params (M, C, K) | Full mass-stiffness-damping model. Produces self-consistent MCK matrices and mode shapes. Slower (~30–60 s). |
-
-### Pipeline
-
-1. **Load** — FPushrod corner forces, high-pass filtered at 2 Hz
-2. **Transform** — Corner → body coordinates via `T`: [FL, FR, RL, RR] → [z_F, θ_F, z_R, θ_R]
-3. **PSD** — Welch method (configurable `NPERSEG`, 50% overlap, Hanning window)
-4. **Normalise** — Each DOF PSD scaled to [0, 1] for shape matching
-5. **Fit** — Differential evolution (Sobol init, peak-picked x0, L-BFGS-B polish)
-6. **Plot** — Diagnosis, body-coord mode shapes, multi-run comparison
-
-### Integration with `Run_RideReport.py`
-
-The same fit is also invoked automatically from `DataPlotter` when a
-`VIBRATIONS_FIT` dict is passed to `run_workflow`; see `Run_RideReport.py`
-for the canonical configuration. Modal parameters land as constant channels
-(`modal_<mode>_f0`, `modal_<mode>_zeta`, plus `_sigma` siblings) consumable
-by `BarPlot.error_metrics`, and the full fit results are stored on
-`plotter.modal_results` for `plot_modal_evolution`.
-
-### Key settings in `Run_Vibrations.py`
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `F_MIN` / `F_MAX` | 2.0 / 13.0 Hz | Fit frequency window. Must exclude wheel-hop (~15+ Hz). |
-| `EXPECTED_FREQS` | per-mode (lo, hi) | Soft band preference + DE seed. Optimiser can escape the band when data supports it. `None` to disable. |
-| `NPERSEG` | 512 | Welch segment length. Higher = finer Δf but fewer averages. |
-| `DISPLACEMENT_MODE` | `False` | Fit to xDamperPot displacements instead of FPushrod forces. |
-
-### Spectral averaging
-
-Number of Welch segments (50% overlap) ≈ `2 × N_samples / NPERSEG - 1`.
-Aim for ≥ 30 segments for a smooth PSD estimate.
-
-| NPERSEG | Δf (Hz) @ 100 Hz | Min signal for 30 segments |
-|---------|-------------------|---------------------------|
-| 256 | 0.39 | ~39 s |
-| 512 | 0.20 | ~77 s |
-| 1024 | 0.10 | ~154 s |
-| 1500 | 0.07 | ~225 s |
-| 2048 | 0.05 | ~307 s |
-
-### Output plots
-
-Three figures per fit:
-
-| Plot | Filename | Content |
-|------|----------|---------|
-| Diagnosis | `vibrations_diag_*.png` | 4-DOF measured vs fitted with residual subplot and per-panel Lorentz info-box |
-| Mode shapes (body) | `vibrations_mode_shapes_body_*.png` | Bar chart of [z_F, θ_F, z_R, θ_R] participation |
-| Fitted comparison | `vibrations_comparison_fit.png` | Multi-run fitted-curve overlay with figure-level modal-parameter info-box (`f₀±σ`, `ζ±σ`) |
-
-### Potential future improvements
-
-- **Half-power bandwidth extraction** — Direct ζ estimation from -3 dB points of measured peaks, as a cross-check or replacement for curve-fitting on clean data.
-- **Confidence intervals** — Bootstrap or jackknife resampling of Welch segments to quantify uncertainty on (f₀, ζ) estimates.
-- **Multi-band Lorentzian count** — Automatic detection of the number of peaks per subsystem (currently fixed at 2 per heave/pitch and roll/warp). Would handle cases where additional suspension modes appear in the fit window.
-- **Wheel-hop mode fitting** — Extend the model to include unsprung mass DOFs, enabling analysis above 15 Hz.
-- **Coherence-weighted cost** — Use coherence between corner channels to down-weight frequency bins dominated by noise or non-linear excitation.
-- **Cross-spectral phase** — Use phase between front/rear or left/right channels to resolve mode shapes directly from measured data, rather than inferring from amplitude ratios.
-- **Automatic NPERSEG selection** — Choose segment length based on signal duration to target a specific number of averages (e.g., 50) while maximising frequency resolution.
-- **Batch processing** — Process all events in a directory and produce a summary table of modal parameters across the season for trend analysis.
+The modal-fit code is now in `engine/` (`vibrations_io.py`,
+`vibrations_lorentz.py`, `vibrations_body4dof.py`). See
+[Modal analysis](../README.md#modal-analysis) in the main README.

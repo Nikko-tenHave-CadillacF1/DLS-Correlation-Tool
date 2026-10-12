@@ -1,169 +1,151 @@
 # DLS Correlation Tool
 
-Generate engineering plots from multiple telemetry runs and optionally export
-a PowerPoint report.
+Plots telemetry from several runs (CAR, DLS, DIL, OC, FMIOpt) on shared axes
+and can export the plots to a PowerPoint report.
 
 ## Setup
-
-Recommended for engineers — set up the environment once, then run any
-`Run_*.py`. The runners no longer auto-install on first run; they check that
-dependencies are importable and print an install hint if not.
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt   # full install (recommended)
-python Run_Correlation.py
+pip install -r requirements.txt
 ```
 
-`requirements.txt` is the recommended install path — it pulls in the full
-set (core + parquet + PowerPoint + 3-D HTML export + tqdm). Alternatively:
+`requirements.txt` installs everything. For an editable install, choose the
+extras you need:
 
 ```powershell
-pip install -e ".[parquet,pptx,plotly]"   # editable install with extras
-pip install -e .                           # minimal (core only)
+pip install -e ".[parquet,pptx,plotly]"   # full
+pip install -e .                           # core only
 ```
 
-Optional extras and what you lose without them:
-
-| Extra | Package(s) | Needed for |
+| Extra | Package(s) | Without it |
 |---|---|---|
-| `parquet` | `pyarrow`, `fastparquet` | reading `.parquet` inputs (either engine is enough) |
-| `pptx` | `python-pptx` | PowerPoint export |
-| `plotly` | `plotly` | the interactive `.html` beside each 3-D scatter PNG |
+| `parquet` | `pyarrow`, `fastparquet` | `.parquet` inputs can't be read (one engine is enough) |
+| `pptx` | `python-pptx` | No PowerPoint export |
+| `plotly` | `plotly` | 3-D scatters are saved as PNG only, without the interactive `.html` |
+| `dev` | `pytest`, `pytest-cov`, `ruff`, `pre-commit` | No tests or linting |
 
-`tqdm` (progress bars) is a core dependency but the tool runs without it.
+`import engine` checks that pandas, numpy, matplotlib and scipy are installed
+and prints an install hint if they're missing. Set `DLS_SKIP_BOOTSTRAP=1` to
+skip this check.
 
-### Alternative: console-script entry points
-
-`pip install -e .` also installs a set of console scripts that call the same
-`Run_*.py` `main()` functions. Useful for CI, packaged installs, or when
-`.venv\Scripts\` is on PATH:
-
-```powershell
-dls-correlation          # equivalent to: python Run_Correlation.py
-dls-boxplots             # equivalent to: python Run_BoxPlots.py
-dls-ridedil              # equivalent to: python Run_RideDIL.py
-dls-ridereport           # equivalent to: python Run_RideReport.py
-dls-vibrations           # equivalent to: python Run_Vibrations.py
-dls-oc-checks            # equivalent to: python Run_OC_Checks.py
-dls-bumpstop             # equivalent to: python Run_Bumpstop.py
-dls-template             # equivalent to: python Run_Template.py
-```
-
-The `Run_*.py` files remain the primary user-editable configuration; the
-console scripts are just shortcuts.
-
-### Environment overrides
-
-- `DLS_SKIP_BOOTSTRAP=1` — skip the built-in dependency check at
-  `import engine` time (used by CI where the environment is already
-  provisioned).
-
----
+`pip install -e .` also adds console scripts that call each runner's `main()`:
+`dls-correlation`, `dls-boxplots`, `dls-ridedil`, `dls-ridereport`,
+`dls-vibrations`, `dls-oc-checks`, `dls-bumpstop` and `dls-template`.
+`Run_DILCorrelation.py` and `Run_DLSCorrelation.py` don't have one.
 
 ## Quickstart
 
-1. Drop input files into `Data/inputs/<workflow>/<event>/` (folders are auto-created).
-2. Edit `WORKFLOW_NAME`, `EVENT`, and `RUNS` in the relevant `Run_*.py`.
-3. Run it.
+1. Put the input files in `Data/inputs/<workflow>/<event>/`.
+2. In the runner you want, set `EVENT` and `RUNS`, and edit the plot
+   definitions if needed.
+3. Run it, e.g. `python Run_Correlation.py`.
 
-```powershell
-python Run_Correlation.py
-python Run_BoxPlots.py
-python Run_RideDIL.py
-```
+Plots are saved to `Data/outputs/<workflow>/<event>/plots/<type>/`, and the
+folder opens when the job finishes. Folders are created automatically.
 
-Plots are saved to `Data/outputs/<workflow>/<event>/plots/`. The folder opens
-automatically on completion.
+`Data/` is ignored by git. You need to copy in the input data and the
+PowerPoint templates (`Data/templates/template.pptx`, `oc_template.pptx`) on
+each machine.
 
-To start a new workflow from scratch, copy [Run_Template.py](Run_Template.py)
-and change `WORKFLOW_NAME` and `EVENT` — all directories are created
-automatically. `Run_Template.py` is a tutorial: it demonstrates every plot
-type with annotated examples.
+To start a new workflow, copy [Run_Template.py](Run_Template.py). It shows
+every plot type with annotated examples.
 
-### Discover and validate before plotting
+## Runners
 
-```powershell
-python Run_Correlation.py --list-channels   # channels in each loaded run
-python Run_Correlation.py --list-plots      # configured plot names + channels
-python Run_Correlation.py --check-only      # data-quality report only
-python Run_Correlation.py --dry-run         # preview the plan, no data load
-```
+| File | Workflow | Purpose |
+|---|---|---|
+| [Run_Template.py](Run_Template.py) | `template` | Tutorial covering every plot type |
+| [Run_Correlation.py](Run_Correlation.py) | `correlation` | CAR vs DLS correlation report (`template.pptx`) |
+| [Run_DLSCorrelation.py](Run_DLSCorrelation.py) | `correlation` | Alternative CAR vs DLS correlation preset |
+| [Run_DILCorrelation.py](Run_DILCorrelation.py) | `correlation` | CAR vs DIL simulator checks (blank deck) |
+| [Run_OC_Checks.py](Run_OC_Checks.py) | `correlation` | CAR vs OC lap-sim report (`oc_template.pptx`) |
+| [Run_BoxPlots.py](Run_BoxPlots.py) | `boxplots` | Box plots across sessions and drivers |
+| [Run_RideDIL.py](Run_RideDIL.py) | `ride_dil` | CAR vs DIL ride comparison (waveform, scatter, PSD) |
+| [Run_RideReport.py](Run_RideReport.py) | `ride_report` | Multi-session ride report with modal fits, plus a modal-evolution deck |
+| [Run_Bumpstop.py](Run_Bumpstop.py) | `bumpstops` | Comparison of DLS bumpstop configurations |
+| [Run_Vibrations.py](Run_Vibrations.py) | `ride_dil` | Standalone body modal fit (see [Modal analysis](#modal-analysis)) |
 
-Two different checks run automatically on every job:
+Project-wide settings are in [channel_config.py](channel_config.py): paths,
+channel mappings, units, transforms, calculated channels, filters and the
+resample rate. You shouldn't need to edit [engine/](engine/) for normal use.
 
-- **Config validation is fatal.** Missing/duplicate run names, a missing input
-  file, an unknown `type`, or a missing PowerPoint template abort the run with
-  exit code 1 before any data is read.
-- **Unknown channel names are a warning.** If a plot references a channel that
-  exists in no loaded run, the runner prints the name with close-match
-  suggestions and carries on; affected plots are skipped. Use
-  `--list-channels` to see what your data actually contains.
+To turn off PowerPoint export, set `POWERPOINT_OUTPUT = None`. To get a blank
+16:9 deck instead of a template, set `POWERPOINT_TEMPLATE = None`.
 
-A successful run always exits 0, so the runners are safe to chain in scripts.
+## Command line
 
-### CLI
-
-The CLI is intentionally minimal — the runners are designed to work without
-any flags. The full set:
+Every runner except `Run_Vibrations.py` accepts these flags. All of them are
+optional.
 
 | Flag | Effect |
-|------|--------|
-| `--only NAME [NAME ...]` | Generate only plots whose name matches (case-insensitive) |
-| `--runs NAME [NAME ...]` | Restrict to a subset of configured runs by name |
-| `--no-open` | Don't auto-open the output folder after completion |
-| `--list-plots` | Print all configured plot names and exit |
-| `--list-channels` | Load each run and print available channel names, then exit |
-| `--check-only` | Run data-quality checks and exit without plotting |
-| `--dry-run` | Preview what would be generated (no data load, no plots) |
+|---|---|
+| `--only NAME ...` | Generate only the plots with these names (case-insensitive) |
+| `--runs NAME ...` | Use only these runs |
+| `--no-open` | Don't open the output folder or deck when the job finishes |
+| `--list-plots` | Print the configured plot names and exit |
+| `--list-channels` | Load the runs, print their channels and exit |
+| `--check-only` | Load the data, write the quality report and exit |
+| `--dry-run` | Validate the config and show the plan without loading data |
+
+- **Config errors stop the run.** A missing input file or PowerPoint
+  template, a duplicate run name or an unknown `type` exits with code 1
+  before any data is read.
+- **Unknown channels only produce a warning.** The runner prints close matches
+  and skips the affected plots.
+- A successful run always exits with code 0.
+
+Every run writes `plots/data_quality_report.md`, which covers sample rates,
+missing channels, NaN ratios, flatlined channels and `sLap` alignment.
 
 ---
 
 ## Plot types
 
-Each type is a dataclass imported from `engine` and passed to `run_workflow()`
-via the matching keyword. Full field documentation is in
-[docs/plot-reference.md](docs/plot-reference.md); working examples of all of
-them are in [Run_Template.py](Run_Template.py).
+Each plot type is a dataclass imported from `engine` and passed to
+`run_workflow()` with the matching keyword. Every field is documented in
+[docs/plot-reference.md](docs/plot-reference.md), and
+[Run_Template.py](Run_Template.py) has a working example of each.
 
-| Dataclass | `run_workflow` keyword | Produces |
+| Dataclass | Keyword | Produces |
 |---|---|---|
-| `WaveformPlot` | `waveforms=` | Stacked time/distance traces, optional delta-vs-baseline rows |
-| `ScatterPlot` | `scatters=` | X-Y scatter with linear / polynomial / piecewise / robust fits |
-| `Scatter3DPlot` | `scatter3d=` | 3-channel scatter (PNG, plus interactive HTML with `plotly`) |
-| `PsdPlot` | `psds=` | Welch PSD, optional Lorentzian peak fits (f₀, ζ) |
-| `HistogramPlot` | `histograms=` | Per-run channel distributions |
-| `BarPlot` | `bars=` | Aggregated metrics per run, optional errorbars and deltas |
-| `BoxPlot` / `BoxPlotGrid` | `boxes=` | Box-and-whisker, per-run / pooled / gridded by condition |
-| `HeatmapPlot` | `heatmaps=` | 2-D density or per-bin aggregation |
-
-PNGs are written to `Data/outputs/<workflow>/<event>/plots/<type>/`.
+| `WaveformPlot` | `waveforms=` | Stacked traces against time or distance, with optional delta-to-baseline rows |
+| `ScatterPlot` | `scatters=` | X-Y scatter with linear, polynomial, piecewise or robust fits |
+| `Scatter3DPlot` | `scatter3d=` | 3-channel scatter as PNG, plus interactive HTML if `plotly` is installed |
+| `PsdPlot` | `psds=` | Welch PSD with optional Lorentzian peak fits (f₀, ζ) |
+| `HistogramPlot` | `histograms=` | Channel distribution per run |
+| `BarPlot` | `bars=` | Aggregated metrics per run, with optional error bars and deltas |
+| `BoxPlot` / `BoxPlotGrid` | `boxes=` | Box plots per run, pooled, or in a grid by condition |
+| `HeatmapPlot` | `heatmaps=` | 2-D density or aggregation per bin |
 
 ---
 
-## File structure
+## Modal analysis
 
-### Files you edit
+[Run_Vibrations.py](Run_Vibrations.py) fits Heave, Pitch, Roll and Warp body
+modes to the four FPushrod corner forces. Set `DISPLACEMENT_MODE = True` to
+fit damper displacements instead. Edit `RUNS` and the settings block, then run
+the file. It doesn't take command-line flags.
 
-| File | Purpose |
-|---|---|
-| [Run_Template.py](Run_Template.py) | Reference / tutorial — every plot type with annotated examples |
-| [Run_Correlation.py](Run_Correlation.py) | Correlation plots + PowerPoint export |
-| [Run_DLSCorrelation.py](Run_DLSCorrelation.py) | DLS-focused correlation preset |
-| [Run_DILCorrelation.py](Run_DILCorrelation.py) | DIL simulator correlation preset |
-| [Run_BoxPlots.py](Run_BoxPlots.py) | Box plots and `BoxPlotGrid` examples |
-| [Run_RideDIL.py](Run_RideDIL.py) | Ride / DIL simulator comparison (PSD) |
-| [Run_RideReport.py](Run_RideReport.py) | Ride report + modal-evolution deck |
-| [Run_Vibrations.py](Run_Vibrations.py) | 4-DOF body modal analysis (Heave, Pitch, Roll, Warp) |
-| [Run_OC_Checks.py](Run_OC_Checks.py) | OC data-quality checks |
-| [Run_Bumpstop.py](Run_Bumpstop.py) | Bumpstop characterisation |
-| [channel_config.py](channel_config.py) | Project-wide settings: paths, channel mappings, units, transforms, calc channels, filters |
+| Setting | Default | Meaning |
+|---|---|---|
+| `F_MIN` / `F_MAX` | 2 / 13 Hz | Fit window; keep `F_MAX` below wheel hop (~15 Hz) |
+| `EXPECTED_FREQS` | Band per mode | Soft hints; the fit can leave a band if the data supports it. Set to `None` to disable |
+| `NPERSEG` | 512 | Welch segment length, as an int or `"auto"`. Aim for at least 30 averages (≈ `2·N/NPERSEG − 1`) |
+| `METHOD` | `lorentzian_combined` | Fast Lorentzian fit with f₀ and ζ shared between front and rear. `body4dof` fits a 13-parameter mass-spring-damper model and is slower |
 
-### Engine (do not edit)
+Outputs are written to `Data/outputs/ride_dil/<event>/plots/vibrations/`:
+`vibrations_diag_<run>.png`, `vibrations_mode_shapes_body_<run>.png` and
+`vibrations_comparison_fit.png`.
 
-Single package under [engine/](engine/). See
-[docs/architecture.md](docs/architecture.md) for the module map.
+You can also run the same fit inside a plotting workflow by passing
+`vibrations_fit=` (see [Run_RideReport.py](Run_RideReport.py)). Each result
+becomes a set of constant channels (`modal_<mode>_f0`, `modal_<mode>_zeta`
+and their uncertainty channels) that `BarPlot` can use.
+`plot_modal_evolution()` then plots how the modes change across sessions.
+
+To fit a single file: `python -m engine.vibrations_io <file> --fmin 2 --fmax 13`.
 
 ---
 
@@ -171,20 +153,29 @@ Single package under [engine/](engine/). See
 
 | Symptom | Likely cause | What to do |
 |---|---|---|
-| `Configuration validation failed` | Input file not found, duplicate run name, or unknown `type` | Check `EVENT` and the `file` paths in `RUNS`; `type` must be `CAR`, `OC`, `DLS`, `DIL`, or `FMIOpt` |
-| `references channels that exist in no loaded run` | Channel typo, or the source genuinely lacks that channel | `--list-channels`, then fix the name or add a calculated channel in [channel_config.py](channel_config.py) |
-| A plot is empty or has far fewer points than expected | A `gate` filtered out everything | Relax or remove the `gate`, re-run with `--only "<Plot Name>"` |
-| Traces from different loggers don't line up | `sLap` offset/scale between sources | Alignment is automatic; check the `sLap Alignment Estimate` section of `data_quality_report.md` |
-| `'<name>.pptx' is open in another application` | The deck is locked by PowerPoint | Close it and re-run; the plots still generated and the rest of the job completed |
-| Parquet run fails to load | No parquet engine installed | `pip install pyarrow` (or `fastparquet`) |
-
-Every run also writes `plots/data_quality_report.md` with sample rates,
-missing channels, NaN ratios, flatlined channels, and `sLap` diagnostics.
+| `Configuration validation failed` | Input file or template not found, duplicate run name, or unknown `type` | Check `EVENT` and the `file` paths in `RUNS`. `type` must be `CAR`, `OC`, `DLS`, `DIL` or `FMIOpt` |
+| `...reference channels that exist in no loaded run` | A channel name is misspelled, or the source doesn't have that channel | Run with `--list-channels`, then fix the name or add a calculated channel in [channel_config.py](channel_config.py) |
+| A plot is empty or has very few points | A `gate` removed most of the data | Relax or remove the `gate`, then re-run with `--only "<Plot Name>"` |
+| Traces from different loggers don't line up | Different `sLap` offset or scale between sources | Alignment is automatic; check the `sLap Alignment Estimate` section of `data_quality_report.md` |
+| `PowerPoint export skipped: ... is open in another application` | The deck is open in PowerPoint | Close the deck and re-run. The plots were still generated |
+| A `.parquet` run fails to load | No parquet engine is installed | `pip install pyarrow` (or `fastparquet`) |
+| `Run_Correlation.py` / `Run_DLSCorrelation.py` doesn't finish | After the run, the 3-D scatters reopen in an interactive window | Close the window |
 
 ---
 
+## Development
+
+```powershell
+pip install -e ".[dev]"
+pytest          # tests + coverage (writes coverage.xml)
+ruff check .
+```
+
+CI runs `pytest` on Windows and Ubuntu (Python 3.10 and 3.12), `ruff check`,
+and a per-file coverage guard (see [tests/golden/README.md](tests/golden/README.md)).
+
 ## Documentation
 
-- **[docs/plot-reference.md](docs/plot-reference.md)** — every plot type, every field, with examples.
-- **[docs/architecture.md](docs/architecture.md)** — job lifecycle, `PlotJobConfig`, `channel_config.py`, data layout, calc channels, filters, cross-event comparisons, PowerPoint export.
-- **[tools/README.md](tools/README.md)** — helper scripts (data organisation, config validation).
+- [docs/plot-reference.md](docs/plot-reference.md): every plot type and field, with examples.
+- [docs/architecture.md](docs/architecture.md): job lifecycle, `PlotJobConfig`, `channel_config.py`, calculated channels, filters, PowerPoint export.
+- [tools/README.md](tools/README.md): helper scripts (data sorting, config check, FARB deadband tables, golden-output regression).

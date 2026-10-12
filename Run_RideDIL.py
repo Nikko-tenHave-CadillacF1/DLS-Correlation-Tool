@@ -10,72 +10,36 @@ from engine import (
 )
 
 WORKFLOW_NAME = "ride_dil"
-EVENT = "26R15BAK"
+EVENT = "MOI Test"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 
 RUNS = [
     {
-        "name": "PER P2R2",
-        "file": r"26R15BAK_260924_MAC26-02_PER_P2_R02PARTIAL.txt",
+        "name": "BOT Q1R3",
+        "file": r"26R13MZA_260905_MAC26-01_BOT_Q_R03.txt",
         "color": "#CD4E00",
         "type": "CAR",
     },
     {
-        "name": "FIT R22",
-        "file": r"Baku_260924_GMDiL-08_FIT_R22PARTIAL.txt",
+        "name": "DIL - 7PR MOI",
+        "file": r"Monza_261007_GMDiL-08_DRU_R06PARTIAL.txt",
         "color": "#0062FF",
         "type": "DIL",
     },
-    # {
-    #     "name": "Roll MoI - 45",
-    #     "file": r"BOT Q1R3 NC5_-Roll MoI Test - 45_DLS.parquet",
-    #     "color": "#440154",
-    #     "nlap": 1,
-    #     "type": "DLS",
-    # },
-    # {
-    #     "name": "Roll MoI - 50",
-    #     "file": r"BOT Q1R3 NC5_-Roll MoI Test - 50_DLS.parquet",
-    #     "color": "#414487",
-    #     "nlap": 1,
-    #     "type": "DLS",
-    # },
-    # {
-    #     "name": "Roll MoI - 55",
-    #     "file": r"BOT Q1R3 NC5_-Roll MoI Test - 55_DLS.parquet",
-    #     "color": "#2a788e",
-    #     "nlap": 1,
-    #     "type": "DLS",
-    # },
-    # {
-    #     "name": "Roll MoI - 60",
-    #     "file": r"BOT Q1R3 NC5_-Roll MoI Test - 60_DLS.parquet",
-    #     "color": "#22a884",
-    #     "nlap": 1,
-    #     "type": "DLS",
-    # },
-    # {
-    #     "name": "Roll MoI - 65",
-    #     "file": r"BOT Q1R3 NC5_-Roll MoI Test - 65_DLS.parquet",
-    #     "color": "#7ad151",
-    #     "nlap": 1,
-    #     "type": "DLS",
-    # },
-    # {
-    #     "name": "Roll MoI - 70",
-    #     "file": r"BOT Q1R3 NC5_-Roll MoI Test - 70_DLS.parquet",
-    #     "color": "#fde725",
-    #     "nlap": 1,
-    #     "type": "DLS",
-    # },
+    {
+        "name": "DIL - Design MOI",
+        "file": r"Monza_261007_GMDiL-08_DRU_R04PARTIAL.txt",
+        "color": "#9900FF",
+        "type": "DIL",
+    },
 ]
 
 
 # ─── POWERPOINT EXPORT ───────────────────────────────────────────────────────────────────────
 # Set POWERPOINT_OUTPUT to a Path to enable a blank 16:9 deck export.
-NPERSEG = 120  # PSD segment length (samples) for Welch method. See PSD_PLOT_DEFINITIONS.
+NPERSEG = 200  # PSD segment length (samples) for Welch method. See PSD_PLOT_DEFINITIONS.
 POWERPOINT_OUTPUT = None  # e.g. _OUTPUT_DIR / "DIL_Ride_Report.pptx"
 
 # ─── WAVEFORM PLOTS ───────────────────────────────────────────────────────────
