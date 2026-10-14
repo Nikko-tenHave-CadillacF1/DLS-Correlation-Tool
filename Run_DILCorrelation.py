@@ -39,7 +39,7 @@ RUNS = [
     {
         "name": "CAR - PER P1R3",
         "file": r"26R17SIN_261009_MAC26-02_PER_P1_R03PARTIAL.txt",
-        "color": "#B90C00",
+        "color": "#D10E00",
         "type": "CAR"
     },
     # {
@@ -52,7 +52,7 @@ RUNS = [
     {
         "name": "DIL - PAG R11",
         "file": r"Singapore_261009_GMDiL-08_PAG_R11PARTIAL.txt",
-        "color": "#00A118",
+        "color": "#00C71E",
         "type": "DIL",
     },
 ]
@@ -122,6 +122,13 @@ WAVEFORM_PLOT_DEFINITIONS = [
         axis_limits=(((None, 400), (-1, 9)), None, None, ((0, 105), (0, 1.3))),
         reference_lines=(None, (0,), None, None),
         subplot_heights=(0.5, 0.7, 0.4, 0.4),
+    ),
+    WaveformPlot(
+        name="Damper Velocities",
+        channels=(('vCar', 'NGear'), 'vDamperHeaveF', 'vDamperHeaveR', 'vDamperRollF', 'vDamperRollR', 'pBrakeF', ('rThrottle', 'SM')),
+        axis_limits=(((None, 400), (-1, 9)), None, None, None, None, None, ((0, 105), (0, 1.3))),
+        reference_lines=(None, (0,), (0,), (0,), (0,), None, None),
+        subplot_heights=(0.8, 0.4, 0.4, 0.4, 0.4, 0.3, 0.3),
     ),
 ]
 

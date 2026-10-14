@@ -10,28 +10,28 @@ from engine import (
 )
 
 WORKFLOW_NAME = "correlation"
-EVENT = "26R16SEP"
+EVENT = "26R18COT"
 _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME, EVENT)
 
 # ─── RUNS ─────────────────────────────────────────────────────────────────────
 
 RUNS = [
-    {
-        "name": "CAR",
-        "file": r"26R16SEP_261003_MAC26-01_BOT_Q_R02.txt",
-        "color": "#AD5C00",
-        "type": "CAR"
-    },
     # {
-    #     "name": "DLS",
-    #     "file": r"26R17SIN - VPG v1 LF_DLS.parquet",
-    #     "color": "#0034B9",
-    #     "nlap": 1,
-    #     "type": "DLS"
+    #     "name": "CAR",
+    #     "file": r"26R17SIN_261010_MAC26-02_PER_Q_R02.txt",
+    #     "color": "#AD4500",
+    #     "type": "CAR"
     # },
     {
+        "name": "DLS",
+        "file": r"26R18COT - VPG v1 LF_DLS.parquet",
+        "color": "#0034B9",
+        "nlap": 1,
+        "type": "DLS"
+    },
+    {
         "name": "OC",
-        "file": r"20261004-OC-VPG - 26R16SEP - BOT Q2R2 Cor - v1-SEP.parquet",
+        "file": r"20261012-OC-XPG - 26R18COT - RVS Corr V1 LF - v3-Several.parquet",
         "color": "#007B2F",
         "nrun": 1,
         "type": "OC",
@@ -167,8 +167,8 @@ BAR_PLOT_DEFINITIONS = [
     BarPlot("COG Sensitivies", (("dtLap_dhCoGStatic", "integral"), ("dtLap_dxCoGStatic_Integral", "max"))),
     BarPlot("Aero Sensitivites", (("dtLap_dCDragTotal_Integral", "max"), ("dtLap_dCLiftTotal_Integral", "max"))),
     BarPlot("Lap Time",           (("tLap_Report",       "max"),)),
-    BarPlot("Time in SM Zones",   (("time_in_SM_100",       "last"), ("time_in_SM_90",        "last"), ("time_in_SM_80",        "last"))),
-    BarPlot("Ratio Time in SM Zones",   (("ratio_time_in_SM_100",       "last"), ("ratio_time_in_SM_90",        "last"), ("ratio_time_in_SM_80",        "last"))),
+    BarPlot("Time in SM Zones",   (("time_in_SM_100",       "last"), ("time_in_SM_90",        "last"), ("time_in_SM_80",        "last")),         secondary_axis=False,),
+    BarPlot("Ratio Time in SM Zones",   (("ratio_time_in_SM_100",       "last"), ("ratio_time_in_SM_90",        "last"), ("ratio_time_in_SM_80",        "last")),         secondary_axis=False,),
 ]
 
 # ─── BOX PLOTS ────────────────────────────────────────────────────────────────

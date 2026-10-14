@@ -10,11 +10,13 @@ import numpy as np
 import pytest
 
 from engine.vibrations_lorentz import (
-    MIN_BAND_GAP_HZ,
     MODE_ORDER,
     ZETA_MAX,
     ZETA_MIN,
     _lorentz_shape,
+    _to_reported,
+    _unit_peak_shape,
+    eval_psds,
     run_fit,
 )
 
@@ -26,8 +28,24 @@ class TestConstants:
     def test_zeta_bounds(self):
         assert 0.0 < ZETA_MIN < ZETA_MAX < 1.0
 
-    def test_min_band_gap_hz(self):
-        assert MIN_BAND_GAP_HZ > 0
+
+class TestPeakParameterisation:
+    def test_unit_peak_shape_peaks_at_one_at_f_peak(self):
+        freqs = np.linspace(2.0, 12.0, 20001)
+        shape = _unit_peak_shape(freqs, np.array([5.5]), np.array([0.25]))[0]
+        assert shape.max() == pytest.approx(1.0, rel=1e-6)
+        assert freqs[np.argmax(shape)] == pytest.approx(5.5, abs=1e-3)
+
+    def test_reported_amp_reproduces_peak_height(self):
+        # (f_peak, zeta, log_height) -> (f0, zeta, log_amp) must give the same curve.
+        f_peak, zeta, height = 6.0, 0.3, 0.7
+        x = np.array([f_peak, zeta, np.log(height), 0.0])
+        f0, z, log_amp = _to_reported(x, 1, 1)[0]
+        freqs = np.linspace(2.0, 12.0, 501)
+        via_reported = np.exp(log_amp) * _lorentz_shape(freqs, np.array([[f0, z]]))[0]
+        via_peak = height * _unit_peak_shape(freqs, np.array([f_peak]), np.array([zeta]))[0]
+        np.testing.assert_allclose(via_reported, via_peak, rtol=1e-9)
+        assert f0 == pytest.approx(f_peak / np.sqrt(1.0 - 2.0 * zeta**2))
 
 
 class TestLorentzShape:
@@ -132,3 +150,33 @@ class TestRunFit:
         ):
             assert key in r, f"missing key {key!r} in run_fit result"
         assert list(r["mode_labels"]) == list(MODE_ORDER)
+        assert r["fit_mask"].shape == (4, freqs.size)
+
+    @pytest.mark.parametrize("welch_hann", [False, True])
+    def test_recovers_modal_parameters_at_coarse_resolution(self, welch_hann):
+        # Realistic setup: 0.5 Hz bins, heavily damped overlapping modes plus a flat floor.
+        # With welch_hann the data are blurred by the Hann kernel, as a Welch PSD is.
+        freqs = np.arange(3.5, 12.51, 0.5)
+        truth = np.array(
+            [
+                [5.5, 0.24, 1.0, 0.4],  # Heave
+                [8.3, 0.15, 0.3, 0.6],  # Pitch
+                [5.2, 0.28, 0.8, 0.5],  # Roll
+                [9.5, 0.20, 0.2, 0.4],  # Warp
+            ]
+        )
+        # Columns 2-3 are per-trace peak heights; convert to _lorentz_shape amplitudes.
+        f0, z = truth[:, 0], truth[:, 1]
+        params = truth.copy()
+        params[:, 2:] *= (4 * z**2 * (1 - z**2) * (2 * np.pi * f0) ** 4)[:, None]
+        floors = np.array([0.05, 0.04, 0.06, 0.03])
+        leakage_df = 0.5 if welch_hann else None
+        psds = eval_psds({"params": params, "baselines": floors, "leakage_df": leakage_df}, freqs)
+        psds = psds / psds.max()
+        bands = {"heave": (4.0, 6.5), "pitch": (7.0, 10.5), "roll": (4.5, 7.5), "warp": (8.5, 12.5)}
+        r = run_fit(freqs, psds, bands, n_avg=800, welch_hann=welch_hann)
+        np.testing.assert_allclose(r["fn"], truth[:, 0], atol=0.05)
+        np.testing.assert_allclose(r["zeta"], truth[:, 1], atol=0.01)
+        fitted = eval_psds(r, freqs)
+        for row in range(4):
+            assert fitted[row].max() == pytest.approx(psds[row].max(), rel=0.02)

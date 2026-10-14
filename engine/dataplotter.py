@@ -1744,8 +1744,8 @@ class DataPlotter:
             log.warning("Modal fit skipped — failed to import engine.vibrations_io: %s", exc)
             return
         displacement_mode = bool(cfg.get("displacement_mode", False))
-        fmin = float(cfg.get("fmin", 2.0))
-        fmax = float(cfg.get("fmax", 13.0))
+        fmin = cfg.get("fmin")
+        fmax = cfg.get("fmax")
         nperseg = cfg.get("nperseg", "auto")
         method = cfg.get("method", "lorentzian_combined")
         expected_freqs = cfg.get("expected_freqs")
@@ -1753,6 +1753,11 @@ class DataPlotter:
         bootstrap_n = int(cfg.get("bootstrap_n", 400))
         bootstrap_seed = int(cfg.get("bootstrap_seed", 0))
         primary_channels = _vib.DISPLACEMENT_CHANNELS if displacement_mode else _vib.FORCE_CHANNELS
+        for stale in (self.plots_dir / "vibrations").glob("*.png"):
+            try:
+                stale.unlink()
+            except OSError as exc:
+                log.warning("Could not remove stale plot %s: %s", stale, exc)
         for run in list(self.runs):
             name = run["name"].lower()
             df = self.run_data.get(name)
@@ -1798,7 +1803,7 @@ class DataPlotter:
                     label=run["name"],
                     output_dir=self.plots_dir.parent,
                     event=cfg.get("event", ""),
-                    show_plots=bool(cfg.get("show_plots", False)),
+                    show_plots=bool(cfg.get("show_plots", True)),
                     output_dpi=self.output_dpi,
                     bootstrap_ci=bootstrap_ci,
                     bootstrap_n=bootstrap_n,

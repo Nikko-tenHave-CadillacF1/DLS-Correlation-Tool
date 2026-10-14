@@ -41,7 +41,7 @@ _INPUT_DIR, _OUTPUT_DIR = get_workflow_dirs(WORKFLOW_NAME)
 # Single source of truth for Welch window length. 512 samples @ 100 Hz gives
 # ?f ~0.2 Hz and many averages — better confidence on modal peaks than the
 # default auto-sizing which favours frequency resolution over averaging.
-NPERSEG = 400
+NPERSEG = 200
 
 # Minimum number of Welch segment averages targeted by the auto-nperseg
 # algorithm. Higher values shrink the window (coarser Δf) to guarantee more
@@ -75,45 +75,12 @@ PSD_MIN_AVERAGES = 120
 # split the modal-evolution series — `plot_modal_evolution(group_by="group")`.
 
 RUNS = [
-    # # # ── Monaco (26R06MCO) ────────────────────────────────────────────────────
-    # {"folder": "26R06MCO/RED",  "filetype": ".txt", "type": "CAR",
-    #  "consolidate": "only", "consolidate_by": "session", "consolidated_name": "RED_{group}",
-    #  "color": "#D62728", "group": "RED"},
-    # {"folder": "26R06MCO/BLUE", "filetype": ".txt", "type": "CAR",
-    #  "consolidate": "only", "consolidate_by": "session", "consolidated_name": "BLUE_{group}",
-    #  "color": "#1F77B4", "group": "BLUE"},
-
-    # # # ── Barcelona (26R07BCN) ─────────────────────────────────────────────────
-    # {"folder": "26R07BCN/RED",  "filetype": ".txt", "type": "CAR",
-    #  "consolidate": "only", "consolidate_by": "session", "consolidated_name": "RED_{group}",
-    #  "color": "#D62728", "group": "RED"},
-    # {"folder": "26R07BCN/BLUE", "filetype": ".txt", "type": "CAR",
-    #  "consolidate": "only", "consolidate_by": "session", "consolidated_name": "BLUE_{group}",
-    #  "color": "#1F77B4", "group": "BLUE"},
-
-    # # # ── Silverstone (26R09SIL) ───────────────────────────────────────────────
-    # {"folder": "26R09SIL/RED",  "filetype": ".txt", "type": "CAR",
-    #  "consolidate": "only", "consolidate_by": "session", "consolidated_name": "RED_{group}",
-    #  "color": "#D62728", "group": "RED"},
-    # {"folder": "26R09SIL/BLUE", "filetype": ".txt", "type": "CAR",
-    #  "consolidate": "only", "consolidate_by": "session", "consolidated_name": "BLUE_{group}",
-    #  "color": "#1F77B4", "group": "BLUE"},
-
-    # # # ── Spa-Francorchamps (26R10SPA) ─────────────────────────────────────────
-    # {"folder": "26R10SPA/RED",  "filetype": ".txt", "type": "CAR",
-    #  "consolidate": "only", "consolidate_by": "session", "consolidated_name": "RED_{group}",
-    #  "color": "#D62728", "group": "RED"},
-    # {"folder": "26R10SPA/BLUE", "filetype": ".txt", "type": "CAR",
-    #  "consolidate": "only", "consolidate_by": "session", "consolidated_name": "BLUE_{group}",
-    #  "color": "#1F77B4", "group": "BLUE"},
-
-    # ── Hungary (26R11BUD) ── per-session RED vs BLUE evolution across the weekend
-    {"folder": "26R11BUD/RED",  "filetype": ".txt", "type": "CAR",
-     "consolidate": "only", "consolidate_by": "session", "consolidated_name": "RED_{group}",
-     "color": "#D62728", "group": "RED"},
-    {"folder": "26R11BUD/BLUE", "filetype": ".txt", "type": "CAR",
-     "consolidate": "only", "consolidate_by": "session", "consolidated_name": "BLUE_{group}",
-     "color": "#1F77B4", "group": "BLUE"},
+    # RED FP1 run 3 only; `contains` selects the single file from the folder.
+    {"folder": "26R17SIN/RED", "filetype": ".txt", "type": "CAR", "contains": "P1_R03",
+     "consolidate": "only", "consolidated_name": "26R17SIN PER P1R3", "color": "#D62728", "group": "RED"},
+    # All DIL files merged into one run (identical setup).
+    {"folder": "26R17SIN/DIL", "filetype": ".txt", "type": "DIL",
+     "consolidate": "only", "consolidated_name": "26R17SIN DIL", "group": "DIL"},
 ]
 
 # ─── VIBRATIONS FIT ─────────────────
@@ -123,15 +90,15 @@ RUNS = [
 
 VIBRATIONS_FIT = {
     "method": "lorentzian_combined",   # or "body4dof"
-    "fmin": 3.5,
-    "fmax": 12.5,
+    "fmin": 3,
+    "fmax": 12,
     "nperseg": NPERSEG,                # shared with PSD plots below
     "displacement_mode": False,
     "expected_freqs": {
-        "heave": (4.0, 6.5),
-        "pitch": (7.0, 10.5),
-        "roll":  (5.0, 7.5),
-        "warp":  (8.5, 12.5),
+        "heave": (4, 6.5),
+        "pitch": (7, 10),
+        "roll":  (4.0, 6),
+        "warp":  (7, 9.5),
     },
     "event": "GP_COMPARISON",
     "show_plots": True,               # auto-emits diagnosis plot per run

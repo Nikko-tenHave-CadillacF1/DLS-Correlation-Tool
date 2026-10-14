@@ -16,20 +16,13 @@ long-range autocorrelation (e.g. resample-rate << peak Lorentz width).
 
 Design notes
 ------------
-* We do **not** resample coherence — those weights are frozen from the
-  point estimate, so every bootstrap fit sees the same weighting kernel.
-  Bootstrapping coherence would conflate PSD-noise variance with the
-  independent frequency-dependent weighting, which is not what we want
-  the CI to represent.
-* The peak-picking initial guess and differential-evolution global step
-  are skipped inside every bootstrap iteration (``x0_seed`` short-circuit
-  in :func:`engine.vibrations_lorentz.run_fit`); this keeps each draw
-  ~50 ms and, more importantly, avoids mode-swap chaos where a bootstrap
-  iteration lands in a different local basin than the point estimate.
-* The absolute-sigma covariance path in ``run_fit`` still runs (with
-  ``n_avg`` reflecting the number of *resampled* segments) but its
-  parametric sigmas are unused — the bootstrap replaces them with
-  percentile CIs.
+* Every draw runs the same procedure as the point estimate (peak
+  identification, peak-region selection, log-space least squares), so
+  the CI includes the uncertainty in locating each peak.
+* Draws whose modes land nearer another mode's point estimate (mode swaps)
+  are rejected.
+* The parametric sigmas returned by each draw's ``run_fit`` are unused;
+  the bootstrap replaces them with percentile CIs.
 """
 
 from __future__ import annotations
@@ -37,40 +30,10 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from scipy import signal
 
 from . import vibrations_lorentz
 from .logger import log
-from .vibrations_io import compute_body_psds
-
-_MA3 = np.ones(3) / 3.0
-
-
-def _smooth_and_normalise(psds_fit: np.ndarray) -> np.ndarray:
-    """Same medfilt5 + ma3 + peak-normalise pipeline as the point fit."""
-    smooth = np.stack([np.convolve(signal.medfilt(p, kernel_size=5), _MA3, mode="same") for p in psds_fit])
-    peak = float(np.max(smooth))
-    if peak <= 0.0:
-        peak = 1.0
-    return smooth / peak
-
-
-def _params_to_seed(params: np.ndarray) -> np.ndarray:
-    """Convert a (4, 4) ``result['params']`` matrix into ``x0_seed`` form.
-
-    ``params`` rows are [Heave, Pitch, Roll, Warp] with columns
-    ``(f0, zeta, amp_front, amp_rear)`` in *linear* amplitude - which is
-    exactly the layout :func:`vibrations_lorentz.run_fit` expects.
-    """
-    arr = np.asarray(params, dtype=float)
-    if arr.shape != (4, 4):
-        raise ValueError(f"expected params of shape (4, 4); got {arr.shape}")
-    # Clip to interior of bounds so L-BFGS-B doesn't start on a wall.
-    arr = arr.copy()
-    arr[:, 0] = np.clip(arr[:, 0], 0.5, 30.0)
-    arr[:, 1] = np.clip(arr[:, 1], 0.021, 0.499)
-    arr[:, 2:] = np.clip(arr[:, 2:], 1e-9, None)
-    return arr
+from .vibrations_io import _analysis_mask, compute_body_psds
 
 
 def _block_indices(n_seg: int, block_size: int, rng: np.random.Generator) -> np.ndarray:
@@ -94,11 +57,9 @@ def bootstrap_modal_fit(
     corners: np.ndarray,
     fs: float,
     nperseg: int,
-    fmin: float,
-    fmax: float,
+    fmin: float | None,
+    fmax: float | None,
     expected_freqs: dict,
-    coh_hp: np.ndarray,
-    coh_rw: np.ndarray,
     point_result: dict,
     *,
     n_boot: int = 300,
@@ -117,13 +78,9 @@ def bootstrap_modal_fit(
     fs, nperseg, fmin, fmax, expected_freqs : same as
         :func:`vibrations_io.run_fit_from_arrays`. These must match the
         point-estimate call exactly.
-    coh_hp, coh_rw : (nf_fit,) arrays
-        Frozen coherence weights from the point estimate (already cropped
-        to the fit window and floored at 0.2).
     point_result : dict
         Output of the point-estimate ``vibrations_lorentz.run_fit`` call;
-        used both to seed each bootstrap fit and as a fallback if an
-        individual bootstrap iteration fails.
+        its f0 values are the references for mode-swap rejection.
     n_boot : int
         Number of bootstrap iterations. 200-300 is typical.
     rng : int, ``np.random.Generator`` or None
@@ -147,7 +104,7 @@ def bootstrap_modal_fit(
 
     # ---- One spectrogram pass; every bootstrap draw resamples this axis.
     freqs, sxx = compute_body_psds(corners, fs, nperseg=nperseg, return_segments=True)
-    fit_mask = (freqs >= fmin) & (freqs <= fmax)
+    fit_mask = _analysis_mask(freqs, fmin, fmax)
     freqs_fit = freqs[fit_mask]
     sxx_fit = sxx[:, fit_mask, :]  # (4, nf_fit, n_seg)
     n_seg = sxx_fit.shape[-1]
@@ -173,10 +130,11 @@ def bootstrap_modal_fit(
             "n_boot_effective": 0,
         }
 
-    x0_seed = _params_to_seed(point_result["params"])
     fn_ref = np.asarray(point_result["params"], dtype=float)[:, 0]
     log_fn_ref = np.log(np.clip(fn_ref, 1e-6, None))
     self_idx = np.arange(len(fn_ref))
+    # Modes can only swap within a subsystem: (Heave, Pitch) and (Roll, Warp).
+    same_subsystem = (self_idx[:, None] // 2) == (self_idx[None, :] // 2)
 
     fn_samples = np.full((n_boot, 4), np.nan)
     zeta_samples = np.full((n_boot, 4), np.nan)
@@ -188,21 +146,11 @@ def bootstrap_modal_fit(
     for i in range(n_boot):
         idx = _block_indices(n_seg, block_size, rng)
         psd_avg = sxx_fit[:, :, idx].mean(axis=-1)  # (4, nf_fit)
-        meas_norm = _smooth_and_normalise(psd_avg)
-        # n_avg for the resampled draw: unique segments (approximate) - the
-        # block-bootstrap gives correlated averages, so the effective count
-        # is smaller than idx.size. A conservative estimate is
-        # len(np.unique(idx)); the sigma path is not used downstream anyway.
+        norm = max(float(np.max(psd_avg)), 1e-300)
         n_avg_i = max(int(np.unique(idx).size), 1)
         try:
             res_i = vibrations_lorentz.run_fit(
-                freqs_fit,
-                meas_norm,
-                expected_freqs,
-                coh_hp=coh_hp,
-                coh_rw=coh_rw,
-                n_avg=n_avg_i,
-                x0_seed=x0_seed,
+                freqs_fit, psd_avg / norm, expected_freqs, n_avg=n_avg_i, quiet=True, welch_hann=True
             )
         except Exception as exc:  # noqa: BLE001 - individual draws may fail
             log.debug("bootstrap iter %d failed: %s", i, exc)
@@ -217,14 +165,14 @@ def bootstrap_modal_fit(
             n_swapped += 1
             continue
         log_fn_i = np.log(fn_i)
-        dist = np.abs(log_fn_i[:, None] - log_fn_ref[None, :])
+        dist = np.where(same_subsystem, np.abs(log_fn_i[:, None] - log_fn_ref[None, :]), np.inf)
         if not np.array_equal(np.argmin(dist, axis=1), self_idx):
             n_swapped += 1
             continue
         fn_samples[i] = fn_i
         zeta_samples[i] = params_i[:, 1]
-        ampf_samples[i] = params_i[:, 2]
-        ampr_samples[i] = params_i[:, 3]
+        ampf_samples[i] = res_i["amp_front"] * norm
+        ampr_samples[i] = res_i["amp_rear"] * norm
         n_ok += 1
 
     if n_ok == 0:

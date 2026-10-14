@@ -319,10 +319,10 @@ CALCULATED_CHANNELS = {
     "xDamperAvgR":   lambda df: (df["xDamperRL"] + df["xDamperRR"]) / 2,
     "xDamperDeltaF": lambda df: df["xDamperFL"] - df["xDamperFR"],
     "xDamperDeltaR": lambda df: df["xDamperRL"] - df["xDamperRR"],
-    "vDamperAvgF":   lambda df: np.gradient((df["xDamperFL"] + df["xDamperFR"]) / 2, 1.0 / RESAMPLE_RATE, edge_order=2),
-    "vDamperAvgR":   lambda df: np.gradient((df["xDamperRL"] + df["xDamperRR"]) / 2, 1.0 / RESAMPLE_RATE, edge_order=2),
-    "vDamperDeltaF": lambda df: np.gradient(df["xDamperFL"] - df["xDamperFR"], 1.0 / RESAMPLE_RATE, edge_order=2),
-    "vDamperDeltaR": lambda df: np.gradient(df["xDamperRL"] - df["xDamperRR"], 1.0 / RESAMPLE_RATE, edge_order=2),
+    "vDamperHeaveF":   lambda df: np.gradient((df["xDamperFL"] + df["xDamperFR"]), 1.0 / RESAMPLE_RATE, edge_order=2),
+    "vDamperHeaveR":   lambda df: np.gradient((df["xDamperRL"] + df["xDamperRR"]), 1.0 / RESAMPLE_RATE, edge_order=2),
+    "vDamperRollF": lambda df: np.gradient(df["xDamperFL"] - df["xDamperFR"], 1.0 / RESAMPLE_RATE, edge_order=2),
+    "vDamperRollR": lambda df: np.gradient(df["xDamperRL"] - df["xDamperRR"], 1.0 / RESAMPLE_RATE, edge_order=2),
     **{f"xDamperVar{c}": _rolling_var(f"xDamper{c}") for c in _CORNERS},
     **{f"xDamper{c}_High": _passthrough(f"xDamper{c}") for c in _CORNERS},
 
@@ -472,6 +472,7 @@ _UNFILTERED = (
     "gHubVertFL", "gHubVertFR", "gHubVertRL", "gHubVertRR",
     # pushrod forces — raw for PSD
     "FPushrodFL", "FPushrodFR", "FPushrodRL", "FPushrodRR",
+    "vDamperHeaveF", "vDamperHeaveR", "vDamperRollF", "vDamperRollR",
     # ride heights (raw copies)
     "hRideF (raw)", "hRideR (raw)",
     # brakes

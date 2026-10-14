@@ -16,10 +16,9 @@ Responsibilities
 3. **Dispatch** - calls `vibrations_lorentz.run_fit` directly, OR
    `vibrations_body4dof.run_fit` (which we can optionally seed with a
    prior Lorentz fit for a better DE basin).
-4. **Plotting** - three figures per workflow:
+4. **Plotting** - two figures:
        vibrations_diag_<run>.png         per-run measured vs fitted
-       vibrations_mode_shapes_body_<run> per-run mode-shape bars
-       vibrations_comparison_fit.png     multi-run overlay
+       vibrations_comparison_fit.png     multi-run overlay (Run_Vibrations)
 5. **CLI** - `python -m engine.vibrations_io <file> [options]`.
 
 The two fit modules import NOTHING from each other and NOTHING from
@@ -283,10 +282,8 @@ def _normalise_expected_freqs(expected_freqs: dict | None) -> dict:
     """Promote user-supplied bands into `{mode: (lo, hi, mid)}` tuples.
 
     Accepts either `(lo, hi)` tuples, scalar centres (`+/- 15 %`), or
-    falls back to `_DEFAULT_EXPECTED_FREQS`. The returned bands are used
-    as *initial-guess hints* for peak-picking and seed construction --
-    they are not hard priors on the optimiser, which is allowed to widen
-    its search out to the full `[fmin, fmax]` of the fit window.
+    falls back to `_DEFAULT_EXPECTED_FREQS`. Each band is the range in
+    which that mode's peak is searched.
     """
     out: dict[str, tuple[float, float, float]] = {}
     for mode in MODE_ORDER:
@@ -355,10 +352,7 @@ _INK = "#1A1A1A"
 _MEAS_COLOR = "#2000BF"
 _FIT_COLOR = "#D70000"
 _MODE_COLOR = "#00AA55"
-_RESID_COLOR = "#D70000"
 _BASELINE_COLOR = "#888888"
-_POS_BAR = "#2E86AB"
-_NEG_BAR = "#E05263"
 _SAVE_KW = dict(pad_inches=0.15, facecolor="white", bbox_inches="tight")
 _DEFAULT_COLORS = [
     "#FF8000",
@@ -466,11 +460,11 @@ def _format_lorentz_line(label: str, f0: float, sigma_f0: float, zeta: float, si
 
 
 def _add_lorentz_info_box(
-    ax, fmin: float, fmax: float, items: list, halign: str = "right", valign: str = "top", fontsize: float = 9.0
+    ax, header: str, items: list, halign: str = "right", valign: str = "top", fontsize: float = 9.0
 ) -> None:
     """items: iterable of (label, f0, sigma_f0, zeta, sigma_zeta, color)."""
     header = TextArea(
-        f"Lorentz fit [{fmin:.1f}\u2013{fmax:.1f} Hz]",
+        header,
         textprops=dict(color=_INK, fontsize=fontsize, fontweight="bold", family=_PLOT_FONT["family"]),
     )
     children = [header]
@@ -506,165 +500,115 @@ def _peak_normalise(arr: np.ndarray) -> np.ndarray:
 # ============================================================================
 
 
-def generate_mode_shape_plot(
-    result: dict, output_dir: Path | None = None, event: str = "", run_name: str = "", output_dpi: int = 300
-) -> None:
-    """Body-coordinate mode-shape bar chart, one panel per mode."""
-    _configure_style()
-    plots_dir = _plots_dir(output_dir)
-    fn, zeta, labels = result["fn"], result["zeta"], result["mode_labels"]
-    shapes = result.get("mode_shapes")
-    n_modes = len(fn)
-    if n_modes == 0 or shapes is None:
-        return
-    safe = _safe_name(run_name) if run_name else "fit"
-    fig, axes = plt.subplots(1, n_modes, figsize=(3 * n_modes, 4.6), sharey=True)
-    if n_modes == 1:
-        axes = [axes]
-    dof_short = ["z_F", "th_F", "z_R", "th_R"]
-    for i in range(n_modes):
-        shape = np.real(shapes[:, i])
-        shape = shape / np.max(np.abs(shape))
-        ax = axes[i]
-        ax.barh(range(4), shape, color=[_POS_BAR if s >= 0 else _NEG_BAR for s in shape], edgecolor=_INK, linewidth=0.5)
-        ax.set_yticks(range(4))
-        ax.set_yticklabels(dof_short)
-        ax.set_title(f"{labels[i]}\n{fn[i]:.2f} Hz  z={zeta[i]:.4f}", fontsize=10)
-        ax.axvline(0, color=_INK, linewidth=0.6)
-        ax.set_xlim(-1.2, 1.2)
-        _style_axis(ax, grid_axis="x")
-    _add_suptitle(fig, event, run_name, "Mode Shapes - Body Coords", method=result["method"])
-    plt.tight_layout(pad=0.25, rect=(0, 0, 1, 0.86))
-    fig.savefig(plots_dir / f"vibrations_mode_shapes_body_{safe}.png", dpi=output_dpi, **_SAVE_KW)
-    plt.close(fig)
-    log.info("  Mode-shape plot saved: vibrations_mode_shapes_body_%s.png", safe)
-
-
 def generate_diagnosis_plot(
     result: dict,
     freqs_fit: np.ndarray,
     psds_fit: np.ndarray,
-    fmin: float,
-    fmax: float,
     run_name: str,
     output_dir: Path | None,
+    bands: dict | None = None,
     event: str = "",
     output_dpi: int = 300,
 ) -> None:
-    """Per-run measured-vs-fitted PSDs with a residual subplot."""
+    """Measured vs fitted body PSDs around the modal peaks, one row per body DOF.
+
+    Shaded bins are the ones the fit used; dashed lines mark each mode's f0.
+    The view spans the peak-search ``bands`` and fitted bins, padded by 1 Hz.
+    """
     _configure_style()
     plots_dir = _plots_dir(output_dir)
-    H_sq_fit = eval_fit_psds(result, freqs_fit)
-    # Per-row least-squares scale so alpha_d * H_sq_fit[d] ~= psds_fit[d].
-    # The scaled fit and the scaled sloped baseline (drawn below when
-    # available) use the same alpha_d, so the reader can visually decompose
-    # the fit into peaks + broadband floor.
-    scale_vec = np.empty(H_sq_fit.shape[0], dtype=float)
-    for d in range(H_sq_fit.shape[0]):
-        denom = float(np.dot(H_sq_fit[d], H_sq_fit[d]))
-        scale_vec[d] = float(np.dot(psds_fit[d], H_sq_fit[d])) / denom if denom > 0 else 1.0
-    H_sq_scaled = H_sq_fit * scale_vec[:, None]
-    fn = result["fn"]
-    zeta = result.get("zeta")
-    labels = result["mode_labels"]
-    method = result["method"]
-    is_lorentz = method == "lorentzian_combined"
-    # V2 sloped baseline: draw the fitted per-trace power-law floor when
-    # the result dict carries the extra keys. Body4dof results silently
-    # skip this branch.
-    baselines = result.get("baselines")
-    slopes = result.get("baseline_slopes")
-    f_ref = result.get("baseline_f_ref")
-    show_baseline = is_lorentz and slopes is not None and baselines is not None and f_ref is not None
+    is_lorentz = result["method"] == "lorentzian_combined"
+    model = eval_fit_psds(result, freqs_fit)
+    psd_scale = result.get("psd_scale") if is_lorentz else None
+    if psd_scale is not None:
+        scale = np.full(model.shape[0], float(psd_scale))
+    else:
+        # body4dof: per-row least-squares scale so scale_d * model[d] ~= psds_fit[d].
+        scale = np.array(
+            [float(psds_fit[d] @ model[d]) / max(float(model[d] @ model[d]), 1e-300) for d in range(model.shape[0])]
+        )
+    model = model * scale[:, None]
+    fit_mask = result.get("fit_mask")
+    fn, zeta, labels = result["fn"], result["zeta"], result["mode_labels"]
+    sig_fn, sig_z = result.get("sigma_fn"), result.get("sigma_zeta")
+    peak_found = result.get("peak_found")
+    baselines = result.get("baselines") if is_lorentz else None
 
-    fig, axes = plt.subplots(5, 1, figsize=(11, 12), sharex=True, gridspec_kw={"height_ratios": [1, 1, 1, 1, 0.5]})
+    edges = [b for lo_hi in (bands or {}).values() for b in lo_hi[:2]]
+    if fit_mask is not None and fit_mask.any():
+        used = freqs_fit[fit_mask.any(axis=0)]
+        edges += [float(used[0]), float(used[-1])]
+    if not edges:
+        edges = [float(freqs_fit[0]), float(freqs_fit[-1])]
+    f_lo = max(min(edges) - 1.0, float(freqs_fit[0]))
+    f_hi = min(max(edges) + 1.0, float(freqs_fit[-1]))
+    view = (freqs_fit >= f_lo) & (freqs_fit <= f_hi)
+    f = freqs_fit[view]
 
+    fig, axes = plt.subplots(4, 1, figsize=(11, 11), sharex=True)
     for row, dof in enumerate(_PLOT_DOF_ORDER):
         ax = axes[row]
-        meas = psds_fit[dof]
-        model = H_sq_scaled[dof]
-        ax.plot(freqs_fit, meas, color=_MEAS_COLOR, linewidth=1.6, alpha=0.85, label="Measured" if row == 0 else None)
-        ax.plot(freqs_fit, model, color=_FIT_COLOR, linewidth=1.6, alpha=0.85, label="Fitted" if row == 0 else None)
-        ax.fill_between(freqs_fit, meas, model, color=_FIT_COLOR, alpha=0.12)
-        if show_baseline:
-            base_curve = float(baselines[dof]) * (freqs_fit / float(f_ref)) ** float(slopes[dof]) * scale_vec[dof]
-            ax.plot(
-                freqs_fit,
-                base_curve,
+        first = row == 0
+        if fit_mask is not None:
+            ax.fill_between(
+                f,
+                0,
+                1,
+                where=fit_mask[dof][view],
+                step="mid",
+                transform=ax.get_xaxis_transform(),
+                color=_MODE_COLOR,
+                alpha=0.10,
+                linewidth=0,
+                label="Fitted bins" if first else None,
+            )
+        ax.plot(f, psds_fit[dof][view], color=_MEAS_COLOR, lw=1.6, marker="o", ms=3, label="Measured" if first else None)
+        ax.plot(f, model[dof][view], color=_FIT_COLOR, lw=1.8, label="Fitted" if first else None)
+        if baselines is not None:
+            ax.axhline(
+                float(baselines[dof]) * scale[dof],
                 color=_BASELINE_COLOR,
                 linestyle="--",
                 linewidth=1.0,
-                alpha=0.6,
-                label="Baseline" if row == 0 else None,
+                label="Floor" if first else None,
             )
-        if is_lorentz:
-            mode_rows = [0, 1] if dof in (0, 2) else [2, 3]
-            mode_names = ["Heave", "Pitch"] if dof in (0, 2) else ["Roll", "Warp"]
-            sig_fn = result.get("sigma_fn")
-            sig_z = result.get("sigma_zeta")
-            items = []
-            for mr, mname in zip(mode_rows, mode_names):
-                f0 = float(result["params"][mr, 0])
-                z = float(result["params"][mr, 1])
-                sf = float(sig_fn[mr]) if sig_fn is not None and mr < len(sig_fn) else float("nan")
-                sz = float(sig_z[mr]) if sig_z is not None and mr < len(sig_z) else float("nan")
-                if fmin <= f0 <= fmax:
-                    ax.axvline(f0, color=_MODE_COLOR, linestyle="--", linewidth=0.9, alpha=0.7)
-                items.append((mname, f0, sf, z, sz, _FIT_COLOR))
-            _add_lorentz_info_box(ax, fmin, fmax, items, halign="right", valign="top")
-        else:
-            for i, f_n in enumerate(fn):
-                if not (fmin <= f_n <= fmax):
-                    continue
-                z_str = f" z={zeta[i]:.3f}" if zeta is not None and not np.isnan(zeta[i]) else ""
-                ax.axvline(
-                    f_n,
-                    color=_MODE_COLOR,
-                    linestyle="--",
-                    linewidth=0.9,
-                    alpha=0.7,
-                    label=(f"{labels[i]} {f_n:.1f} Hz{z_str}" if row == 0 else None),
-                )
+        mode_rows = range(len(fn)) if not is_lorentz else ((0, 1) if dof in (0, 2) else (2, 3))
+        items = []
+        for mr in mode_rows:
+            f0 = float(fn[mr])
+            if not f_lo <= f0 <= f_hi:
+                continue
+            ax.axvline(f0, color=_MODE_COLOR, linestyle="--", linewidth=1.0)
+            ax.text(
+                f0,
+                0.02,
+                f" {labels[mr]}",
+                transform=ax.get_xaxis_transform(),
+                color=_MODE_COLOR,
+                fontsize=8,
+                fontweight="bold",
+                ha="left",
+                va="bottom",
+            )
+            name = labels[mr] if peak_found is None or peak_found[mr] else f"{labels[mr]} (no clear peak)"
+            sf = float(sig_fn[mr]) if sig_fn is not None else float("nan")
+            sz = float(sig_z[mr]) if sig_z is not None else float("nan")
+            items.append((name, f0, sf, float(zeta[mr]), sz, _FIT_COLOR))
+        if items:
+            _add_lorentz_info_box(ax, "Modal fit", items)
         _style_dof_row(ax, dof)
-        if row == 0:
-            _add_legend(ax, loc="upper left" if is_lorentz else "upper right")
+        if first:
+            _add_legend(ax, loc="upper left")
 
-    # Synchronise y-axis limits within each subsystem so front and rear share
-    # a common scale. Heave (rows 0-1) and Roll (rows 2-3) are scaled
-    # independently — their force/acceleration magnitudes differ.
+    # Front and rear share a y-scale within each subsystem.
     for pair in ((0, 1), (2, 3)):
-        ymin = min(axes[r].get_ylim()[0] for r in pair)
         ymax = max(axes[r].get_ylim()[1] for r in pair)
         for r in pair:
-            axes[r].set_ylim(ymin, ymax)
-
-    # Residual subplot at the bottom.
-    ax_res = axes[4]
-    residual = sum((_peak_normalise(psds_fit[d]) - _peak_normalise(H_sq_fit[d])) ** 2 for d in range(4))
-    ax_res.fill_between(freqs_fit, 0, residual, color=_RESID_COLOR, alpha=0.3)
-    ax_res.plot(freqs_fit, residual, color=_RESID_COLOR, linewidth=1.0, alpha=0.7)
-    total_sse = float(np.trapezoid(residual, freqs_fit))
-    ax_res.text(
-        0.985,
-        0.92,
-        f"integral SSE = {total_sse:.3f}",
-        transform=ax_res.transAxes,
-        fontsize=8.5,
-        fontweight="bold",
-        family="monospace",
-        color=_INK,
-        va="top",
-        ha="right",
-    )
-    ax_res.set_ylabel("Residual\n(SSE)", fontsize=9.5, fontweight="bold", rotation=0, ha="right", va="center")
-    ax_res.yaxis.set_label_coords(-0.085, 0.5)
-    ax_res.set_ylim(bottom=0)
-    ax_res.yaxis.set_major_locator(plt.MaxNLocator(3))
-    _style_axis(ax_res, grid_axis="y")
-
+            axes[r].set_ylim(0, ymax)
+    axes[-1].set_xlim(f_lo, f_hi)
     axes[-1].set_xlabel("Frequency [Hz]")
-    _add_suptitle(fig, event, run_name, "Modal Fit - Diagnosis", method=method, extras=f"{fmin:.1f}-{fmax:.1f} Hz")
-    plt.tight_layout(pad=0.3, h_pad=0.0, rect=(0.045, 0, 1, 0.955))
+    _add_suptitle(fig, event, run_name, "Modal Fit - Diagnosis")
+    plt.tight_layout(pad=0.3, h_pad=0.4, rect=(0.045, 0, 1, 0.955))
     safe = _safe_name(run_name)
     fig.savefig(plots_dir / f"vibrations_diag_{safe}.png", dpi=output_dpi, **_SAVE_KW)
     plt.close(fig)
@@ -860,46 +804,27 @@ def _log_modes(result: dict) -> None:
             log.info("    %-6s %-12.1f %s", name, result["params"][i], unit)
 
 
-def _warn_edge_fits(result: dict, fr: dict, fmin: float, fmax: float, delta_f: float, edge_bins: float = 1.5) -> None:
-    tol = edge_bins * delta_f
-    for label, f0 in zip(result["mode_labels"], result["fn"]):
-        if not np.isfinite(f0):
-            continue
-        lo, hi, _ = fr[label.lower()]
-        if abs(f0 - fmin) <= tol:
-            log.warning("  %s fit at %.2f Hz hit lower window edge F_MIN=%.2f Hz - widen the window.", label, f0, fmin)
-        elif abs(f0 - fmax) <= tol:
-            log.warning(
-                "  %s fit at %.2f Hz hit upper window edge "
-                "F_MAX=%.2f Hz - likely wheel-hop bleed; widen "
-                "EXPECTED_FREQS band or lower F_MAX.",
-                label,
-                f0,
-                fmax,
-            )
-        elif f0 < lo - tol or f0 > hi + tol:
-            log.info(
-                "  %s fit at %.2f Hz is outside expected band "
-                "(%.1f-%.1f Hz) but within fit window - expected band "
-                "may need updating.",
-                label,
-                f0,
-                lo,
-                hi,
-            )
-
-
 # ============================================================================
 # Top-level entry points
 # ============================================================================
+
+
+def _analysis_mask(freqs: np.ndarray, fmin: float | None, fmax: float | None) -> np.ndarray:
+    """Bins used for fitting: everything above DC unless a window is given."""
+    mask = freqs > 0.0
+    if fmin is not None:
+        mask &= freqs >= fmin
+    if fmax is not None:
+        mask &= freqs <= fmax
+    return mask
 
 
 def run_fit_from_arrays(
     corners_raw: np.ndarray,
     fs: float = RESAMPLE_RATE,
     source_type: str | None = None,
-    fmin: float = 1.0,
-    fmax: float = 12.0,
+    fmin: float | None = None,
+    fmax: float | None = None,
     nperseg: int | str = 1024,
     total_mass: float | None = None,
     wheelbase: float | None = None,
@@ -923,8 +848,13 @@ def run_fit_from_arrays(
 
     `corners_raw` must be in `[FL, FR, RL, RR]` order. Sign conventions
     are applied internally based on `source_type` (skipped when
-    `displacement_mode=True`).
+    `displacement_mode=True`). ``expected_freqs`` bands are where each
+    mode's peak is searched; ``fmin``/``fmax`` optionally crop the spectrum
+    (body4dof defaults to 1-13 Hz, which its body-only model requires).
     """
+    if method == "body4dof":
+        fmin = 1.0 if fmin is None else fmin
+        fmax = 13.0 if fmax is None else fmax
     # ---- Apply per-source pushrod signs unless we're in displacement mode.
     if not displacement_mode:
         signs = _PUSHROD_CORNER_SIGNS.get(source_type or "", _DEFAULT_CORNER_SIGNS)
@@ -945,43 +875,35 @@ def run_fit_from_arrays(
     # Used by the Lorentz fit to set absolute parameter sigmas from the
     # known log-PSD noise variance trigamma(K).
     n_avg = max(int(2 * n_samples / nperseg - 1), 1)
+    window = "" if fmin is None and fmax is None else f", window {fmin or 0:.1f}-{fmax or fs / 2:.1f} Hz"
     log.info(
-        "  %s: %d samples (%.1f s), fit %.1f-%.1f Hz, method=%s, nperseg=%d",
+        "  %s: %d samples (%.1f s), nperseg=%d (df=%.2f Hz)%s",
         label or "fit",
         n_samples,
         n_samples / fs,
-        fmin,
-        fmax,
-        method,
         nperseg,
+        fs / nperseg,
+        window,
     )
-
-    # ---- Welch -> body PSDs, crop to fit window, smooth + normalise.
-    # Fit-only smoothing: medfilt (kernel=5) to kill single-bin spikes, then
-    # a 3-bin moving-average pass for an additional light low-pass. Peak
-    # location and Lorentzian width are preserved; only the bin-to-bin
-    # ripple is reduced. `psds_fit` (raw) is still passed to body4dof.
-    freqs, psds = compute_body_psds(corners, fs, nperseg=nperseg)
-    fit_mask = (freqs >= fmin) & (freqs <= fmax)
-    freqs_fit = freqs[fit_mask]
-    psds_fit = psds[:, fit_mask]
-    _ma3 = np.ones(3) / 3.0
-    psds_smooth = np.stack([np.convolve(signal.medfilt(p, kernel_size=5), _ma3, mode="same") for p in psds_fit])
-    global_peak = float(np.max(psds_smooth))
-    if global_peak <= 0.0:
-        global_peak = 1.0
-    meas_norm = psds_smooth / global_peak
-
-    # ---- Coherence weights (one 1-D array per subsystem).
-    coh_hp, coh_rw = compute_coherences(corners, fs, nperseg=nperseg)
-    coh_hp = np.maximum(coh_hp[fit_mask], 0.3)
-    coh_rw = np.maximum(coh_rw[fit_mask], 0.3)
 
     fr = _normalise_expected_freqs(expected_freqs)
     log.info(
-        "  Expected freq bands: %s",
+        "  Peak search bands: %s",
         ", ".join(f"{m}={fr[m][0]:.1f}-{fr[m][1]:.1f}Hz" for m in ("heave", "pitch", "roll", "warp")),
     )
+
+    # ---- Welch -> body PSDs (no smoothing: it flattens peaks), normalised to the peak inside the bands.
+    freqs, psds = compute_body_psds(corners, fs, nperseg=nperseg)
+    fit_mask = _analysis_mask(freqs, fmin, fmax)
+    freqs_fit = freqs[fit_mask]
+    psds_fit = psds[:, fit_mask]
+    in_bands = np.zeros(freqs_fit.size, dtype=bool)
+    for lo, hi, _ in fr.values():
+        in_bands |= (freqs_fit >= lo) & (freqs_fit <= hi)
+    global_peak = float(np.max(psds_fit[:, in_bands] if in_bands.any() else psds_fit))
+    if global_peak <= 0.0:
+        global_peak = 1.0
+    meas_norm = psds_fit / global_peak
 
     # ---- Optional displacement cross-check for body4dof roll/warp.
     disp_norm = None
@@ -991,31 +913,21 @@ def run_fit_from_arrays(
 
     # ---- Dispatch to the chosen fit method.
     if method == "lorentzian_combined":
-        result = vibrations_lorentz.run_fit(
-            freqs_fit,
-            meas_norm,
-            fr,
-            coh_hp=coh_hp,
-            coh_rw=coh_rw,
-            n_avg=n_avg,
-        )
+        result = vibrations_lorentz.run_fit(freqs_fit, meas_norm, fr, n_avg=n_avg, welch_hann=True)
+        result["psd_scale"] = global_peak
+        for key in ("amp_front", "amp_rear", "sigma_amp_front", "sigma_amp_rear"):
+            result[key] = result[key] * global_peak
     elif method == "body4dof":
         # Pre-fit Lorentz to seed the DE basin with realistic (f0, zeta)
         # estimates. This is optional - body4dof falls back to band
         # centres if we omit it - but it markedly improves convergence.
         seed_modes = None
         try:
-            seed_result = vibrations_lorentz.run_fit(
-                freqs_fit,
-                meas_norm,
-                fr,
-                coh_hp=coh_hp,
-                coh_rw=coh_rw,
-                n_avg=n_avg,
-            )
+            seed_result = vibrations_lorentz.run_fit(freqs_fit, meas_norm, fr, n_avg=n_avg, welch_hann=True)
             seed_modes = _seed_modes_from_lorentz(seed_result)
         except Exception as exc:  # noqa: BLE001 - seed is optional
             log.warning("  Lorentz pre-seed failed (%s); falling back to band centres", exc)
+        coh_hp, coh_rw = compute_coherences(corners, fs, nperseg=nperseg)
         result = vibrations_body4dof.run_fit(
             freqs_fit,
             meas_norm,
@@ -1027,8 +939,8 @@ def run_fit_from_arrays(
             pitch_inertia=pitch_inertia,
             roll_inertia=roll_inertia,
             disp_psds_norm=disp_norm,
-            coh_hp=coh_hp,
-            coh_rw=coh_rw,
+            coh_hp=np.maximum(coh_hp[fit_mask], 0.3),
+            coh_rw=np.maximum(coh_rw[fit_mask], 0.3),
         )
     else:
         raise ValueError(f"Unknown method: {method!r}. Use 'lorentzian_combined' or 'body4dof'.")
@@ -1055,8 +967,6 @@ def run_fit_from_arrays(
                 fmin,
                 fmax,
                 fr,
-                coh_hp,
-                coh_rw,
                 point_result=result,
                 n_boot=int(bootstrap_n),
                 rng=int(bootstrap_seed),
@@ -1124,22 +1034,23 @@ def run_fit_from_arrays(
     result["psds_fit"] = psds_fit
     result["freqs_fit"] = freqs_fit
     result["source_type"] = source_type
-    _warn_edge_fits(result, fr, fmin, fmax, fs / nperseg)
 
-    if output_dir is not None:
-        generate_diagnosis_plot(
-            result, freqs_fit, psds_fit, fmin, fmax, label, output_dir, event=event, output_dpi=output_dpi
-        )
-        if show_plots:
-            generate_mode_shape_plot(result, output_dir=output_dir, event=event, run_name=label, output_dpi=output_dpi)
+    if output_dir is not None and show_plots:
+        try:
+            generate_diagnosis_plot(
+                result, freqs_fit, psds_fit, label, output_dir, bands=fr, event=event, output_dpi=output_dpi
+            )
+        except OSError as exc:
+            # A locked/open PNG must not discard the fit itself.
+            log.warning("  Could not save modal fit plot for %s: %s", label, exc)
     return result
 
 
 def run_fit(
     filepath: Path,
     fs: float = RESAMPLE_RATE,
-    fmin: float = 1.0,
-    fmax: float = 12.0,
+    fmin: float | None = None,
+    fmax: float | None = None,
     nperseg: int | str = 1024,
     total_mass: float | None = None,
     wheelbase: float | None = None,
