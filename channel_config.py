@@ -179,9 +179,8 @@ CHANNEL_TRANSFORMS = {
         "PBrakeFR": lambda x: -x,
         "PBrakeRL": lambda x: -x,
         "PBrakeRR": lambda x: -x,
-        # FPushrodFR 1.16x is a temporary calibration to match DLS FPRodFL.
         "FPushrodFL": lambda x: -x,
-        "FPushrodFR": lambda x: -1.16 * x,
+        "FPushrodFR": lambda x: -x,
         "FPushrodRL": lambda x: x,
         "FPushrodRR": lambda x: x,
         "rSOCDelta": lambda x: x * (100.0 / 4.0),  # MJ → % of ES capacity
@@ -343,6 +342,12 @@ CALCULATED_CHANNELS = {
     # Same definition as the logged CAR/DIL aRake (3400 mm reference length); overrides native pitch channels.
     "aPitch": calc_channel("hRideF", "hRideR")(lambda df: np.degrees(np.arctan((df["hRideR"] - df["hRideF"]) / 3400.0))),
 
+    # ── Ride height derived channels ───────────────────────────────────────────
+    "hRideHeave": lambda df: df["hRideF"] + df["hRideR"],
+    "hRidePitch": lambda df: df["hRideF"] - df["hRideR"],
+    "hRideHeave (high)": lambda df: df["hRideHeave"],
+    "hRidePitch (high)": lambda df: df["hRidePitch"],
+
     # ── Kinematic camber (per-source fallback strategy) ──────────────────────
     **{f"aCamber{c}Kinematic": _kinematic_camber(c) for c in _CORNERS},
 
@@ -473,6 +478,7 @@ _UNFILTERED = (
     # pushrod forces — raw for PSD
     "FPushrodFL", "FPushrodFR", "FPushrodRL", "FPushrodRR",
     "vDamperHeaveF", "vDamperHeaveR", "vDamperRollF", "vDamperRollR",
+    "hRideHeave", "hRidePitch",
     # ride heights (raw copies)
     "hRideF (raw)", "hRideR (raw)",
     # brakes
@@ -503,6 +509,8 @@ FILTERS = {
     # Ride-height copies: high-pass isolates AC content; native gets a light LP.
     "hRideF (high)": _spec(0.5, 4, "high"),
     "hRideR (high)": _spec(0.5, 4, "high"),
+    "hRideHeave (high)": _spec(0.5, 4, "high"),
+    "hRidePitch (high)": _spec(0.5, 4, "high"),
     "hRideF": _spec(3, 2),
     "hRideR": _spec(3, 2),
     # Plank load smoothing.

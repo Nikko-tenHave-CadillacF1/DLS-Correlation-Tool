@@ -50,7 +50,8 @@ SHOW_INDIVIDUAL_PLOTS = True
 DISPLACEMENT_MODE = False # True → fit damperpot displacements instead of forces
 
 # "lorentzian_combined" → shared (f₀, ζ) front/rear per mode, per-DOF amplitude (fast).
-# "body4dof"            → 13-parameter MCK fit producing a self-consistent body model.
+# "body4dof"            → two-axle model: adds axle rate k, damping c and masses from
+#                         pushrod force vs damper travel (needs xDamperPot* channels).
 METHOD = "lorentzian_combined"
 
 OPEN_OUTPUT_FOLDER = True   # auto-open the plots folder in Explorer when done
@@ -75,11 +76,7 @@ def main() -> None:
         fit_result["filepath"] = filepath
         results.append(fit_result)
 
-    plot_comparison(
-        results=results,
-        fmin=F_MIN, fmax=F_MAX,
-        event=EVENT, output_dir=_OUTPUT_DIR,
-    )
+    plot_comparison(results, event=EVENT, output_dir=_OUTPUT_DIR)
 
     if OPEN_OUTPUT_FOLDER:
         plots_dir = _OUTPUT_DIR / "plots" / "vibrations"

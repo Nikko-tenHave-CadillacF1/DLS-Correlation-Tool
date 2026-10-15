@@ -223,6 +223,8 @@ SCATTER_PLOT_DEFINITIONS = [
     ScatterPlot("Rear Laser Right vCar", "vCar", "xRHRollLaserR",
                 best_fit=[('SM', 0, 0.5), ('SM', 0.5, 1)], annotate_fit_at=(100, 200, 300),
                 error_as_factor=True),
+    ScatterPlot("Rear Slips vs PMGUK", "PMGUK", "rSlipRAvg", gate=(('pBrakeF', '>', 1))),
+    ScatterPlot("rMDecelTot vs gLong", "gLong", "rMDecelTot", gate=(('pBrakeF', '>', 1), ("rMDecelTot", '>', 10))),
 ]
 
 
@@ -260,6 +262,10 @@ PSD_PLOT_DEFINITIONS = [
             axis_limits=[(0, 20), (None, None)], lorentz_fit=(5, 11)),
     PsdPlot("Rear Vertical Acceleration PSD - ABS",  "gVertR", nperseg=NPERSEG, log_scale=False,
             axis_limits=[(0, 20), (None, None)], lorentz_fit=(5, 11)),
+    PsdPlot("Chassis Vertical Acceleration PSD",      "gVert", nperseg=NPERSEG,
+            axis_limits=[(0, 20), (None, None)], lorentz_fit=(2, 8)),
+    PsdPlot("Chassis Vertical Acceleration PSD - ABS","gVert", nperseg=NPERSEG, log_scale=False,
+            axis_limits=[(0, 20), (None, None)], lorentz_fit=(2, 8)),
 
     # ── Ride-height PSDs (log + linear) ──────────────────────────────────────
     PsdPlot("hRideF PSD",       "hRideF (raw)",  nperseg=NPERSEG,
@@ -270,6 +276,16 @@ PSD_PLOT_DEFINITIONS = [
             axis_limits=[(0, 20), (1e-4, None)],   lorentz_fit=(3, 8)),
     PsdPlot("hRideR PSD - abs", "hRideR (high)", nperseg=NPERSEG, log_scale=False,
             axis_limits=[(0, 20), (1e-4, None)],   lorentz_fit=(4, 9)),
+
+    # ── Ride-height derived channels PSDs (log + linear) ───────────────────────
+    PsdPlot("hRideHeave PSD", "hRideHeave", nperseg=NPERSEG,
+            axis_limits=[(0, 20), (None, None)], lorentz_fit=(3, 8)),
+    PsdPlot("hRidePitch PSD", "hRidePitch", nperseg=NPERSEG,
+            axis_limits=[(0, 20), (None, None)], lorentz_fit=(3, 8)),
+    PsdPlot("hRideHeave PSD - abs", "hRideHeave (high)", nperseg=NPERSEG, log_scale=False,
+            axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 8)),
+    PsdPlot("hRidePitch PSD - abs", "hRidePitch (high)", nperseg=NPERSEG, log_scale=False,
+            axis_limits=[(0, 20), (1e-4, None)], lorentz_fit=(3, 8)),
 
     # ── Front/Rear pushrod average PSDs (linear) ─────────────────────────────
     PsdPlot("FPRodAvgF - PSD", "FPRodAvgF_High", nperseg=NPERSEG, log_scale=False,

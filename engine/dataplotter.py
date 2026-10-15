@@ -111,6 +111,10 @@ def _split_by_required_columns(spec) -> list[str] | None:
 
 _CALC_DEP_CACHE = {}
 
+_MODAL_CORNERS = ("FL", "FR", "RL", "RR")
+# body4dof: force and travel copies share the same 2 Hz high-pass, so their ratio is unbiased.
+_MODAL_AXLE_CHANNELS = [f"FPushrod{c}_High" for c in _MODAL_CORNERS] + [f"xDamper{c}_High" for c in _MODAL_CORNERS]
+
 
 def _extract_calculated_dependencies(func):
     key = id(func)
@@ -861,6 +865,10 @@ class DataPlotter:
                             required_channels.update(datafunctions.collect_gate_channels(plot_def.gate))
         for support in ("sLap", "tLap", "vCar", "TimeIntoExport"):
             required_channels.add(support)
+        if self.VIBRATIONS_FIT:
+            required_channels.update(f"FPushrod{c}" for c in _MODAL_CORNERS)
+            if self.VIBRATIONS_FIT.get("method") == "body4dof":
+                required_channels.update(_MODAL_AXLE_CHANNELS)
         resolved_channels = set()
         to_process = deque(required_channels)
         processed = set()
@@ -1752,7 +1760,10 @@ class DataPlotter:
         bootstrap_ci = bool(cfg.get("bootstrap_ci", False))
         bootstrap_n = int(cfg.get("bootstrap_n", 400))
         bootstrap_seed = int(cfg.get("bootstrap_seed", 0))
-        primary_channels = _vib.DISPLACEMENT_CHANNELS if displacement_mode else _vib.FORCE_CHANNELS
+        if method == "body4dof":
+            primary_channels = _MODAL_AXLE_CHANNELS
+        else:
+            primary_channels = _vib.DISPLACEMENT_CHANNELS if displacement_mode else _vib.FORCE_CHANNELS
         for stale in (self.plots_dir / "vibrations").glob("*.png"):
             try:
                 stale.unlink()
@@ -1791,7 +1802,7 @@ class DataPlotter:
             source_type = run.get("type")
             try:
                 result = _vib.run_fit_from_arrays(
-                    arr,
+                    arr[:4],
                     fs=fs,
                     source_type=source_type,
                     fmin=fmin,
@@ -1809,6 +1820,7 @@ class DataPlotter:
                     bootstrap_n=bootstrap_n,
                     bootstrap_seed=bootstrap_seed,
                     min_averages_target=self.PSD_MIN_AVERAGES_TARGET,
+                    disp_corners=arr[4:] if len(arr) == 8 else None,
                 )
             except Exception as exc:
                 log.warning("Modal fit failed for run '%s': %s", name, exc)
@@ -1921,6 +1933,11 @@ class DataPlotter:
                 new_cols[f"modal_{key}_amp_front_hi"] = np.full(n_rows, af_hi_i, dtype=float)
                 new_cols[f"modal_{key}_amp_rear_lo"] = np.full(n_rows, ar_lo_i, dtype=float)
                 new_cols[f"modal_{key}_amp_rear_hi"] = np.full(n_rows, ar_hi_i, dtype=float)
+            # body4dof axle rates and masses, e.g. modal_c_heave_F / modal_c_heave_F_sigma.
+            sigmas = result.get("axle_param_sigmas", {})
+            for pname, value in result.get("axle_params", {}).items():
+                new_cols[f"modal_{pname}"] = np.full(n_rows, float(value), dtype=float)
+                new_cols[f"modal_{pname}_sigma"] = np.full(n_rows, float(sigmas.get(pname, np.nan)), dtype=float)
             df = pd.concat(
                 [df, pd.DataFrame(new_cols, index=df.index)],
                 axis=1,

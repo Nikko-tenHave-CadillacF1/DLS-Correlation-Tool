@@ -9,7 +9,7 @@ This is the *complementary* report to the correlation report. Pipeline:
      emits one consolidated run per FP1/FP2/FP3/Q/GP session, since the car
      setup changes between sessions and a single weekend-wide merge would
      mix incompatible configurations.
-  2. `VIBRATIONS_FIT` enables the automatic Lorentzian (or 4DOF body) modal
+  2. `VIBRATIONS_FIT` enables the automatic Lorentzian (or two-axle body4dof) modal
      fit per run inside `DataPlotter`. Modal parameters land as broadcast
      constant channels (`modal_heave_f0`, `modal_heave_zeta`, plus `_sigma`
      suffixes for both) so BarPlots can show them with error bars and the

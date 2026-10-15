@@ -133,16 +133,19 @@ the file. It doesn't take command-line flags.
 | `F_MIN` / `F_MAX` | 2 / 13 Hz | Fit window; keep `F_MAX` below wheel hop (~15 Hz) |
 | `EXPECTED_FREQS` | Band per mode | Soft hints; the fit can leave a band if the data supports it. Set to `None` to disable |
 | `NPERSEG` | 512 | Welch segment length, as an int or `"auto"`. Aim for at least 30 averages (≈ `2·N/NPERSEG − 1`) |
-| `METHOD` | `lorentzian_combined` | Fast Lorentzian fit with f₀ and ζ shared between front and rear. `body4dof` fits a 13-parameter mass-spring-damper model and is slower |
+| `METHOD` | `lorentzian_combined` | Fast Lorentzian fit with f₀ and ζ shared between front and rear. `body4dof` adds a two-axle model (needs damper pots): front/rear axle rate k, damping c and masses, with each mode labelled by whether front and rear move in or out of phase |
 
 Outputs are written to `Data/outputs/ride_dil/<event>/plots/vibrations/`:
-`vibrations_diag_<run>.png`, `vibrations_mode_shapes_body_<run>.png` and
-`vibrations_comparison_fit.png`.
+`vibrations_diag_<run>.png`, `vibrations_comparison_fit.png` and, for
+`body4dof`, `vibrations_axle_<run>.png` / `vibrations_comparison_axle.png`
+(measured force/travel response against the fitted k and c per axle). Every
+figure has one row per body DOF; comparisons overlay all runs in their colours.
 
 You can also run the same fit inside a plotting workflow by passing
 `vibrations_fit=` (see [Run_RideReport.py](Run_RideReport.py)). Each result
 becomes a set of constant channels (`modal_<mode>_f0`, `modal_<mode>_zeta`
-and their uncertainty channels) that `BarPlot` can use.
+and their uncertainty channels) that `BarPlot` can use. `body4dof` also adds
+`modal_<k|c|m>_<heave|roll>_<F|R|FR>` and matching `_sigma` channels.
 `plot_modal_evolution()` then plots how the modes change across sessions.
 
 To fit a single file: `python -m engine.vibrations_io <file> --fmin 2 --fmax 13`.
